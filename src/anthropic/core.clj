@@ -7,9 +7,13 @@
   (:require [clojure.string :as str])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.client.okhttp AnthropicOkHttpClient)
+           (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.messages ContentBlock Message
                                           MessageCreateParams Model
-                                          TextBlock ThinkingBlock Usage)))
+                                          RawContentBlockDelta
+                                          RawContentBlockDeltaEvent
+                                          RawMessageStreamEvent
+                                          TextBlock TextDelta ThinkingBlock Usage)))
 
 (defn client
   "An Anthropic client. With no args, resolves credentials from the environment
@@ -70,3 +74,25 @@
   (-> (.messages client)
       (.create (->params req))
       (message->map)))
+
+(defn- delta-text ^String [^RawMessageStreamEvent ev]
+  (let [cbd (.contentBlockDelta ev)]
+    (when (.isPresent cbd)
+      (let [d (.delta ^RawContentBlockDeltaEvent (.get cbd))
+            t (.text ^RawContentBlockDelta d)]
+        (when (.isPresent t)
+          (.text ^TextDelta (.get t)))))))
+
+(defn stream-text
+  "Stream a Messages request, calling `on-text` with each text delta (a string)
+  as it arrives, and returning the full concatenated text when the stream ends.
+  Takes the same `req` map as `create-message`. The underlying HTTP stream is
+  closed automatically."
+  ^String [^AnthropicClient client req on-text]
+  (with-open [^StreamResponse sr (.createStreaming (.messages client) (->params req))]
+    (let [sb (StringBuilder.)]
+      (doseq [ev (iterator-seq (.iterator (.stream sr)))]
+        (when-let [s (delta-text ev)]
+          (.append sb s)
+          (when on-text (on-text s))))
+      (str sb))))

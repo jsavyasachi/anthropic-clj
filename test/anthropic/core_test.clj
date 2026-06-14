@@ -29,3 +29,15 @@
       (is (= :text (:type (first (:content resp)))))
       (is (string? (:text (first (:content resp)))))
       (is (pos? (-> resp :usage :output-tokens))))))
+
+(deftest ^:integration stream-text-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [deltas (atom [])
+          full (a/stream-text (a/client)
+                              {:model "claude-haiku-4-5"
+                               :max-tokens 16
+                               :messages [{:role :user :content "Reply with the single word: pong"}]}
+                              #(swap! deltas conj %))]
+      (is (string? full))
+      (is (pos? (count full)))
+      (is (= full (apply str @deltas))))))
