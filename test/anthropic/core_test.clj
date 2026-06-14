@@ -41,3 +41,31 @@
       (is (string? full))
       (is (pos? (count full)))
       (is (= full (apply str @deltas))))))
+
+(deftest ^:integration tool-use-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [c (a/client)
+          tool {:name "get_weather"
+                :description "Get the current weather for a city"
+                :input-schema {:type "object"
+                               :properties {:city {:type "string"}}
+                               :required ["city"]}}
+          ask {:role :user :content "Use the get_weather tool for Paris."}
+          r1 (a/create-message c {:model "claude-haiku-4-5" :max-tokens 400
+                                  :tools [tool] :messages [ask]})
+          tu (first (filter #(= :tool-use (:type %)) (:content r1)))]
+      (testing "Claude calls the tool with the parsed input"
+        (is (= :tool-use (:stop-reason r1)))
+        (is (= "get_weather" (:name tu)))
+        (is (= "Paris" (get-in tu [:input :city]))))
+      (testing "tool_result completes the loop"
+        (let [r2 (a/create-message c {:model "claude-haiku-4-5" :max-tokens 100
+                                      :tools [tool]
+                                      :messages [ask
+                                                 {:role :assistant :content (:content r1)}
+                                                 {:role :user
+                                                  :content [{:type :tool-result
+                                                             :tool-use-id (:id tu)
+                                                             :content "18C and sunny"}]}]})]
+          (is (= :assistant (:role r2)))
+          (is (some #(= :text (:type %)) (:content r2))))))))
