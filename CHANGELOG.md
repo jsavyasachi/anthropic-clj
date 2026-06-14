@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.1.1] - 2026-06-14
+
+### Changed
+- Standardize README structure and badges (docs only).
+
 ## [0.1.0] - 2026-06-14
 
 Initial release: an idiomatic Clojure wrapper over the official Anthropic Java
