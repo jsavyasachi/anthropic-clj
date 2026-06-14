@@ -27,7 +27,7 @@ streaming, tool use, retries, and every new model and feature arrive the moment
 Anthropic ships them in Java - you just get a Clojure-shaped API on top: maps in,
 maps out, keywords for roles and block types.
 
-## Install
+## Installation
 
 Leiningen (`project.clj`):
 
