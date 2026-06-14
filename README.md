@@ -1,12 +1,16 @@
-# anthropic-sdk-clj
+# anthropic-clj
 
-[![Clojars Project](https://img.shields.io/clojars/v/net.clojars.savya/anthropic-sdk-clj.svg)](https://clojars.org/net.clojars.savya/anthropic-sdk-clj)
-[![test](https://github.com/jsavyasachi/anthropic-sdk-clj/actions/workflows/test.yml/badge.svg)](https://github.com/jsavyasachi/anthropic-sdk-clj/actions/workflows/test.yml)
-[![cljdoc](https://cljdoc.org/badge/net.clojars.savya/anthropic-sdk-clj)](https://cljdoc.org/d/net.clojars.savya/anthropic-sdk-clj)
+[![Clojars Project](https://img.shields.io/clojars/v/net.clojars.savya/anthropic-clj.svg)](https://clojars.org/net.clojars.savya/anthropic-clj)
+[![test](https://github.com/jsavyasachi/anthropic-clj/actions/workflows/test.yml/badge.svg)](https://github.com/jsavyasachi/anthropic-clj/actions/workflows/test.yml)
+[![cljdoc](https://cljdoc.org/badge/net.clojars.savya/anthropic-clj)](https://cljdoc.org/d/net.clojars.savya/anthropic-clj)
 
 An idiomatic Clojure wrapper over the **official** Anthropic Java SDK
 ([`com.anthropic/anthropic-java`](https://github.com/anthropics/anthropic-sdk-java)).
 Build a request as a Clojure map, get a Clojure map back.
+
+> **Unofficial.** A community library, not affiliated with or endorsed by
+> Anthropic. It wraps Anthropic's official Java SDK; it is not itself an official
+> Anthropic SDK.
 
 ## Stack
 
@@ -27,13 +31,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-sdk-clj "0.1.0"]
+[net.clojars.savya/anthropic-clj "0.1.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-sdk-clj {:mvn/version "0.1.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.1.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
