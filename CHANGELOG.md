@@ -1,0 +1,21 @@
+# Change Log
+
+All notable changes to this project are documented here. This change log follows
+the conventions of [keepachangelog.com](http://keepachangelog.com/).
+
+## [0.1.0] - 2026-06-14
+
+Initial release: an idiomatic Clojure wrapper over the official Anthropic Java
+SDK (`com.anthropic/anthropic-java` 2.40.1).
+
+### Added
+- `anthropic.core/client` - construct a client (env `ANTHROPIC_API_KEY` or
+  explicit `:api-key`).
+- `anthropic.core/create-message` - Clojure request map to response map, with
+  `:model`/`:max-tokens`/`:system`/`:messages`/`:tools`, parsed content blocks
+  (text, thinking, tool_use), stop-reason, and usage.
+- `anthropic.core/stream-text` - stream a request, invoking a callback per text
+  delta and returning the full text.
+- Tool use: tools as Clojure maps, parsed `tool_use` blocks (input keywordized),
+  and `:tool-result` / assistant-echo block content to complete the agentic loop.
+- Reflection-clean; CI across JDK 11/17/21 and Clojure 1.10/1.11/1.12.

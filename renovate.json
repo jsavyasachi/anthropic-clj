@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "description": "Track the official Anthropic Java SDK closely - this wrapper's value is staying current with it.",
+  "packageRules": [
+    {
+      "description": "Surface anthropic-java releases promptly, on their own PR.",
+      "matchPackageNames": ["com.anthropic:anthropic-java"],
+      "groupName": "anthropic-java",
+      "schedule": ["at any time"],
+      "prPriority": 10
+    }
+  ]
+}

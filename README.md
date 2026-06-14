@@ -1,0 +1,136 @@
+# anthropic-sdk-clj
+
+[![Clojars Project](https://img.shields.io/clojars/v/net.clojars.savya/anthropic-sdk-clj.svg)](https://clojars.org/net.clojars.savya/anthropic-sdk-clj)
+[![test](https://github.com/jsavyasachi/anthropic-sdk-clj/actions/workflows/test.yml/badge.svg)](https://github.com/jsavyasachi/anthropic-sdk-clj/actions/workflows/test.yml)
+[![cljdoc](https://cljdoc.org/badge/net.clojars.savya/anthropic-sdk-clj)](https://cljdoc.org/d/net.clojars.savya/anthropic-sdk-clj)
+
+An idiomatic Clojure wrapper over the **official** Anthropic Java SDK
+([`com.anthropic/anthropic-java`](https://github.com/anthropics/anthropic-sdk-java)).
+Build a request as a Clojure map, get a Clojure map back.
+
+## Stack
+
+<a href="https://clojure.org"><img src="https://img.shields.io/badge/Clojure-5881D8?style=flat&logo=clojure&logoColor=fff" alt="Clojure" /></a>
+<a href="https://docs.anthropic.com"><img src="https://img.shields.io/badge/Anthropic-D97757?style=flat&logo=anthropic&logoColor=fff" alt="Anthropic" /></a>
+
+## Why
+
+Every other Clojure Anthropic library hand-rolls HTTP against the REST API, which
+means each one is perpetually chasing Anthropic's surface and tends to fall
+behind. This one wraps Anthropic's own actively-maintained Java SDK instead, so
+streaming, tool use, retries, and every new model and feature arrive the moment
+Anthropic ships them in Java - you just get a Clojure-shaped API on top: maps in,
+maps out, keywords for roles and block types.
+
+## Install
+
+Leiningen (`project.clj`):
+
+```clojure
+[net.clojars.savya/anthropic-sdk-clj "0.1.0"]
+```
+
+tools.deps (`deps.edn`):
+
+```clojure
+net.clojars.savya/anthropic-sdk-clj {:mvn/version "0.1.0"}
+```
+
+Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
+
+## Usage
+
+```clojure
+(require '[anthropic.core :as anthropic])
+
+(def client (anthropic/client))   ; reads ANTHROPIC_API_KEY
+
+;; A single message. :model defaults to "claude-opus-4-8", :max-tokens to 1024.
+(anthropic/create-message
+  client
+  {:model "claude-opus-4-8"
+   :max-tokens 1024
+   :system "You are concise."
+   :messages [{:role :user :content "Name three primary colors."}]})
+;; => {:id "msg_..." :model "claude-opus-4-8" :role :assistant
+;;     :stop-reason :end-turn
+;;     :content [{:type :text :text "Red, blue, yellow."}]
+;;     :usage {:input-tokens 18 :output-tokens 9}}
+```
+
+### Streaming
+
+`stream-text` calls your callback with each text delta and returns the full text.
+
+```clojure
+(anthropic/stream-text
+  client
+  {:model "claude-opus-4-8" :max-tokens 256
+   :messages [{:role :user :content "Write a haiku about parentheses."}]}
+  #(print %))   ; prints each delta as it arrives
+;; => returns the complete string when the stream ends
+```
+
+### Tool use
+
+Declare tools as maps; `tool_use` blocks come back parsed, and you complete the
+loop by echoing the assistant turn and sending a `:tool-result` block.
+
+```clojure
+(def weather-tool
+  {:name "get_weather"
+   :description "Get the current weather for a city"
+   :input-schema {:type "object"
+                  :properties {:city {:type "string"}}
+                  :required ["city"]}})
+
+(def ask {:role :user :content "What's the weather in Paris?"})
+
+(def r1 (anthropic/create-message
+          client {:tools [weather-tool] :messages [ask]}))
+
+;; r1 :stop-reason is :tool-use; find the call:
+(def call (first (filter #(= :tool-use (:type %)) (:content r1))))
+;; => {:type :tool-use :id "toolu_..." :name "get_weather" :input {:city "Paris"}}
+
+;; Run the tool yourself, then send the result back:
+(anthropic/create-message
+  client
+  {:tools [weather-tool]
+   :messages [ask
+              {:role :assistant :content (:content r1)}
+              {:role :user :content [{:type :tool-result
+                                      :tool-use-id (:id call)
+                                      :content "18°C and sunny"}]}]})
+;; => {... :content [{:type :text :text "It's 18°C and sunny in Paris."}]}
+```
+
+## What's covered
+
+- `create-message` - request map ↔ response map
+- `stream-text` - incremental text deltas
+- Tool use - tools, parsed `tool_use` blocks, `tool_result` round-trip
+- Roadmap (0.2): structured outputs (`output_config.format`), batches, files
+
+## Tests
+
+Unit tests (the request/response translation) run with no network:
+
+```
+lein test
+```
+
+The `:integration` suite hits the live API and is billed - it needs
+`ANTHROPIC_API_KEY` and is run explicitly:
+
+```
+ANTHROPIC_API_KEY=sk-... lein test :integration
+```
+
+## License
+
+Copyright © 2026 Savyasachi
+
+Distributed under the [Eclipse Public License 2.0](https://www.eclipse.org/legal/epl-2.0/).
+The wrapped `com.anthropic/anthropic-java` SDK is MIT-licensed and remains the
+property of Anthropic.
