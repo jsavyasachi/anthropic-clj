@@ -1,6 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "minimumReleaseAge": "10 days",
+  "internalChecksFilter": "strict",
   "description": "Track the official Anthropic Java SDK closely - this wrapper's value is staying current with it.",
   "packageRules": [
     {
