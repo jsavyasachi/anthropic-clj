@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.2.0] - 2026-06-14
+
+### Added
+- `count-tokens` - count a request's input tokens without sending it.
+- `stream` - surfaces every normalized stream event (message and content-block
+  lifecycle, plus text/thinking/input-json/signature deltas), returning the full
+  text. `stream-text` is now a thin convenience over it.
+- `create-message` request controls: `:temperature`, `:top-p`, `:top-k`,
+  `:stop-sequences`, `:tool-choice`, `:thinking`, `:metadata`, `:service-tier`.
+
+### Changed
+- `:usage` now includes `:cache-creation-input-tokens` /
+  `:cache-read-input-tokens` when the response reports prompt caching.
+
 ## [0.1.1] - 2026-06-14
 
 ### Changed
