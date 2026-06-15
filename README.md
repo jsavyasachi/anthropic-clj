@@ -17,6 +17,7 @@ Build a request as a Clojure map, get a Clojure map back.
 
 <a href="https://clojure.org"><img src="https://img.shields.io/badge/Clojure-5881D8?style=flat&logo=clojure&logoColor=fff" alt="Clojure" /></a>
 <a href="https://docs.anthropic.com"><img src="https://img.shields.io/badge/Anthropic-D97757?style=flat&logo=anthropic&logoColor=fff" alt="Anthropic" /></a>
+<a href="https://github.com/metosin/jsonista"><img src="https://img.shields.io/badge/jsonista-2D3748?style=flat&logo=clojure&logoColor=fff" alt="jsonista" /></a>
 
 ## Why
 
@@ -32,13 +33,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.2.0"]
+[net.clojars.savya/anthropic-clj "0.3.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.2.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.3.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
@@ -71,6 +72,25 @@ and `:service-tier` (`:auto`/`:standard-only`). When the response uses prompt
 caching, `:usage` also carries `:cache-creation-input-tokens` and
 `:cache-read-input-tokens`.
 
+### Structured output
+
+Pass `:response-format` (a JSON Schema map) to get a `:parsed` Clojure map back.
+Object schemas must set `"additionalProperties": false` (an API requirement).
+`:effort` (`:low`…`:max`) is accepted alongside or on its own.
+
+```clojure
+(anthropic/create-message
+  client
+  {:max-tokens 256
+   :response-format {:type "object"
+                     :properties {:capital {:type "string"}}
+                     :required ["capital"]
+                     :additionalProperties false}
+   :messages [{:role :user :content "What is the capital of France?"}]})
+;; => {... :content [{:type :text :text "{\"capital\":\"Paris\"}"}]
+;;     :parsed {:capital "Paris"}}
+```
+
 ### Counting tokens
 
 `count-tokens` takes the same request map and returns the input-token count
@@ -81,6 +101,40 @@ without sending the message (`:max-tokens` and sampling params are ignored).
   client
   {:messages [{:role :user :content "How many tokens is this?"}]})
 ;; => {:input-tokens 13}
+```
+
+### Models
+
+```clojure
+(anthropic/list-models client)
+;; => [{:id "claude-opus-4-8" :display-name "Claude Opus 4.8"
+;;      :created-at "2026-..." :max-tokens 64000} ...]
+
+(anthropic/get-model client "claude-opus-4-8")
+;; => {:id "claude-opus-4-8" :display-name "Claude Opus 4.8" ...}
+```
+
+### Message Batches
+
+Submit many requests at the 50%-cost batch tier. Each request is
+`{:custom-id "..." :params <same map as create-message>}`.
+
+```clojure
+(def batch
+  (anthropic/create-batch
+    client
+    [{:custom-id "a" :params {:max-tokens 64 :messages [{:role :user :content "Hi"}]}}
+     {:custom-id "b" :params {:max-tokens 64 :messages [{:role :user :content "Bye"}]}}]))
+;; => {:id "msgbatch_..." :processing-status :in-progress
+;;     :request-counts {:processing 2 :succeeded 0 ...} ...}
+
+(anthropic/get-batch client (:id batch))     ; poll until :processing-status :ended
+(anthropic/list-batches client)
+(anthropic/cancel-batch client (:id batch))
+
+;; Once ended, pull results (succeeded entries carry the parsed :message):
+(anthropic/batch-results client (:id batch))
+;; => [{:custom-id "a" :result {:type :succeeded :message {...}}} ...]
 ```
 
 ### Streaming
@@ -154,13 +208,17 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
 
 - `create-message` - request map ↔ response map, with the full set of request
   controls (sampling, stop sequences, tool-choice, thinking, metadata,
-  service-tier) and cache-token usage
+  service-tier), cache-token usage, and **structured output** (`:response-format`
+  → `:parsed`, plus `:effort`)
 - `count-tokens` - input-token count without sending
 - `stream-text` - incremental text deltas
 - `stream` - every normalized stream event (message + content-block lifecycle,
   text/thinking/tool-use/signature deltas)
 - Tool use - tools, parsed `tool_use` blocks, `tool_result` round-trip
-- Roadmap (0.3): structured outputs (`output_config.format`), batches, files
+- `list-models` / `get-model` - Models API
+- Message Batches - `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
+  `delete-batch`, `batch-results`
+- Roadmap (0.4): the Files API (`beta().files()`)
 
 ## Tests
 

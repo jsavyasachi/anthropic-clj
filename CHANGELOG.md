@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.3.0] - 2026-06-14
+
+### Added
+- Structured output: `create-message` accepts `:response-format` (a JSON Schema
+  map) and `:effort` (`:low`…`:max`); responses with a format carry `:parsed`.
+- Models API: `list-models` (paged) and `get-model`.
+- Message Batches: `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
+  `delete-batch`, and `batch-results` (succeeded results carry the parsed
+  `:message`). Batch requests reuse the `create-message` request shape.
+
+### Dependencies
+- Add `metosin/jsonista` for decoding structured-output JSON.
+
 ## [0.2.0] - 2026-06-14
 
 ### Added
