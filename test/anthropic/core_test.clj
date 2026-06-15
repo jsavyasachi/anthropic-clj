@@ -15,6 +15,7 @@
                                           DirectCaller ToolUseBlock ToolUseBlock$Caller
                                           OutputConfig Usage Usage$Builder)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
+           (com.anthropic.models.beta.files FileMetadata)
            (com.anthropic.models.messages.batches BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params)))
 
@@ -25,6 +26,7 @@
 (def parse-text #'a/parse-text)
 (def ->batch-request #'a/->batch-request)
 (def ->content-block #'a/->content-block)
+(def file->map #'a/file->map)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -164,6 +166,20 @@
       (.maxTokens ^java.util.Optional (if mt (java.util.Optional/of (long mt)) empty-opt)))
     (.build b)))
 
+(deftest file-mapping
+  (let [fm (-> (FileMetadata/builder)
+               (.id "file_1") (.filename "a.txt") (.mimeType "text/plain")
+               (.sizeBytes 5)
+               (.createdAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
+               (.type (com.anthropic.core.JsonValue/from "file"))
+               (.build))
+        m (file->map fm)]
+    (is (= "file_1" (:id m)))
+    (is (= "a.txt" (:filename m)))
+    (is (= "text/plain" (:mime-type m)))
+    (is (= 5 (:size-bytes m)))
+    (is (str/starts-with? (:created-at m) "2026-01-01"))))
+
 (deftest model-mapping
   (let [m (model->map (model-info "claude-x" "Claude X" 200000 64000))]
     (is (= "claude-x" (:id m)))
@@ -262,6 +278,23 @@
       (is (some #(= id (:id %)) (a/list-batches c)))
       ;; batches run async; cancel the in-flight one rather than wait for results
       (is (= id (:id (a/cancel-batch c id)))))))
+
+(deftest ^:integration files-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [c (a/client)
+          tmp (java.io.File/createTempFile "anthropic-clj" ".txt")]
+      (spit tmp "hello from anthropic-clj")
+      (let [up (a/upload-file c tmp)
+            id (:id up)]
+        (is (string? id))
+        (is (string? (:mime-type up)))
+        (is (pos? (:size-bytes up)))
+        (is (= id (:id (a/get-file c id))))
+        (is (some #(= id (:id %)) (a/list-files c)))
+        ;; download-file works only for API-generated downloadable files, not
+        ;; user uploads, so it can't be exercised against this fixture.
+        (is (:deleted (a/delete-file c id))))
+      (.delete tmp))))
 
 (deftest ^:integration vision-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")

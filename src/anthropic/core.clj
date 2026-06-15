@@ -10,7 +10,9 @@
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.client.okhttp AnthropicOkHttpClient)
            (com.anthropic.core JsonValue)
-           (com.anthropic.core.http StreamResponse)
+           (com.anthropic.core.http HttpResponse StreamResponse)
+           (com.anthropic.models.beta.files DeletedFile FileListPage FileMetadata
+                                            FileUploadParams)
            (com.anthropic.models.models ModelInfo ModelListPage)
            (com.anthropic.models.messages.batches BatchCreateParams
                                                   BatchCreateParams$Request
@@ -525,3 +527,57 @@
   ^String [^AnthropicClient client req on-text]
   (stream client req
           (fn [m] (when (and on-text (= :text-delta (:type m))) (on-text (:text m))))))
+
+;; ---- Files (beta) ---------------------------------------------------------
+
+(defn- file->map [^FileMetadata f]
+  (cond-> {:id (.id f)
+           :filename (.filename f)
+           :mime-type (.mimeType f)
+           :size-bytes (.sizeBytes f)
+           :created-at (str (.createdAt f))}
+    (.isPresent (.downloadable f)) (assoc :downloadable (.get (.downloadable f)))))
+
+(defn- ->upload-params ^FileUploadParams [file]
+  (let [b (FileUploadParams/builder)]
+    (cond
+      (bytes? file) (.file b ^bytes file)
+      (instance? java.io.File file) (.file b (.toPath ^java.io.File file))
+      (instance? java.nio.file.Path file) (.file b ^java.nio.file.Path file)
+      (instance? java.io.InputStream file) (.file b ^java.io.InputStream file)
+      (string? file) (.file b (.toPath (java.io.File. ^String file)))
+      :else (throw (IllegalArgumentException.
+                    "upload-file expects a path string, java.io.File, Path, InputStream, or byte[]")))
+    (.build b)))
+
+(defn upload-file
+  "Upload a file (a path string, `java.io.File`, `java.nio.file.Path`,
+  `InputStream`, or byte array) to the Files API. Returns its metadata map
+  (see `get-file`). Uses the beta Files API."
+  [^AnthropicClient client file]
+  (file->map (-> (.beta client) (.files) (.upload (->upload-params file)))))
+
+(defn get-file
+  "Retrieve a file's metadata by id: `{:id :filename :mime-type :size-bytes
+  :created-at}` plus `:downloadable` when reported."
+  [^AnthropicClient client ^String id]
+  (file->map (-> (.beta client) (.files) (.retrieveMetadata id))))
+
+(defn list-files
+  "List uploaded files (pages followed) as a seq of maps like `get-file`."
+  [^AnthropicClient client]
+  (let [^FileListPage p (-> (.beta client) (.files) (.list))]
+    (mapv file->map (.autoPager p))))
+
+(defn delete-file
+  "Delete a file by id. Returns `{:id ... :deleted true}`."
+  [^AnthropicClient client ^String id]
+  (let [^DeletedFile d (-> (.beta client) (.files) (.delete id))]
+    {:id (.id d) :deleted true}))
+
+(defn download-file
+  "Download a file's contents by id, returning a byte array. The HTTP response
+  is closed automatically."
+  ^bytes [^AnthropicClient client ^String id]
+  (with-open [^HttpResponse r (-> (.beta client) (.files) (.download id))]
+    (.readAllBytes (.body r))))
