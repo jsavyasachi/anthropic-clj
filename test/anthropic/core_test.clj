@@ -1,5 +1,6 @@
 (ns anthropic.core-test
   (:require [clojure.test :refer [deftest testing is]]
+            [clojure.string :as str]
             [anthropic.core :as a])
   (:import (com.anthropic.models.messages MessageCreateParams
                                           MessageCreateParams$ServiceTier
@@ -148,7 +149,7 @@
     (is (= 200000 (:max-input-tokens m)))
     (is (= 64000 (:max-tokens m)))
     (is (string? (:created-at m)))
-    (is (clojure.string/starts-with? (:created-at m) "2026-01-01")))
+    (is (str/starts-with? (:created-at m) "2026-01-01")))
   (testing "absent optional token limits are omitted"
     (let [m (model->map (model-info "claude-y" "Claude Y" nil nil))]
       (is (not (contains? m :max-input-tokens)))
