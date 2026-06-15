@@ -1,9 +1,24 @@
 (ns anthropic.core-test
   (:require [clojure.test :refer [deftest testing is]]
             [anthropic.core :as a])
-  (:import (com.anthropic.models.messages MessageCreateParams)))
+  (:import (com.anthropic.models.messages MessageCreateParams
+                                          MessageCreateParams$ServiceTier
+                                          RawContentBlockDelta
+                                          RawContentBlockDeltaEvent
+                                          RawContentBlockStartEvent
+                                          RawContentBlockStartEvent$ContentBlock
+                                          RawContentBlockStopEvent
+                                          RawMessageStopEvent
+                                          RawMessageStreamEvent
+                                          InputJsonDelta TextDelta ThinkingDelta
+                                          DirectCaller ToolUseBlock ToolUseBlock$Caller
+                                          Usage Usage$Builder)))
 
 (def ->params #'a/->params)
+(def usage->map #'a/usage->map)
+(def event->map #'a/event->map)
+
+(defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
 (deftest request-translation
   (testing "a request map becomes MessageCreateParams with the given model + max-tokens"
@@ -17,6 +32,95 @@
     (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]})]
       (is (= "claude-opus-4-8" (str (.model p))))
       (is (= 1024 (.maxTokens p))))))
+
+(deftest sampling-and-control-params
+  (testing "temperature, top-p, top-k, stop-sequences all flow through"
+    (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                            :temperature 0.5
+                                            :top-p 0.9
+                                            :top-k 40
+                                            :stop-sequences ["STOP" "END"]})]
+      (is (= 0.5 (opt (.temperature p))))
+      (is (= 0.9 (opt (.topP p))))
+      (is (= 40 (opt (.topK p))))
+      (is (= ["STOP" "END"] (vec (opt (.stopSequences p)))))))
+  (testing "metadata user-id"
+    (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                            :metadata {:user-id "u-123"}})]
+      (is (= "u-123" (opt (.userId (opt (.metadata p))))))))
+  (testing "service-tier maps keyword to the SDK enum"
+    (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                            :service-tier :standard-only})]
+      (is (= MessageCreateParams$ServiceTier/STANDARD_ONLY (opt (.serviceTier p))))))
+  (testing "tool-choice :any and the {:type :tool :name ...} form are both honored"
+    (is (some? (opt (.toolChoice (->params {:messages [{:role :user :content "hi"}]
+                                            :tool-choice :any})))))
+    (is (some? (opt (.toolChoice (->params {:messages [{:role :user :content "hi"}]
+                                            :tool-choice {:type :tool :name "get_weather"}}))))))
+  (testing "thinking :enabled with a budget"
+    (is (some? (opt (.thinking (->params {:messages [{:role :user :content "hi"}]
+                                          :thinking {:type :enabled :budget-tokens 2048}})))))))
+
+(def ^:private empty-opt (java.util.Optional/empty))
+
+(defn- usage
+  "Build a Usage with all SDK-required fields set; cache tokens optional."
+  ^Usage [in out cc cr]
+  (let [^Usage$Builder b (Usage/builder)]
+    (doto b
+      (.inputTokens (long in)) (.outputTokens (long out))
+      (.cacheCreation empty-opt) (.serverToolUse empty-opt) (.serviceTier empty-opt)
+      (.inferenceGeo empty-opt) (.outputTokensDetails empty-opt)
+      (.cacheCreationInputTokens ^java.util.Optional (if cc (java.util.Optional/of (long cc)) empty-opt))
+      (.cacheReadInputTokens ^java.util.Optional (if cr (java.util.Optional/of (long cr)) empty-opt)))
+    (.build b)))
+
+(deftest usage-cache-tokens
+  (testing "cache tokens surface when present"
+    (is (= {:input-tokens 10 :output-tokens 20
+            :cache-creation-input-tokens 3 :cache-read-input-tokens 7}
+           (usage->map (usage 10 20 3 7)))))
+  (testing "absent cache tokens leave the keys off"
+    (is (= {:input-tokens 10 :output-tokens 20}
+           (usage->map (usage 10 20 nil nil))))))
+
+(defn- delta-event [^RawContentBlockDelta d]
+  (RawMessageStreamEvent/ofContentBlockDelta
+   (-> (RawContentBlockDeltaEvent/builder) (.index 0) (.delta d) (.build))))
+
+(deftest stream-event-normalization
+  (testing "text delta"
+    (is (= {:type :text-delta :index 0 :text "hi"}
+           (event->map (delta-event (RawContentBlockDelta/ofText
+                                     (-> (TextDelta/builder) (.text "hi") (.build))))))))
+  (testing "thinking delta"
+    (is (= {:type :thinking-delta :index 0 :thinking "hmm"}
+           (event->map (delta-event (RawContentBlockDelta/ofThinking
+                                     (-> (ThinkingDelta/builder) (.thinking "hmm") (.build))))))))
+  (testing "input-json delta (tool-use streaming)"
+    (is (= {:type :input-json-delta :index 0 :partial-json "{\"ci"}
+           (event->map (delta-event (RawContentBlockDelta/ofInputJson
+                                     (-> (InputJsonDelta/builder) (.partialJson "{\"ci") (.build))))))))
+  (testing "content-block-start for a tool_use block carries id + name"
+    (let [tu (-> (ToolUseBlock/builder) (.id "tu_1") (.name "get_weather")
+                 (.input (com.anthropic.core.JsonValue/from {}))
+                 (.caller (ToolUseBlock$Caller/ofDirect (.build (DirectCaller/builder))))
+                 (.build))
+          ev (RawMessageStreamEvent/ofContentBlockStart
+              (-> (RawContentBlockStartEvent/builder)
+                  (.index 0)
+                  (.contentBlock (RawContentBlockStartEvent$ContentBlock/ofToolUse tu))
+                  (.build)))]
+      (is (= {:type :content-block-start :index 0
+              :block {:type :tool-use :id "tu_1" :name "get_weather"}}
+             (event->map ev)))))
+  (testing "content-block-stop and message-stop"
+    (is (= {:type :content-block-stop :index 0}
+           (event->map (RawMessageStreamEvent/ofContentBlockStop
+                        (-> (RawContentBlockStopEvent/builder) (.index 0) (.build))))))
+    (is (= {:type :message-stop}
+           (event->map (RawMessageStreamEvent/ofMessageStop
+                        (.build (RawMessageStopEvent/builder))))))))
 
 ;; Live round-trip — only runs when ANTHROPIC_API_KEY is set (network + billed).
 (deftest ^:integration create-message-roundtrip
@@ -41,6 +145,44 @@
       (is (string? full))
       (is (pos? (count full)))
       (is (= full (apply str @deltas))))))
+
+(deftest ^:integration count-tokens-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [r (a/count-tokens (a/client)
+                            {:model "claude-haiku-4-5"
+                             :messages [{:role :user :content "How many tokens is this?"}]})]
+      (is (pos? (:input-tokens r))))))
+
+(deftest ^:integration stream-events-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [events (atom [])
+          full (a/stream (a/client)
+                         {:model "claude-haiku-4-5"
+                          :max-tokens 16
+                          :messages [{:role :user :content "Reply with the single word: pong"}]}
+                         #(swap! events conj %))
+          types (set (map :type @events))]
+      (is (string? full))
+      (is (pos? (count full)))
+      (is (contains? types :message-start))
+      (is (contains? types :content-block-start))
+      (is (contains? types :text-delta))
+      (is (contains? types :message-delta))
+      (is (contains? types :message-stop))
+      (is (= full (apply str (keep #(when (= :text-delta (:type %)) (:text %)) @events)))))))
+
+(deftest ^:integration sampling-params-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [resp (a/create-message (a/client)
+                                 {:model "claude-haiku-4-5"
+                                  :max-tokens 16
+                                  :temperature 0.0
+                                  :top-p 0.9
+                                  :stop-sequences ["STOP"]
+                                  :metadata {:user-id "test-user"}
+                                  :messages [{:role :user :content "Reply with the single word: pong"}]})]
+      (is (= :assistant (:role resp)))
+      (is (string? (:text (first (:content resp))))))))
 
 (deftest ^:integration tool-use-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")

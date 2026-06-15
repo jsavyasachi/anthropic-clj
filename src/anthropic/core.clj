@@ -11,13 +11,27 @@
            (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.messages ContentBlock ContentBlockParam Message
+                                          MessageCountTokensParams
+                                          MessageCountTokensParams$Builder
                                           MessageCreateParams
-                                          MessageCreateParams$Builder Model
+                                          MessageCreateParams$Builder
+                                          MessageCreateParams$ServiceTier
+                                          MessageTokensCount Metadata Model
                                           RawContentBlockDelta
                                           RawContentBlockDeltaEvent
+                                          RawContentBlockStartEvent
+                                          RawContentBlockStartEvent$ContentBlock
+                                          RawMessageDeltaEvent
                                           RawMessageStreamEvent
+                                          InputJsonDelta
                                           TextBlock TextBlockParam TextDelta
-                                          ThinkingBlock Tool Tool$InputSchema
+                                          ThinkingBlock ThinkingConfigAdaptive
+                                          ThinkingConfigDisabled
+                                          ThinkingConfigEnabled
+                                          ThinkingConfigParam ThinkingDelta
+                                          Tool Tool$InputSchema ToolChoice
+                                          ToolChoiceAny ToolChoiceAuto
+                                          ToolChoiceNone ToolChoiceTool
                                           ToolResultBlockParam ToolUseBlock
                                           ToolUseBlockParam Usage)))
 
@@ -60,6 +74,28 @@
                    (.input (->json (:input blk)))
                    (.build)))))
 
+(defn- ->thinking ^ThinkingConfigParam [{:keys [type budget-tokens]}]
+  (case (keyword type)
+    :enabled (ThinkingConfigParam/ofEnabled
+              (-> (ThinkingConfigEnabled/builder)
+                  (.budgetTokens (long budget-tokens)) (.build)))
+    :disabled (ThinkingConfigParam/ofDisabled (.build (ThinkingConfigDisabled/builder)))
+    :adaptive (ThinkingConfigParam/ofAdaptive (.build (ThinkingConfigAdaptive/builder)))))
+
+(defn- ->tool-choice ^ToolChoice [tc]
+  (if (map? tc)
+    (ToolChoice/ofTool (-> (ToolChoiceTool/builder) (.name ^String (:name tc)) (.build)))
+    (case (keyword tc)
+      :auto (ToolChoice/ofAuto (.build (ToolChoiceAuto/builder)))
+      :any (ToolChoice/ofAny (.build (ToolChoiceAny/builder)))
+      :none (ToolChoice/ofNone (.build (ToolChoiceNone/builder))))))
+
+(defn- ->service-tier ^MessageCreateParams$ServiceTier [t]
+  (MessageCreateParams$ServiceTier/of (-> t name (str/replace "-" "_"))))
+
+(defn- ->metadata ^Metadata [{:keys [user-id]}]
+  (-> (Metadata/builder) (.userId ^String user-id) (.build)))
+
 (defn- add-message [^MessageCreateParams$Builder b {:keys [role content]}]
   (let [r (keyword role)]
     (if (string? content)
@@ -73,14 +109,51 @@
 
 (defn- ->params
   "Translate a request map into the SDK's MessageCreateParams."
-  ^MessageCreateParams [{:keys [model max-tokens system messages tools]
+  ^MessageCreateParams [{:keys [model max-tokens system messages tools
+                                temperature top-p top-k stop-sequences
+                                tool-choice thinking metadata service-tier]
                          :or {model "claude-opus-4-8" max-tokens 1024}}]
   (let [b (doto (MessageCreateParams/builder)
             (.model (Model/of model))
             (.maxTokens (long max-tokens)))]
     (when system (.system b ^String system))
+    (when temperature (.temperature b (double temperature)))
+    (when top-p (.topP b (double top-p)))
+    (when top-k (.topK b (long top-k)))
+    (when (seq stop-sequences) (.stopSequences b ^java.util.List (vec stop-sequences)))
+    (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
+    (when thinking (.thinking b (->thinking thinking)))
+    (when metadata (.metadata b (->metadata metadata)))
+    (when service-tier (.serviceTier b (->service-tier service-tier)))
     (doseq [t tools] (.addTool b (->tool t)))
     (doseq [m messages] (add-message b m))
+    (.build b)))
+
+(defn- add-count-message [^MessageCountTokensParams$Builder b {:keys [role content]}]
+  (let [r (keyword role)]
+    (if (string? content)
+      (case r
+        :user (.addUserMessage b ^String content)
+        :assistant (.addAssistantMessage b ^String content))
+      (let [blocks (mapv ->content-block content)]
+        (case r
+          :user (.addUserMessageOfBlockParams b blocks)
+          :assistant (.addAssistantMessageOfBlockParams b blocks))))))
+
+(defn- ->count-params
+  "Translate a request map into the SDK's MessageCountTokensParams. Accepts the
+  same `:model`/`:system`/`:messages`/`:tools`/`:thinking`/`:tool-choice` keys as
+  `->params`; `:max-tokens` and sampling params are ignored (not part of the
+  count-tokens request)."
+  ^MessageCountTokensParams [{:keys [model system messages tools thinking tool-choice]
+                              :or {model "claude-opus-4-8"}}]
+  (let [b (doto (MessageCountTokensParams/builder)
+            (.model (Model/of model)))]
+    (when system (.system b ^String system))
+    (when thinking (.thinking b (->thinking thinking)))
+    (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
+    (doseq [t tools] (.addTool b (->tool t)))
+    (doseq [m messages] (add-count-message b m))
     (.build b)))
 
 (defn- java->clj [x]
@@ -106,8 +179,12 @@
       :else {:type :other})))
 
 (defn- usage->map [^Usage u]
-  {:input-tokens (.inputTokens u)
-   :output-tokens (.outputTokens u)})
+  (let [cc (.cacheCreationInputTokens u)
+        cr (.cacheReadInputTokens u)]
+    (cond-> {:input-tokens (.inputTokens u)
+             :output-tokens (.outputTokens u)}
+      (.isPresent cc) (assoc :cache-creation-input-tokens (.get cc))
+      (.isPresent cr) (assoc :cache-read-input-tokens (.get cr)))))
 
 (defn- ->keyword [x]
   (-> x str str/lower-case (str/replace "_" "-") keyword))
@@ -125,32 +202,99 @@
   "Send a Messages request and return the response as a Clojure map.
 
   `req` keys: `:model` (string, defaults to \"claude-opus-4-8\"), `:max-tokens`
-  (defaults to 1024), `:system` (string, optional), and `:messages` (a seq of
-  `{:role :user|:assistant :content \"...\"}`). Returns
+  (defaults to 1024), `:system` (string), `:messages` (a seq of
+  `{:role :user|:assistant :content \"...\"}`), `:tools`, and the optional
+  controls `:temperature`, `:top-p`, `:top-k`, `:stop-sequences` (seq of
+  strings), `:tool-choice` (`:auto`/`:any`/`:none` or `{:type :tool :name \"x\"}`),
+  `:thinking` (`{:type :enabled :budget-tokens N}` / `{:type :adaptive}` /
+  `{:type :disabled}`), `:metadata` (`{:user-id \"...\"}`), and `:service-tier`
+  (`:auto`/`:standard-only`). Returns
   `{:id :model :role :stop-reason :content [...] :usage {...}}`."
   [^AnthropicClient client req]
   (-> (.messages client)
       (.create (->params req))
       (message->map)))
 
-(defn- delta-text ^String [^RawMessageStreamEvent ev]
-  (let [cbd (.contentBlockDelta ev)]
-    (when (.isPresent cbd)
-      (let [d (.delta ^RawContentBlockDeltaEvent (.get cbd))
-            t (.text ^RawContentBlockDelta d)]
-        (when (.isPresent t)
-          (.text ^TextDelta (.get t)))))))
+(defn count-tokens
+  "Count the input tokens a request would use, without sending it. Takes the same
+  `req` map as `create-message` (sampling params and `:max-tokens` are ignored).
+  Returns `{:input-tokens n}`."
+  [^AnthropicClient client req]
+  (let [^MessageTokensCount r (-> (.messages client) (.countTokens (->count-params req)))]
+    {:input-tokens (.inputTokens r)}))
+
+(defn- start-block->map [^RawContentBlockStartEvent$ContentBlock cb]
+  (let [tu (.toolUse cb)
+        th (.thinking cb)
+        tx (.text cb)]
+    (cond
+      (.isPresent tu) (let [x ^ToolUseBlock (.get tu)]
+                        {:type :tool-use :id (.id x) :name (.name x)})
+      (.isPresent th) {:type :thinking}
+      (.isPresent tx) {:type :text}
+      :else {:type :other})))
+
+(defn- delta->map [index ^RawContentBlockDelta d]
+  (let [t (.text d) ij (.inputJson d) th (.thinking d) sg (.signature d)]
+    (cond
+      (.isPresent t) {:type :text-delta :index index :text (.text ^TextDelta (.get t))}
+      (.isPresent ij) {:type :input-json-delta :index index
+                       :partial-json (.partialJson ^InputJsonDelta (.get ij))}
+      (.isPresent th) {:type :thinking-delta :index index
+                       :thinking (.thinking ^ThinkingDelta (.get th))}
+      (.isPresent sg) {:type :signature-delta :index index}
+      :else {:type :delta :index index})))
+
+(defn- event->map
+  "Normalize one `RawMessageStreamEvent` into a Clojure map keyed by `:type`."
+  [^RawMessageStreamEvent ev]
+  (let [cbs (.contentBlockStart ev)
+        cbd (.contentBlockDelta ev)
+        cbp (.contentBlockStop ev)
+        md (.messageDelta ev)]
+    (cond
+      (.isPresent cbs) (let [e ^RawContentBlockStartEvent (.get cbs)]
+                         {:type :content-block-start
+                          :index (.index e)
+                          :block (start-block->map (.contentBlock e))})
+      (.isPresent cbd) (let [e ^RawContentBlockDeltaEvent (.get cbd)]
+                         (delta->map (.index e) (.delta e)))
+      (.isPresent cbp) {:type :content-block-stop
+                        :index (.index ^com.anthropic.models.messages.RawContentBlockStopEvent (.get cbp))}
+      (.isPresent md) (let [sr (.stopReason (.delta ^RawMessageDeltaEvent (.get md)))]
+                        {:type :message-delta
+                         :stop-reason (when (.isPresent sr) (->keyword (.get sr)))})
+      (.isPresent (.messageStart ev)) {:type :message-start}
+      (.isPresent (.messageStop ev)) {:type :message-stop}
+      :else {:type :other})))
+
+(defn stream
+  "Stream a Messages request, invoking `on-event` with a normalized event map for
+  every server-sent event as it arrives, and returning the full concatenated
+  assistant text when the stream ends. Takes the same `req` map as
+  `create-message`. The underlying HTTP stream is closed automatically.
+
+  Event maps are keyed by `:type`: `:message-start`, `:content-block-start`
+  (`:index`, `:block`), `:text-delta`/`:thinking-delta`/`:input-json-delta`/
+  `:signature-delta` (`:index` plus the payload), `:content-block-stop`
+  (`:index`), `:message-delta` (`:stop-reason`), and `:message-stop`. To
+  reconstruct a streamed tool call, accumulate `:input-json-delta` `:partial-json`
+  per `:index` (the matching `:content-block-start` carries the tool `:id`/`:name`)."
+  ^String [^AnthropicClient client req on-event]
+  (with-open [^StreamResponse sr (.createStreaming (.messages client) (->params req))]
+    (let [sb (StringBuilder.)]
+      (doseq [ev (iterator-seq (.iterator (.stream sr)))]
+        (let [m (event->map ev)]
+          (when (= :text-delta (:type m)) (.append sb ^String (:text m)))
+          (when on-event (on-event m))))
+      (str sb))))
 
 (defn stream-text
   "Stream a Messages request, calling `on-text` with each text delta (a string)
   as it arrives, and returning the full concatenated text when the stream ends.
-  Takes the same `req` map as `create-message`. The underlying HTTP stream is
-  closed automatically."
+  Takes the same `req` map as `create-message`. A thin convenience over `stream`
+  that ignores every non-text event; reach for `stream` when you need thinking or
+  tool-use deltas. The underlying HTTP stream is closed automatically."
   ^String [^AnthropicClient client req on-text]
-  (with-open [^StreamResponse sr (.createStreaming (.messages client) (->params req))]
-    (let [sb (StringBuilder.)]
-      (doseq [ev (iterator-seq (.iterator (.stream sr)))]
-        (when-let [s (delta-text ev)]
-          (.append sb s)
-          (when on-text (on-text s))))
-      (str sb))))
+  (stream client req
+          (fn [m] (when (and on-text (= :text-delta (:type m))) (on-text (:text m))))))
