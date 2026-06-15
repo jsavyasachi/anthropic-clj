@@ -300,9 +300,12 @@
                 {:model "claude-haiku-4-5" :max-tokens 512
                  :tools [{:type :web-search :max-uses 2 :allowed-callers [:direct]}]
                  :messages [{:role :user
-                             :content "Search the web: what is the latest stable Clojure version?"}]})]
+                             :content "Search the web: what is the latest stable Clojure version?"}]})
+          types (set (map :type (:content resp)))]
       (is (= :assistant (:role resp)))
-      (is (some #(= :text (:type %)) (:content resp))))))
+      (is (some #(= :text (:type %)) (:content resp)))
+      (is (contains? types :server-tool-use))
+      (is (contains? types :web-search-result)))))
 
 (deftest ^:integration files-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")

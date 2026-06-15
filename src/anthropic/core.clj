@@ -58,6 +58,7 @@
                                           ToolChoice
                                           ToolChoiceAny ToolChoiceAuto
                                           ToolChoiceNone ToolChoiceTool
+                                          ServerToolUseBlock
                                           ToolResultBlockParam ToolTextEditor20250728
                                           ToolUnion ToolUseBlock
                                           ToolUseBlockParam
@@ -311,18 +312,42 @@
     (instance? java.util.List x) (mapv java->clj x)
     :else x))
 
+(defn- json->clj [^JsonValue jv]
+  (java->clj (.convert jv java.lang.Object)))
+
+(defn- block-raw
+  "Best-effort raw JSON for a content block whose fields we don't map in detail."
+  [^ContentBlock b kind]
+  (let [j (._json b)]
+    (cond-> {:type kind}
+      (.isPresent j) (assoc :json (json->clj (.get j))))))
+
 (defn- block->map [^ContentBlock b]
   (let [txt (.text b)
         tu (.toolUse b)
-        th (.thinking b)]
+        th (.thinking b)
+        stu (.serverToolUse b)]
     (cond
       (.isPresent txt) {:type :text :text (.text ^TextBlock (.get txt))}
       (.isPresent tu) (let [x ^ToolUseBlock (.get tu)]
                         {:type :tool-use
                          :id (.id x)
                          :name (.name x)
-                         :input (java->clj (.convert (._input x) java.lang.Object))})
+                         :input (json->clj (._input x))})
       (.isPresent th) {:type :thinking :thinking (.thinking ^ThinkingBlock (.get th))}
+      (.isPresent stu) (let [x ^ServerToolUseBlock (.get stu)]
+                         {:type :server-tool-use
+                          :id (.id x)
+                          :name (str (.name x))
+                          :input (json->clj (._input x))})
+      (.isPresent (.webSearchToolResult b)) (block-raw b :web-search-result)
+      (.isPresent (.webFetchToolResult b)) (block-raw b :web-fetch-result)
+      (.isPresent (.codeExecutionToolResult b)) (block-raw b :code-execution-result)
+      (.isPresent (.bashCodeExecutionToolResult b)) (block-raw b :bash-code-execution-result)
+      (.isPresent (.textEditorCodeExecutionToolResult b)) (block-raw b :text-editor-code-execution-result)
+      (.isPresent (.toolSearchToolResult b)) (block-raw b :tool-search-result)
+      (.isPresent (.containerUpload b)) (block-raw b :container-upload)
+      (.isPresent (.redactedThinking b)) {:type :redacted-thinking}
       :else {:type :other})))
 
 (defn- usage->map [^Usage u]
