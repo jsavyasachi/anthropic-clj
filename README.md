@@ -33,13 +33,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.5.0"]
+[net.clojars.savya/anthropic-clj "0.6.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.5.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.6.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
@@ -272,6 +272,8 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
 - **Tools** - custom tools, plus **server-side tools** (web search, web fetch,
   code execution, bash, text editor, memory), with `:server-tool-use` and typed
   result blocks parsed back out
+- **Citations** - text blocks carry `:citations` (char/page/content-block/
+  web-search/search-result locations) when present
 - `count-tokens` - input-token count without sending
 - `stream-text` - incremental text deltas
 - `stream` - every normalized stream event (message + content-block lifecycle,
@@ -280,8 +282,13 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
 - Message Batches - `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
   `delete-batch`, `batch-results`
 - Files (beta) - `upload-file`, `get-file`, `list-files`, `download-file`, `delete-file`
-- Roadmap (0.6): `beta.messages` + `file_id` content, text citations, MCP
-  connectors; then webhooks, then the Managed Agents platform
+
+This covers the full **GA** surface of the Messages API and its supporting
+endpoints. The beta surface - `beta.messages` (and with it MCP connectors,
+`file_id` content, beta-only tools), webhooks, and the Managed Agents platform
+(Agents/Sessions/Environments/Deployments/Skills/MemoryStore/Vault) - is a
+separate parallel `Beta*` API and is intentionally **out of scope**; reach for
+the [Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly for those.
 
 ## Tests
 

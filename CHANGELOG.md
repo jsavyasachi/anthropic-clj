@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.0] - 2026-06-14
+
+### Added
+- Text-block `:citations` parsing (char / page / content-block / web-search /
+  search-result locations), each with `:cited-text`.
+
+### Notes
+- This release completes the **GA** Messages surface. The beta API
+  (`beta.messages`, MCP connectors, `file_id` content, webhooks, the Managed
+  Agents platform) is a separate parallel surface and is intentionally out of
+  scope - use the official Java SDK for those.
+
 ## [0.5.0] - 2026-06-14
 
 ### Added
