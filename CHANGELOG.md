@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.4.0] - 2026-06-14
+
+### Added
+- Content blocks: `:image` (base64/url) and `:document` (base64/url/plain-text
+  PDF, with `:title`/`:context`) for vision and document input.
+- `:cache-control` on any content block (ephemeral, optional `:ttl`) for
+  prompt-cache breakpoints.
+- Files API (beta): `upload-file`, `get-file`, `list-files`, `download-file`,
+  `delete-file`.
+
 ## [0.3.0] - 2026-06-14
 
 ### Added

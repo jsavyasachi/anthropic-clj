@@ -33,13 +33,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.3.0"]
+[net.clojars.savya/anthropic-clj "0.4.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.3.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.4.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
@@ -71,6 +71,27 @@ Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
 and `:service-tier` (`:auto`/`:standard-only`). When the response uses prompt
 caching, `:usage` also carries `:cache-creation-input-tokens` and
 `:cache-read-input-tokens`.
+
+### Images, PDFs, and prompt caching
+
+Message content can be a vector of blocks. Beyond `:text`, `:tool-use`, and
+`:tool-result`, you can send `:image` and `:document` blocks, and mark any block
+with `:cache-control` to set a prompt-cache breakpoint.
+
+```clojure
+(anthropic/create-message
+  client
+  {:max-tokens 256
+   :messages [{:role :user
+               :content [{:type :image
+                          :source {:type :base64 :media-type "image/png" :data "<base64>"}}
+                         ;; or {:type :url :url "https://…/photo.jpg"}
+                         {:type :document
+                          :source {:type :url :url "https://…/paper.pdf"}
+                          :title "Paper"}
+                         {:type :text :text "Summarize the paper and the image."
+                          :cache-control true}]}]})  ; :cache-control {:ttl :1h} for 1-hour
+```
 
 ### Structured output
 
@@ -112,6 +133,19 @@ without sending the message (`:max-tokens` and sampling params are ignored).
 
 (anthropic/get-model client "claude-opus-4-8")
 ;; => {:id "claude-opus-4-8" :display-name "Claude Opus 4.8" ...}
+```
+
+### Files (beta)
+
+```clojure
+(def f (anthropic/upload-file client "paper.pdf"))   ; path/File/Path/InputStream/bytes
+;; => {:id "file_..." :filename "paper.pdf" :mime-type "application/pdf"
+;;     :size-bytes 12345 :created-at "2026-..."}
+
+(anthropic/get-file client (:id f))
+(anthropic/list-files client)
+(anthropic/download-file client some-id)   ; bytes; only API-generated downloadable files
+(anthropic/delete-file client (:id f))
 ```
 
 ### Message Batches
@@ -210,15 +244,18 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
   controls (sampling, stop sequences, tool-choice, thinking, metadata,
   service-tier), cache-token usage, and **structured output** (`:response-format`
   → `:parsed`, plus `:effort`)
+- **Content blocks** - text, `tool_use`/`tool_result`, **images** (base64/url),
+  **documents/PDFs** (base64/url/text), and `:cache-control` breakpoints on any block
 - `count-tokens` - input-token count without sending
 - `stream-text` - incremental text deltas
 - `stream` - every normalized stream event (message + content-block lifecycle,
   text/thinking/tool-use/signature deltas)
-- Tool use - tools, parsed `tool_use` blocks, `tool_result` round-trip
 - `list-models` / `get-model` - Models API
 - Message Batches - `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
   `delete-batch`, `batch-results`
-- Roadmap (0.4): the Files API (`beta().files()`)
+- Files (beta) - `upload-file`, `get-file`, `list-files`, `download-file`, `delete-file`
+- Roadmap (0.5): server-side tools (web search, code execution, computer use);
+  later: `beta.messages` + `file_id` content, webhooks, the Managed Agents platform
 
 ## Tests
 
