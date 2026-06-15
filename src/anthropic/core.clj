@@ -10,6 +10,7 @@
            (com.anthropic.client.okhttp AnthropicOkHttpClient)
            (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
+           (com.anthropic.models.models ModelInfo ModelListPage)
            (com.anthropic.models.messages ContentBlock ContentBlockParam Message
                                           MessageCountTokensParams
                                           MessageCountTokensParams$Builder
@@ -222,6 +223,28 @@
   [^AnthropicClient client req]
   (let [^MessageTokensCount r (-> (.messages client) (.countTokens (->count-params req)))]
     {:input-tokens (.inputTokens r)}))
+
+(defn- model->map [^ModelInfo m]
+  (let [mit (.maxInputTokens m)
+        mt (.maxTokens m)]
+    (cond-> {:id (.id m)
+             :display-name (.displayName m)
+             :created-at (str (.createdAt m))}
+      (.isPresent mit) (assoc :max-input-tokens (.get mit))
+      (.isPresent mt) (assoc :max-tokens (.get mt)))))
+
+(defn list-models
+  "List the available models as a seq of maps, newest first. Each map has `:id`,
+  `:display-name`, `:created-at` (ISO-8601 string), and `:max-input-tokens` /
+  `:max-tokens` when the API reports them. Pages are followed automatically."
+  [^AnthropicClient client]
+  (let [^ModelListPage p (-> (.models client) (.list))]
+    (mapv model->map (.autoPager p))))
+
+(defn get-model
+  "Retrieve one model's info by id, as a map shaped like `list-models`' entries."
+  [^AnthropicClient client ^String id]
+  (model->map (-> (.models client) (.retrieve id))))
 
 (defn- start-block->map [^RawContentBlockStartEvent$ContentBlock cb]
   (let [tu (.toolUse cb)

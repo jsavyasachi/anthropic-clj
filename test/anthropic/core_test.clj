@@ -12,11 +12,13 @@
                                           RawMessageStreamEvent
                                           InputJsonDelta TextDelta ThinkingDelta
                                           DirectCaller ToolUseBlock ToolUseBlock$Caller
-                                          Usage Usage$Builder)))
+                                          Usage Usage$Builder)
+           (com.anthropic.models.models ModelInfo ModelInfo$Builder)))
 
 (def ->params #'a/->params)
 (def usage->map #'a/usage->map)
 (def event->map #'a/event->map)
+(def model->map #'a/model->map)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -84,6 +86,32 @@
     (is (= {:input-tokens 10 :output-tokens 20}
            (usage->map (usage 10 20 nil nil))))))
 
+(defn- model-info
+  "Build a ModelInfo with required fields; token limits optional."
+  ^ModelInfo [id display-name mit mt]
+  (let [^ModelInfo$Builder b (ModelInfo/builder)]
+    (doto b
+      (.id id) (.displayName display-name)
+      (.createdAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
+      (.type (com.anthropic.core.JsonValue/from "model"))
+      (.capabilities empty-opt)
+      (.maxInputTokens ^java.util.Optional (if mit (java.util.Optional/of (long mit)) empty-opt))
+      (.maxTokens ^java.util.Optional (if mt (java.util.Optional/of (long mt)) empty-opt)))
+    (.build b)))
+
+(deftest model-mapping
+  (let [m (model->map (model-info "claude-x" "Claude X" 200000 64000))]
+    (is (= "claude-x" (:id m)))
+    (is (= "Claude X" (:display-name m)))
+    (is (= 200000 (:max-input-tokens m)))
+    (is (= 64000 (:max-tokens m)))
+    (is (string? (:created-at m)))
+    (is (clojure.string/starts-with? (:created-at m) "2026-01-01")))
+  (testing "absent optional token limits are omitted"
+    (let [m (model->map (model-info "claude-y" "Claude Y" nil nil))]
+      (is (not (contains? m :max-input-tokens)))
+      (is (not (contains? m :max-tokens))))))
+
 (defn- delta-event [^RawContentBlockDelta d]
   (RawMessageStreamEvent/ofContentBlockDelta
    (-> (RawContentBlockDeltaEvent/builder) (.index 0) (.delta d) (.build))))
@@ -145,6 +173,15 @@
       (is (string? full))
       (is (pos? (count full)))
       (is (= full (apply str @deltas))))))
+
+(deftest ^:integration models-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [c (a/client)
+          ms (a/list-models c)]
+      (is (seq ms))
+      (is (every? (comp string? :id) ms))
+      (let [id (:id (first ms))]
+        (is (= id (:id (a/get-model c id))))))))
 
 (deftest ^:integration count-tokens-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")
