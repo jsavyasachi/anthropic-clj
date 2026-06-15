@@ -12,6 +12,16 @@
            (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.models ModelInfo ModelListPage)
+           (com.anthropic.models.messages.batches BatchCreateParams
+                                                  BatchCreateParams$Request
+                                                  BatchCreateParams$Request$Params
+                                                  BatchCreateParams$Request$Params$Builder
+                                                  BatchListPage
+                                                  DeletedMessageBatch MessageBatch
+                                                  MessageBatchIndividualResponse
+                                                  MessageBatchRequestCounts
+                                                  MessageBatchResult
+                                                  MessageBatchSucceededResult)
            (com.anthropic.models.messages ContentBlock ContentBlockParam
                                           JsonOutputFormat JsonOutputFormat$Schema
                                           Message
@@ -281,6 +291,118 @@
   "Retrieve one model's info by id, as a map shaped like `list-models`' entries."
   [^AnthropicClient client ^String id]
   (model->map (-> (.models client) (.retrieve id))))
+
+;; ---- Message Batches ------------------------------------------------------
+
+(defn- add-batch-message [^BatchCreateParams$Request$Params$Builder b {:keys [role content]}]
+  (let [r (keyword role)]
+    (if (string? content)
+      (case r
+        :user (.addUserMessage b ^String content)
+        :assistant (.addAssistantMessage b ^String content))
+      (let [blocks (mapv ->content-block content)]
+        (case r
+          :user (.addUserMessageOfBlockParams b blocks)
+          :assistant (.addAssistantMessageOfBlockParams b blocks))))))
+
+(defn- ->batch-req-params
+  "Translate a per-request map into a batch Request.Params. Same keys as
+  `->params` except `:service-tier` (not supported per batch request)."
+  ^BatchCreateParams$Request$Params
+  [{:keys [model max-tokens system messages tools temperature top-p top-k
+           stop-sequences tool-choice thinking metadata response-format effort]
+    :or {model "claude-opus-4-8" max-tokens 1024}}]
+  (let [b (doto (BatchCreateParams$Request$Params/builder)
+            (.model (Model/of model))
+            (.maxTokens (long max-tokens)))]
+    (when system (.system b ^String system))
+    (when temperature (.temperature b (double temperature)))
+    (when top-p (.topP b (double top-p)))
+    (when top-k (.topK b (long top-k)))
+    (when (seq stop-sequences) (.stopSequences b ^java.util.List (vec stop-sequences)))
+    (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
+    (when thinking (.thinking b (->thinking thinking)))
+    (when metadata (.metadata b (->metadata metadata)))
+    (when (or response-format effort)
+      (.outputConfig b (->output-config response-format effort)))
+    (doseq [t tools] (.addTool b (->tool t)))
+    (doseq [m messages] (add-batch-message b m))
+    (.build b)))
+
+(defn- ->batch-request ^BatchCreateParams$Request [{:keys [custom-id params]}]
+  (-> (BatchCreateParams$Request/builder)
+      (.customId ^String custom-id)
+      (.params (->batch-req-params params))
+      (.build)))
+
+(defn- counts->map [^MessageBatchRequestCounts c]
+  {:processing (.processing c) :succeeded (.succeeded c) :errored (.errored c)
+   :canceled (.canceled c) :expired (.expired c)})
+
+(defn- batch->map [^MessageBatch b]
+  (let [ended (.endedAt b)
+        url (.resultsUrl b)]
+    (cond-> {:id (.id b)
+             :processing-status (->keyword (.processingStatus b))
+             :request-counts (counts->map (.requestCounts b))
+             :created-at (str (.createdAt b))
+             :expires-at (str (.expiresAt b))}
+      (.isPresent ended) (assoc :ended-at (str (.get ended)))
+      (.isPresent url) (assoc :results-url (.get url)))))
+
+(defn- batch-result->map [^MessageBatchIndividualResponse r]
+  (let [res ^MessageBatchResult (.result r)
+        s (.succeeded res)]
+    {:custom-id (.customId r)
+     :result (cond
+               (.isPresent s) {:type :succeeded
+                               :message (message->map
+                                         (.message ^MessageBatchSucceededResult (.get s)))}
+               (.isPresent (.errored res)) {:type :errored}
+               (.isPresent (.canceled res)) {:type :canceled}
+               (.isPresent (.expired res)) {:type :expired}
+               :else {:type :unknown})}))
+
+(defn create-batch
+  "Submit a Message Batch. `requests` is a seq of
+  `{:custom-id \"...\" :params <same map as create-message>}` (`:params` ignores
+  `:service-tier`). Returns the batch as a map (see `get-batch`)."
+  [^AnthropicClient client requests]
+  (let [reqs ^java.util.List (mapv ->batch-request requests)
+        bp (-> (BatchCreateParams/builder) (.requests reqs) (.build))]
+    (batch->map (-> (.messages client) (.batches) (.create bp)))))
+
+(defn get-batch
+  "Retrieve a batch by id. Returns `{:id :processing-status :request-counts
+  :created-at :expires-at}` plus `:ended-at`/`:results-url` once available."
+  [^AnthropicClient client ^String id]
+  (batch->map (-> (.messages client) (.batches) (.retrieve id))))
+
+(defn list-batches
+  "List all batches (pages followed) as a seq of maps like `get-batch`."
+  [^AnthropicClient client]
+  (let [^BatchListPage p (-> (.messages client) (.batches) (.list))]
+    (mapv batch->map (.autoPager p))))
+
+(defn cancel-batch
+  "Request cancellation of a batch; returns the updated batch map."
+  [^AnthropicClient client ^String id]
+  (batch->map (-> (.messages client) (.batches) (.cancel id))))
+
+(defn delete-batch
+  "Delete a batch by id. Returns `{:id ... :deleted true}`."
+  [^AnthropicClient client ^String id]
+  (let [^DeletedMessageBatch d (-> (.messages client) (.batches) (.delete id))]
+    {:id (.id d) :deleted true}))
+
+(defn batch-results
+  "Fetch a completed batch's results as a vector of
+  `{:custom-id ... :result {:type :succeeded|:errored|:canceled|:expired ...}}`;
+  succeeded results include the parsed `:message`. The results stream is closed
+  automatically."
+  [^AnthropicClient client ^String id]
+  (with-open [^StreamResponse sr (-> (.messages client) (.batches) (.resultsStreaming id))]
+    (mapv batch-result->map (iterator-seq (.iterator (.stream sr))))))
 
 (defn- start-block->map [^RawContentBlockStartEvent$ContentBlock cb]
   (let [tu (.toolUse cb)

@@ -13,13 +13,16 @@
                                           InputJsonDelta TextDelta ThinkingDelta
                                           DirectCaller ToolUseBlock ToolUseBlock$Caller
                                           OutputConfig Usage Usage$Builder)
-           (com.anthropic.models.models ModelInfo ModelInfo$Builder)))
+           (com.anthropic.models.models ModelInfo ModelInfo$Builder)
+           (com.anthropic.models.messages.batches BatchCreateParams$Request
+                                                  BatchCreateParams$Request$Params)))
 
 (def ->params #'a/->params)
 (def usage->map #'a/usage->map)
 (def event->map #'a/event->map)
 (def model->map #'a/model->map)
 (def parse-text #'a/parse-text)
+(def ->batch-request #'a/->batch-request)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -104,6 +107,17 @@
            (parse-text {:content [{:type :text :text "{\"answer\":\"blue\",\"n\":7}"}]}))))
   (testing "no text block -> nil"
     (is (nil? (parse-text {:content [{:type :tool-use :id "x" :name "y" :input {}}]})))))
+
+(deftest batch-request-translation
+  (let [^BatchCreateParams$Request r
+        (->batch-request {:custom-id "r1"
+                          :params {:model "claude-haiku-4-5" :max-tokens 64
+                                   :system "be terse"
+                                   :messages [{:role :user :content "hi"}]}})]
+    (is (= "r1" (.customId r)))
+    (let [^BatchCreateParams$Request$Params p (.params r)]
+      (is (= "claude-haiku-4-5" (str (.model p))))
+      (is (= 64 (.maxTokens p))))))
 
 (deftest usage-cache-tokens
   (testing "cache tokens surface when present"
@@ -210,6 +224,21 @@
       (is (every? (comp string? :id) ms))
       (let [id (:id (first ms))]
         (is (= id (:id (a/get-model c id))))))))
+
+(deftest ^:integration batch-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [c (a/client)
+          b (a/create-batch c [{:custom-id "r1"
+                                :params {:model "claude-haiku-4-5" :max-tokens 16
+                                         :messages [{:role :user :content "Reply pong"}]}}])
+          id (:id b)]
+      (is (string? id))
+      (is (keyword? (:processing-status b)))
+      (is (map? (:request-counts b)))
+      (is (= id (:id (a/get-batch c id))))
+      (is (some #(= id (:id %)) (a/list-batches c)))
+      ;; batches run async; cancel the in-flight one rather than wait for results
+      (is (= id (:id (a/cancel-batch c id)))))))
 
 (deftest ^:integration structured-output-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")
