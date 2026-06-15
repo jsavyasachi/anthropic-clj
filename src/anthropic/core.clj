@@ -29,6 +29,11 @@
                                           Base64PdfSource
                                           CacheControlEphemeral
                                           CacheControlEphemeral$Ttl
+                                          CitationCharLocation
+                                          CitationContentBlockLocation
+                                          CitationPageLocation
+                                          CitationsSearchResultLocation
+                                          CitationsWebSearchResultLocation
                                           CodeExecutionTool20260120
                                           ContentBlock ContentBlockParam
                                           DocumentBlockParam DocumentBlockParam$Source
@@ -49,7 +54,8 @@
                                           RawMessageDeltaEvent
                                           RawMessageStreamEvent
                                           InputJsonDelta
-                                          TextBlock TextBlockParam TextDelta
+                                          TextBlock TextBlockParam TextCitation
+                                          TextDelta
                                           ThinkingBlock ThinkingConfigAdaptive
                                           ThinkingConfigDisabled
                                           ThinkingConfigEnabled
@@ -315,6 +321,47 @@
 (defn- json->clj [^JsonValue jv]
   (java->clj (.convert jv java.lang.Object)))
 
+(defn- citation->map [^TextCitation c]
+  (let [cl (.charLocation c)
+        pl (.pageLocation c)
+        cbl (.contentBlockLocation c)
+        wsr (.webSearchResultLocation c)
+        sr (.searchResultLocation c)]
+    (cond
+      (.isPresent cl) (let [x ^CitationCharLocation (.get cl)]
+                        (cond-> {:type :char-location :cited-text (.citedText x)
+                                 :document-index (.documentIndex x)
+                                 :start-char-index (.startCharIndex x)
+                                 :end-char-index (.endCharIndex x)}
+                          (.isPresent (.documentTitle x)) (assoc :document-title (.get (.documentTitle x)))
+                          (.isPresent (.fileId x)) (assoc :file-id (.get (.fileId x)))))
+      (.isPresent pl) (let [x ^CitationPageLocation (.get pl)]
+                        (cond-> {:type :page-location :cited-text (.citedText x)
+                                 :document-index (.documentIndex x)
+                                 :start-page-number (.startPageNumber x)
+                                 :end-page-number (.endPageNumber x)}
+                          (.isPresent (.documentTitle x)) (assoc :document-title (.get (.documentTitle x)))
+                          (.isPresent (.fileId x)) (assoc :file-id (.get (.fileId x)))))
+      (.isPresent cbl) (let [x ^CitationContentBlockLocation (.get cbl)]
+                         (cond-> {:type :content-block-location :cited-text (.citedText x)
+                                  :document-index (.documentIndex x)
+                                  :start-block-index (.startBlockIndex x)
+                                  :end-block-index (.endBlockIndex x)}
+                           (.isPresent (.documentTitle x)) (assoc :document-title (.get (.documentTitle x)))
+                           (.isPresent (.fileId x)) (assoc :file-id (.get (.fileId x)))))
+      (.isPresent wsr) (let [x ^CitationsWebSearchResultLocation (.get wsr)]
+                         (cond-> {:type :web-search-result-location :cited-text (.citedText x)
+                                  :url (.url x) :encrypted-index (.encryptedIndex x)}
+                           (.isPresent (.title x)) (assoc :title (.get (.title x)))))
+      (.isPresent sr) (let [x ^CitationsSearchResultLocation (.get sr)]
+                        (cond-> {:type :search-result-location :cited-text (.citedText x)
+                                 :source (.source x)
+                                 :search-result-index (.searchResultIndex x)
+                                 :start-block-index (.startBlockIndex x)
+                                 :end-block-index (.endBlockIndex x)}
+                          (.isPresent (.title x)) (assoc :title (.get (.title x)))))
+      :else {:type :other})))
+
 (defn- block-raw
   "Best-effort raw JSON for a content block whose fields we don't map in detail."
   [^ContentBlock b kind]
@@ -328,7 +375,11 @@
         th (.thinking b)
         stu (.serverToolUse b)]
     (cond
-      (.isPresent txt) {:type :text :text (.text ^TextBlock (.get txt))}
+      (.isPresent txt) (let [tb ^TextBlock (.get txt)
+                             cits (.citations tb)]
+                         (cond-> {:type :text :text (.text tb)}
+                           (and (.isPresent cits) (seq (.get cits)))
+                           (assoc :citations (mapv citation->map (.get cits)))))
       (.isPresent tu) (let [x ^ToolUseBlock (.get tu)]
                         {:type :tool-use
                          :id (.id x)

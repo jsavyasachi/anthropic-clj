@@ -305,7 +305,11 @@
       (is (= :assistant (:role resp)))
       (is (some #(= :text (:type %)) (:content resp)))
       (is (contains? types :server-tool-use))
-      (is (contains? types :web-search-result)))))
+      (is (contains? types :web-search-result))
+      ;; the cited answer text carries web-search-result-location citations
+      (let [cites (mapcat :citations (filter :citations (:content resp)))]
+        (is (seq cites))
+        (is (every? :cited-text cites))))))
 
 (deftest ^:integration files-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")
