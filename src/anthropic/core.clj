@@ -22,7 +22,14 @@
                                                   MessageBatchRequestCounts
                                                   MessageBatchResult
                                                   MessageBatchSucceededResult)
-           (com.anthropic.models.messages ContentBlock ContentBlockParam
+           (com.anthropic.models.messages Base64ImageSource
+                                          Base64ImageSource$MediaType
+                                          Base64PdfSource
+                                          CacheControlEphemeral
+                                          CacheControlEphemeral$Ttl
+                                          ContentBlock ContentBlockParam
+                                          DocumentBlockParam DocumentBlockParam$Source
+                                          ImageBlockParam ImageBlockParam$Source
                                           JsonOutputFormat JsonOutputFormat$Schema
                                           Message
                                           MessageCountTokensParams
@@ -48,7 +55,9 @@
                                           ToolChoiceAny ToolChoiceAuto
                                           ToolChoiceNone ToolChoiceTool
                                           ToolResultBlockParam ToolUseBlock
-                                          ToolUseBlockParam Usage)))
+                                          ToolUseBlockParam
+                                          PlainTextSource UrlImageSource UrlPdfSource
+                                          Usage)))
 
 (defn client
   "An Anthropic client. With no args, resolves credentials from the environment
@@ -73,21 +82,58 @@
     (when description (.description tb ^String description))
     (.build tb)))
 
-(defn- ->content-block ^ContentBlockParam [{:keys [type] :as blk}]
+(defn- ->cache-control ^CacheControlEphemeral [cc]
+  ;; `cc` may be `true`/`:ephemeral` (default 5m) or `{:ttl :5m|:1h}`.
+  (let [b (CacheControlEphemeral/builder)]
+    (when-let [ttl (and (map? cc) (:ttl cc))]
+      (.ttl b (CacheControlEphemeral$Ttl/of (name ttl))))
+    (.build b)))
+
+(defn- ->image-source ^ImageBlockParam$Source [{:keys [type media-type data url]}]
   (case (keyword type)
-    :text (ContentBlockParam/ofText
-           (-> (TextBlockParam/builder) (.text ^String (:text blk)) (.build)))
-    :tool-result (ContentBlockParam/ofToolResult
-                  (-> (ToolResultBlockParam/builder)
-                      (.toolUseId ^String (:tool-use-id blk))
-                      (.content ^String (str (:content blk)))
-                      (.build)))
-    :tool-use (ContentBlockParam/ofToolUse
-               (-> (ToolUseBlockParam/builder)
-                   (.id ^String (:id blk))
-                   (.name ^String (:name blk))
-                   (.input (->json (:input blk)))
-                   (.build)))))
+    :base64 (ImageBlockParam$Source/ofBase64
+             (-> (Base64ImageSource/builder)
+                 (.data ^String data)
+                 (.mediaType (Base64ImageSource$MediaType/of media-type))
+                 (.build)))
+    :url (ImageBlockParam$Source/ofUrl
+          (-> (UrlImageSource/builder) (.url ^String url) (.build)))))
+
+(defn- ->document-source ^DocumentBlockParam$Source [{:keys [type data url]}]
+  (case (keyword type)
+    :base64 (DocumentBlockParam$Source/ofBase64
+             (-> (Base64PdfSource/builder) (.data ^String data) (.build)))
+    :url (DocumentBlockParam$Source/ofUrl
+          (-> (UrlPdfSource/builder) (.url ^String url) (.build)))
+    :text (DocumentBlockParam$Source/ofText
+           (-> (PlainTextSource/builder) (.data ^String data) (.build)))))
+
+(defn- ->content-block ^ContentBlockParam [{:keys [type cache-control] :as blk}]
+  (case (keyword type)
+    :text (let [b (-> (TextBlockParam/builder) (.text ^String (:text blk)))]
+            (when cache-control (.cacheControl b (->cache-control cache-control)))
+            (ContentBlockParam/ofText (.build b)))
+    :image (let [b (-> (ImageBlockParam/builder)
+                       (.source ^ImageBlockParam$Source (->image-source (:source blk))))]
+             (when cache-control (.cacheControl b (->cache-control cache-control)))
+             (ContentBlockParam/ofImage (.build b)))
+    :document (let [b (-> (DocumentBlockParam/builder)
+                          (.source ^DocumentBlockParam$Source (->document-source (:source blk))))]
+                (when (:title blk) (.title b ^String (:title blk)))
+                (when (:context blk) (.context b ^String (:context blk)))
+                (when cache-control (.cacheControl b (->cache-control cache-control)))
+                (ContentBlockParam/ofDocument (.build b)))
+    :tool-result (let [b (-> (ToolResultBlockParam/builder)
+                             (.toolUseId ^String (:tool-use-id blk))
+                             (.content ^String (str (:content blk))))]
+                   (when cache-control (.cacheControl b (->cache-control cache-control)))
+                   (ContentBlockParam/ofToolResult (.build b)))
+    :tool-use (let [b (-> (ToolUseBlockParam/builder)
+                          (.id ^String (:id blk))
+                          (.name ^String (:name blk))
+                          (.input (->json (:input blk))))]
+                (when cache-control (.cacheControl b (->cache-control cache-control)))
+                (ContentBlockParam/ofToolUse (.build b)))))
 
 (defn- ->thinking ^ThinkingConfigParam [{:keys [type budget-tokens]}]
   (case (keyword type)

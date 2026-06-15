@@ -24,6 +24,7 @@
 (def model->map #'a/model->map)
 (def parse-text #'a/parse-text)
 (def ->batch-request #'a/->batch-request)
+(def ->content-block #'a/->content-block)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -81,6 +82,27 @@
       (.cacheCreationInputTokens ^java.util.Optional (if cc (java.util.Optional/of (long cc)) empty-opt))
       (.cacheReadInputTokens ^java.util.Optional (if cr (java.util.Optional/of (long cr)) empty-opt)))
     (.build b)))
+
+(deftest content-blocks
+  (testing "image block, base64 and url sources"
+    (is (.isPresent (.image (->content-block {:type :image
+                                              :source {:type :base64
+                                                       :media-type "image/png"
+                                                       :data "abc123"}}))))
+    (is (.isPresent (.image (->content-block {:type :image
+                                              :source {:type :url
+                                                       :url "https://x/i.png"}})))))
+  (testing "document block, base64 / url / text sources"
+    (doseq [src [{:type :base64 :data "JVBER"}
+                 {:type :url :url "https://x/d.pdf"}
+                 {:type :text :data "plain text doc"}]]
+      (is (.isPresent (.document (->content-block {:type :document :source src}))))))
+  (testing "cache-control attaches to a text block"
+    (let [cb (->content-block {:type :text :text "cache me" :cache-control true})]
+      (is (.isPresent (.cacheControl (.get (.text cb)))))))
+  (testing "cache-control with a ttl"
+    (let [cb (->content-block {:type :text :text "x" :cache-control {:ttl :1h}})]
+      (is (.isPresent (.cacheControl (.get (.text cb))))))))
 
 (deftest structured-output-params
   (let [schema {:type "object"
@@ -240,6 +262,21 @@
       (is (some #(= id (:id %)) (a/list-batches c)))
       ;; batches run async; cancel the in-flight one rather than wait for results
       (is (= id (:id (a/cancel-batch c id)))))))
+
+(deftest ^:integration vision-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [png (str "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PQQkA"
+                   "AAgEsEty/aMYywi+hcEKLNO+FgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
+                   "AQEBAQEBAQEBAQEBAQEBAQGBywLKp0DxvxLbjwAAAABJRU5ErkJggg==")
+          resp (a/create-message
+                (a/client)
+                {:model "claude-haiku-4-5" :max-tokens 16
+                 :messages [{:role :user
+                             :content [{:type :image
+                                        :source {:type :base64 :media-type "image/png" :data png}}
+                                       {:type :text :text "Reply with the single word: ok"}]}]})]
+      (is (= :assistant (:role resp)))
+      (is (string? (:text (first (:content resp))))))))
 
 (deftest ^:integration structured-output-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")
