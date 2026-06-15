@@ -177,7 +177,6 @@
                                  {:model "claude-haiku-4-5"
                                   :max-tokens 16
                                   :temperature 0.0
-                                  :top-p 0.9
                                   :stop-sequences ["STOP"]
                                   :metadata {:user-id "test-user"}
                                   :messages [{:role :user :content "Reply with the single word: pong"}]})]
