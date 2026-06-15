@@ -33,13 +33,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.4.0"]
+[net.clojars.savya/anthropic-clj "0.5.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.4.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.5.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
@@ -91,6 +91,29 @@ with `:cache-control` to set a prompt-cache breakpoint.
                           :title "Paper"}
                          {:type :text :text "Summarize the paper and the image."
                           :cache-control true}]}]})  ; :cache-control {:ttl :1h} for 1-hour
+```
+
+### Server-side tools
+
+Enable Anthropic-hosted tools by `:type` (latest version of each is used). The
+model runs them server-side; the response content carries `:server-tool-use`
+blocks and typed result blocks (`:web-search-result`, `:code-execution-result`,
+…).
+
+```clojure
+(anthropic/create-message
+  client
+  {:max-tokens 1024
+   :tools [{:type :web-search :max-uses 3
+            :allowed-domains ["clojure.org"]        ; or :blocked-domains
+            :user-location {:city "Paris" :country "FR"}
+            :allowed-callers [:direct]}             ; some models need :direct
+           {:type :web-fetch :max-content-tokens 4096}
+           {:type :code-execution}
+           {:type :bash}
+           {:type :text-editor :max-characters 2000}
+           {:type :memory}]
+   :messages [{:role :user :content "Search the web for today's Clojure news."}]})
 ```
 
 ### Structured output
@@ -246,6 +269,9 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
   → `:parsed`, plus `:effort`)
 - **Content blocks** - text, `tool_use`/`tool_result`, **images** (base64/url),
   **documents/PDFs** (base64/url/text), and `:cache-control` breakpoints on any block
+- **Tools** - custom tools, plus **server-side tools** (web search, web fetch,
+  code execution, bash, text editor, memory), with `:server-tool-use` and typed
+  result blocks parsed back out
 - `count-tokens` - input-token count without sending
 - `stream-text` - incremental text deltas
 - `stream` - every normalized stream event (message + content-block lifecycle,
@@ -254,8 +280,8 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
 - Message Batches - `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
   `delete-batch`, `batch-results`
 - Files (beta) - `upload-file`, `get-file`, `list-files`, `download-file`, `delete-file`
-- Roadmap (0.5): server-side tools (web search, code execution, computer use);
-  later: `beta.messages` + `file_id` content, webhooks, the Managed Agents platform
+- Roadmap (0.6): `beta.messages` + `file_id` content, text citations, MCP
+  connectors; then webhooks, then the Managed Agents platform
 
 ## Tests
 

@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.5.0] - 2026-06-14
+
+### Added
+- Server-side tools by `:type` (latest version of each): `:web-search`,
+  `:web-fetch`, `:code-execution`, `:bash`, `:text-editor`, `:memory`, with
+  config (domains, max-uses, user-location, allowed-callers, max-characters,
+  max-content-tokens). `->tool` now returns a `ToolUnion`.
+- Response parsing for `:server-tool-use` and the server-tool result blocks
+  (web-search/web-fetch/code-execution/bash/text-editor/tool-search/
+  container-upload) plus `:redacted-thinking`.
+
 ## [0.4.0] - 2026-06-14
 
 ### Added
