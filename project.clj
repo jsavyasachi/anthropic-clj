@@ -4,7 +4,8 @@
   :license {:name "Eclipse Public License 2.0"
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.12.5"]
-                 [com.anthropic/anthropic-java "2.40.1"]]
+                 [com.anthropic/anthropic-java "2.40.1"]
+                 [metosin/jsonista "1.0.0"]]
   :global-vars {*warn-on-reflection* true}
   :deploy-repositories [["releases" {:url "https://repo.clojars.org"
                                      :username :env/clojars_username

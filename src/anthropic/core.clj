@@ -5,19 +5,23 @@
   Build a request as a Clojure map, get a Clojure map back. The client reads
   `ANTHROPIC_API_KEY` from the environment by default."
   (:require [clojure.string :as str]
-            [clojure.walk :as walk])
+            [clojure.walk :as walk]
+            [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.client.okhttp AnthropicOkHttpClient)
            (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.models ModelInfo ModelListPage)
-           (com.anthropic.models.messages ContentBlock ContentBlockParam Message
+           (com.anthropic.models.messages ContentBlock ContentBlockParam
+                                          JsonOutputFormat JsonOutputFormat$Schema
+                                          Message
                                           MessageCountTokensParams
                                           MessageCountTokensParams$Builder
                                           MessageCreateParams
                                           MessageCreateParams$Builder
                                           MessageCreateParams$ServiceTier
                                           MessageTokensCount Metadata Model
+                                          OutputConfig OutputConfig$Effort
                                           RawContentBlockDelta
                                           RawContentBlockDeltaEvent
                                           RawContentBlockStartEvent
@@ -97,6 +101,24 @@
 (defn- ->metadata ^Metadata [{:keys [user-id]}]
   (-> (Metadata/builder) (.userId ^String user-id) (.build)))
 
+(def ^:private json-mapper (json/object-mapper {:decode-key-fn true}))
+
+(defn- ->schema ^JsonOutputFormat$Schema [schema-map]
+  ;; The SDK models the JSON Schema as a free-form object, so each top-level
+  ;; schema key becomes a JsonValue-typed additional property.
+  (let [b (JsonOutputFormat$Schema/builder)]
+    (doseq [[k v] schema-map]
+      (.putAdditionalProperty b ^String (name k) (JsonValue/from (walk/stringify-keys v))))
+    (.build b)))
+
+(defn- ->output-config ^OutputConfig [schema effort]
+  (let [b (OutputConfig/builder)]
+    (when schema
+      (.format b (-> (JsonOutputFormat/builder) (.schema (->schema schema)) (.build))))
+    (when effort
+      (.effort b (OutputConfig$Effort/of (name effort))))
+    (.build b)))
+
 (defn- add-message [^MessageCreateParams$Builder b {:keys [role content]}]
   (let [r (keyword role)]
     (if (string? content)
@@ -112,7 +134,8 @@
   "Translate a request map into the SDK's MessageCreateParams."
   ^MessageCreateParams [{:keys [model max-tokens system messages tools
                                 temperature top-p top-k stop-sequences
-                                tool-choice thinking metadata service-tier]
+                                tool-choice thinking metadata service-tier
+                                response-format effort]
                          :or {model "claude-opus-4-8" max-tokens 1024}}]
   (let [b (doto (MessageCreateParams/builder)
             (.model (Model/of model))
@@ -126,6 +149,8 @@
     (when thinking (.thinking b (->thinking thinking)))
     (when metadata (.metadata b (->metadata metadata)))
     (when service-tier (.serviceTier b (->service-tier service-tier)))
+    (when (or response-format effort)
+      (.outputConfig b (->output-config response-format effort)))
     (doseq [t tools] (.addTool b (->tool t)))
     (doseq [m messages] (add-message b m))
     (.build b)))
@@ -199,6 +224,12 @@
      :content (mapv block->map (.content m))
      :usage (usage->map (.usage m))}))
 
+(defn- parse-text
+  "Decode the first text block of a response map as JSON (keyword keys), or nil."
+  [resp]
+  (when-let [t (->> (:content resp) (filter #(= :text (:type %))) first :text)]
+    (json/read-value t json-mapper)))
+
 (defn create-message
   "Send a Messages request and return the response as a Clojure map.
 
@@ -209,12 +240,17 @@
   strings), `:tool-choice` (`:auto`/`:any`/`:none` or `{:type :tool :name \"x\"}`),
   `:thinking` (`{:type :enabled :budget-tokens N}` / `{:type :adaptive}` /
   `{:type :disabled}`), `:metadata` (`{:user-id \"...\"}`), and `:service-tier`
-  (`:auto`/`:standard-only`). Returns
+  (`:auto`/`:standard-only`). For structured output, pass `:response-format` (a
+  JSON Schema map) and/or `:effort` (`:low`…`:max`); when `:response-format` is
+  set the returned map also carries `:parsed`, the response text decoded as a
+  Clojure map. Returns
   `{:id :model :role :stop-reason :content [...] :usage {...}}`."
   [^AnthropicClient client req]
-  (-> (.messages client)
-      (.create (->params req))
-      (message->map)))
+  (let [resp (-> (.messages client)
+                 (.create (->params req))
+                 (message->map))]
+    (cond-> resp
+      (:response-format req) (assoc :parsed (parse-text resp)))))
 
 (defn count-tokens
   "Count the input tokens a request would use, without sending it. Takes the same

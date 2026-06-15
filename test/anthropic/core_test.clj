@@ -12,13 +12,14 @@
                                           RawMessageStreamEvent
                                           InputJsonDelta TextDelta ThinkingDelta
                                           DirectCaller ToolUseBlock ToolUseBlock$Caller
-                                          Usage Usage$Builder)
+                                          OutputConfig Usage Usage$Builder)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)))
 
 (def ->params #'a/->params)
 (def usage->map #'a/usage->map)
 (def event->map #'a/event->map)
 (def model->map #'a/model->map)
+(def parse-text #'a/parse-text)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -76,6 +77,33 @@
       (.cacheCreationInputTokens ^java.util.Optional (if cc (java.util.Optional/of (long cc)) empty-opt))
       (.cacheReadInputTokens ^java.util.Optional (if cr (java.util.Optional/of (long cr)) empty-opt)))
     (.build b)))
+
+(deftest structured-output-params
+  (let [schema {:type "object"
+                :properties {:answer {:type "string"}}
+                :required ["answer"]}]
+    (testing ":response-format sets output_config.format"
+      (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                              :response-format schema})
+            oc ^OutputConfig (opt (.outputConfig p))]
+        (is (some? oc))
+        (is (.isPresent (.format oc)))))
+    (testing ":effort sets output_config.effort"
+      (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                              :effort :low})
+            oc ^OutputConfig (opt (.outputConfig p))]
+        (is (some? oc))
+        (is (.isPresent (.effort oc)))))
+    (testing "no structured keys -> no output_config"
+      (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]})]
+        (is (not (.isPresent (.outputConfig p))))))))
+
+(deftest structured-parse
+  (testing "parse-text decodes the first text block as JSON with keyword keys"
+    (is (= {:answer "blue" :n 7}
+           (parse-text {:content [{:type :text :text "{\"answer\":\"blue\",\"n\":7}"}]}))))
+  (testing "no text block -> nil"
+    (is (nil? (parse-text {:content [{:type :tool-use :id "x" :name "y" :input {}}]})))))
 
 (deftest usage-cache-tokens
   (testing "cache tokens surface when present"
@@ -182,6 +210,19 @@
       (is (every? (comp string? :id) ms))
       (let [id (:id (first ms))]
         (is (= id (:id (a/get-model c id))))))))
+
+(deftest ^:integration structured-output-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [resp (a/create-message (a/client)
+                                 {:model "claude-haiku-4-5" :max-tokens 256
+                                  :response-format {:type "object"
+                                                    :properties {:capital {:type "string"}}
+                                                    :required ["capital"]
+                                                    :additionalProperties false}
+                                  :messages [{:role :user
+                                              :content "What is the capital of France?"}]})]
+      (is (map? (:parsed resp)))
+      (is (string? (get-in resp [:parsed :capital]))))))
 
 (deftest ^:integration count-tokens-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")
