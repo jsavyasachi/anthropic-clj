@@ -29,6 +29,7 @@
                                           Base64PdfSource
                                           CacheControlEphemeral
                                           CacheControlEphemeral$Ttl
+                                          CodeExecutionTool20260120
                                           ContentBlock ContentBlockParam
                                           DocumentBlockParam DocumentBlockParam$Source
                                           ImageBlockParam ImageBlockParam$Source
@@ -53,12 +54,20 @@
                                           ThinkingConfigDisabled
                                           ThinkingConfigEnabled
                                           ThinkingConfigParam ThinkingDelta
-                                          Tool Tool$InputSchema ToolChoice
+                                          Tool Tool$InputSchema ToolBash20250124
+                                          ToolChoice
                                           ToolChoiceAny ToolChoiceAuto
                                           ToolChoiceNone ToolChoiceTool
-                                          ToolResultBlockParam ToolUseBlock
+                                          ToolResultBlockParam ToolTextEditor20250728
+                                          ToolUnion ToolUseBlock
                                           ToolUseBlockParam
+                                          MemoryTool20250818
                                           PlainTextSource UrlImageSource UrlPdfSource
+                                          UserLocation
+                                          WebSearchTool20260209
+                                          WebSearchTool20260209$AllowedCaller
+                                          WebFetchTool20260309
+                                          WebFetchTool20260309$AllowedCaller
                                           Usage)))
 
 (defn client
@@ -73,7 +82,7 @@
 (defn- ->json ^JsonValue [m]
   (JsonValue/from (walk/stringify-keys m)))
 
-(defn- ->tool ^Tool [{:keys [name description input-schema]}]
+(defn- ->custom-tool ^Tool [{:keys [name description input-schema]}]
   (let [required (:required input-schema)
         isb (Tool$InputSchema/builder)
         tb (Tool/builder)]
@@ -83,6 +92,59 @@
     (.inputSchema tb (.build isb))
     (when description (.description tb ^String description))
     (.build tb)))
+
+(defn- ->user-location ^UserLocation [{:keys [city region country timezone]}]
+  (let [b (UserLocation/builder)]
+    (when city (.city b ^String city))
+    (when region (.region b ^String region))
+    (when country (.country b ^String country))
+    (when timezone (.timezone b ^String timezone))
+    (.build b)))
+
+(def ^:private server-tool-types
+  #{:web-search :web-fetch :code-execution :bash :text-editor :memory})
+
+(defn- ->server-tool
+  "Map a server-side tool spec (latest version of each) to a ToolUnion."
+  ^ToolUnion [{:keys [type max-uses allowed-domains blocked-domains user-location
+                      max-content-tokens max-characters allowed-callers]}]
+  (case (keyword type)
+    :web-search (ToolUnion/ofWebSearchTool20260209
+                 (let [b (WebSearchTool20260209/builder)]
+                   (when max-uses (.maxUses b (long max-uses)))
+                   (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+                   (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+                   (when user-location (.userLocation b (->user-location user-location)))
+                   (doseq [c allowed-callers]
+                     (.addAllowedCaller b (WebSearchTool20260209$AllowedCaller/of (name c))))
+                   (.build b)))
+    :web-fetch (ToolUnion/ofWebFetchTool20260309
+                (let [b (WebFetchTool20260309/builder)]
+                  (when max-uses (.maxUses b (long max-uses)))
+                  (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
+                  (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+                  (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+                  (doseq [c allowed-callers]
+                    (.addAllowedCaller b (WebFetchTool20260309$AllowedCaller/of (name c))))
+                  (.build b)))
+    :code-execution (ToolUnion/ofCodeExecutionTool20260120 (.build (CodeExecutionTool20260120/builder)))
+    :bash (ToolUnion/ofBash20250124 (.build (ToolBash20250124/builder)))
+    :text-editor (ToolUnion/ofTextEditor20250728
+                  (let [b (ToolTextEditor20250728/builder)]
+                    (when max-characters (.maxCharacters b (long max-characters)))
+                    (.build b)))
+    :memory (ToolUnion/ofMemoryTool20250818 (.build (MemoryTool20250818/builder)))))
+
+(defn- server-tool? [t] (contains? server-tool-types (keyword (:type t))))
+
+(defn- ->tool
+  "A tool spec -> ToolUnion. Custom tools are `{:name :description :input-schema}`;
+  server tools are `{:type :web-search|:web-fetch|:code-execution|:bash|
+  :text-editor|:memory ...}`."
+  ^ToolUnion [t]
+  (if (server-tool? t)
+    (->server-tool t)
+    (ToolUnion/ofTool (->custom-tool t))))
 
 (defn- ->cache-control ^CacheControlEphemeral [cc]
   ;; `cc` may be `true`/`:ephemeral` (default 5m) or `{:ttl :5m|:1h}`.
@@ -236,7 +298,8 @@
     (when system (.system b ^String system))
     (when thinking (.thinking b (->thinking thinking)))
     (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
-    (doseq [t tools] (.addTool b (->tool t)))
+    ;; count-tokens uses a distinct tool union; support custom tools only here.
+    (doseq [t tools :when (not (server-tool? t))] (.addTool b (->custom-tool t)))
     (doseq [m messages] (add-count-message b m))
     (.build b)))
 

@@ -26,6 +26,7 @@
 (def parse-text #'a/parse-text)
 (def ->batch-request #'a/->batch-request)
 (def ->content-block #'a/->content-block)
+(def ->tool #'a/->tool)
 (def file->map #'a/file->map)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
@@ -84,6 +85,19 @@
       (.cacheCreationInputTokens ^java.util.Optional (if cc (java.util.Optional/of (long cc)) empty-opt))
       (.cacheReadInputTokens ^java.util.Optional (if cr (java.util.Optional/of (long cr)) empty-opt)))
     (.build b)))
+
+(deftest server-tools
+  (testing "each server-tool spec maps to the right ToolUnion variant"
+    (is (.isPresent (.webSearchTool20260209 (->tool {:type :web-search :max-uses 3
+                                                     :allowed-domains ["clojure.org"]}))))
+    (is (.isPresent (.webFetchTool20260309 (->tool {:type :web-fetch}))))
+    (is (.isPresent (.codeExecutionTool20260120 (->tool {:type :code-execution}))))
+    (is (.isPresent (.bash20250124 (->tool {:type :bash}))))
+    (is (.isPresent (.textEditor20250728 (->tool {:type :text-editor :max-characters 1000}))))
+    (is (.isPresent (.memoryTool20250818 (->tool {:type :memory})))))
+  (testing "a custom tool maps to ofTool"
+    (is (.isPresent (.tool (->tool {:name "x"
+                                    :input-schema {:type "object" :properties {}}}))))))
 
 (deftest content-blocks
   (testing "image block, base64 and url sources"
@@ -278,6 +292,17 @@
       (is (some #(= id (:id %)) (a/list-batches c)))
       ;; batches run async; cancel the in-flight one rather than wait for results
       (is (= id (:id (a/cancel-batch c id)))))))
+
+(deftest ^:integration web-search-roundtrip
+  (when (System/getenv "ANTHROPIC_API_KEY")
+    (let [resp (a/create-message
+                (a/client)
+                {:model "claude-haiku-4-5" :max-tokens 512
+                 :tools [{:type :web-search :max-uses 2 :allowed-callers [:direct]}]
+                 :messages [{:role :user
+                             :content "Search the web: what is the latest stable Clojure version?"}]})]
+      (is (= :assistant (:role resp)))
+      (is (some #(= :text (:type %)) (:content resp))))))
 
 (deftest ^:integration files-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")
