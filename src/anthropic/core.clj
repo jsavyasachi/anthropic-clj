@@ -34,7 +34,8 @@
                                           CitationPageLocation
                                           CitationsSearchResultLocation
                                           CitationsWebSearchResultLocation
-                                          CodeExecutionTool20260120
+                                          CodeExecutionTool20260521
+                                          CodeExecutionTool20260521$AllowedCaller
                                           ContentBlock ContentBlockParam
                                           DocumentBlockParam DocumentBlockParam$Source
                                           ImageBlockParam ImageBlockParam$Source
@@ -134,7 +135,11 @@
                   (doseq [c allowed-callers]
                     (.addAllowedCaller b (WebFetchTool20260309$AllowedCaller/of (name c))))
                   (.build b)))
-    :code-execution (ToolUnion/ofCodeExecutionTool20260120 (.build (CodeExecutionTool20260120/builder)))
+    :code-execution (ToolUnion/ofCodeExecutionTool20260521
+                     (let [b (CodeExecutionTool20260521/builder)]
+                       (doseq [c allowed-callers]
+                         (.addAllowedCaller b (CodeExecutionTool20260521$AllowedCaller/of (name c))))
+                       (.build b)))
     :bash (ToolUnion/ofBash20250124 (.build (ToolBash20250124/builder)))
     :text-editor (ToolUnion/ofTextEditor20250728
                   (let [b (ToolTextEditor20250728/builder)]

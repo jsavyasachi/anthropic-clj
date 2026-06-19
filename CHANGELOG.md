@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.1] - 2026-06-18
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.40.1 -> 2.42.0.
+- `:code-execution` now maps to the newest `code_execution_20260521` tool,
+  which adds `:allowed-callers` support (the older `20260120` had none).
+
 ## [0.6.0] - 2026-06-14
 
 ### Added

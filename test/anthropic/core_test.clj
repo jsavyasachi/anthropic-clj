@@ -91,10 +91,16 @@
     (is (.isPresent (.webSearchTool20260209 (->tool {:type :web-search :max-uses 3
                                                      :allowed-domains ["clojure.org"]}))))
     (is (.isPresent (.webFetchTool20260309 (->tool {:type :web-fetch}))))
-    (is (.isPresent (.codeExecutionTool20260120 (->tool {:type :code-execution}))))
+    (is (.isPresent (.codeExecutionTool20260521 (->tool {:type :code-execution}))))
     (is (.isPresent (.bash20250124 (->tool {:type :bash}))))
     (is (.isPresent (.textEditor20250728 (->tool {:type :text-editor :max-characters 1000}))))
     (is (.isPresent (.memoryTool20250818 (->tool {:type :memory})))))
+  (testing "code-execution carries allowed-callers"
+    (let [ce (.get (.codeExecutionTool20260521
+                    (->tool {:type :code-execution :allowed-callers [:direct]})))
+          callers (.get (.allowedCallers ce))]
+      (is (= 1 (count callers)))
+      (is (= "direct" (str (first callers))))))
   (testing "a custom tool maps to ofTool"
     (is (.isPresent (.tool (->tool {:name "x"
                                     :input-schema {:type "object" :properties {}}}))))))
