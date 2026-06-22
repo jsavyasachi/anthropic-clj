@@ -1,10 +1,10 @@
-(defproject net.clojars.savya/anthropic-clj "0.6.1"
+(defproject net.clojars.savya/anthropic-clj "0.6.2"
   :description "Idiomatic Clojure wrapper over the official Anthropic Java SDK"
   :url "https://github.com/jsavyasachi/anthropic-clj"
   :license {:name "Eclipse Public License 2.0"
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.12.5"]
-                 [com.anthropic/anthropic-java "2.42.0"]
+                 [com.anthropic/anthropic-java "2.43.0"]
                  [metosin/jsonista "1.0.0"]]
   :global-vars {*warn-on-reflection* true}
   :deploy-repositories [["releases" {:url "https://repo.clojars.org"

@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.2] - 2026-06-22
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.42.0 -> 2.43.0. Internal SDK changes only
+  (x-stainless telemetry header + refusal-fallback interceptor tagging); no change
+  to the wrapper's public surface, and the newest server-side tool versions are
+  unchanged.
+
 ## [0.6.1] - 2026-06-18
 
 ### Changed
