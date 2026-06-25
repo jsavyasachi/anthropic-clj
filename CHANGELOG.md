@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.3] - 2026-06-24
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.43.0 -> 2.44.0. Additive SDK changes only
+  (`system.message` streaming events, a new refusal category, and a User-Profile-ID
+  request header); no change to the wrapper's public surface, and the newest
+  server-side tool versions are unchanged.
+
 ## [0.6.2] - 2026-06-22
 
 ### Changed
