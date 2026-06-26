@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.4] - 2026-06-26
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.44.0 -> 2.44.1. SDK bug-fix release only
+  (Bedrock SSE transcoding uses daemon threads, a skill-creation fix, and token
+  counting now accepts a User-Profile-ID); no change to the wrapper's public surface,
+  and the newest server-side tool versions are unchanged.
+
 ## [0.6.3] - 2026-06-24
 
 ### Changed
