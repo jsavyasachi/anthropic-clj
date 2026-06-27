@@ -3,7 +3,6 @@
 [![Clojars Project](https://img.shields.io/clojars/v/net.clojars.savya/anthropic-clj.svg)](https://clojars.org/net.clojars.savya/anthropic-clj)
 [![cljdoc](https://cljdoc.org/badge/net.clojars.savya/anthropic-clj)](https://cljdoc.org/d/net.clojars.savya/anthropic-clj)
 [![test](https://github.com/jsavyasachi/anthropic-clj/actions/workflows/test.yml/badge.svg)](https://github.com/jsavyasachi/anthropic-clj/actions/workflows/test.yml)
-[![Renovate](https://img.shields.io/badge/Renovate-enabled-1A1F6C?style=flat&logo=renovate&logoColor=fff)](https://github.com/jsavyasachi/anthropic-clj/issues?q=is%3Aissue+Dependency+Dashboard)
 
 An idiomatic Clojure wrapper over the **official** Anthropic Java SDK
 ([`com.anthropic/anthropic-java`](https://github.com/anthropics/anthropic-sdk-java)).
