@@ -7,10 +7,10 @@
                  [com.anthropic/anthropic-java "2.45.0"]
                  [metosin/jsonista "1.0.0"]]
   :global-vars {*warn-on-reflection* true}
-  :deploy-repositories [["releases" {:url "https://repo.clojars.org"
-                                     :username :env/clojars_username
-                                     :password :env/clojars_password
-                                     :sign-releases false}]]
+  :deploy-repositories [["clojars" {:url "https://repo.clojars.org"
+                                    :username :env/clojars_username
+                                    :password :env/clojars_password
+                                    :sign-releases false}]]
   :test-selectors {:default (complement :integration)
                    :integration :integration
                    :all (constantly true)}
