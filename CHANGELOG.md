@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.5] - 2026-06-29
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.44.1 -> 2.45.0. The wrapper now targets
+  the newest server-side tool versions: web search `20260209 -> 20260318` and
+  web fetch `20260309 -> 20260318`. The Clojure tool spec (`{:type :web-search}`
+  / `{:type :web-fetch}`) is unchanged.
+
 ## [0.6.4] - 2026-06-26
 
 ### Changed

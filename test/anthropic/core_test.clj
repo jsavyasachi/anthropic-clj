@@ -88,9 +88,9 @@
 
 (deftest server-tools
   (testing "each server-tool spec maps to the right ToolUnion variant"
-    (is (.isPresent (.webSearchTool20260209 (->tool {:type :web-search :max-uses 3
+    (is (.isPresent (.webSearchTool20260318 (->tool {:type :web-search :max-uses 3
                                                      :allowed-domains ["clojure.org"]}))))
-    (is (.isPresent (.webFetchTool20260309 (->tool {:type :web-fetch}))))
+    (is (.isPresent (.webFetchTool20260318 (->tool {:type :web-fetch}))))
     (is (.isPresent (.codeExecutionTool20260521 (->tool {:type :code-execution}))))
     (is (.isPresent (.bash20250124 (->tool {:type :bash}))))
     (is (.isPresent (.textEditor20250728 (->tool {:type :text-editor :max-characters 1000}))))

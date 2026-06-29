@@ -72,10 +72,10 @@
                                           MemoryTool20250818
                                           PlainTextSource UrlImageSource UrlPdfSource
                                           UserLocation
-                                          WebSearchTool20260209
-                                          WebSearchTool20260209$AllowedCaller
-                                          WebFetchTool20260309
-                                          WebFetchTool20260309$AllowedCaller
+                                          WebSearchTool20260318
+                                          WebSearchTool20260318$AllowedCaller
+                                          WebFetchTool20260318
+                                          WebFetchTool20260318$AllowedCaller
                                           Usage)))
 
 (defn client
@@ -117,23 +117,23 @@
   ^ToolUnion [{:keys [type max-uses allowed-domains blocked-domains user-location
                       max-content-tokens max-characters allowed-callers]}]
   (case (keyword type)
-    :web-search (ToolUnion/ofWebSearchTool20260209
-                 (let [b (WebSearchTool20260209/builder)]
+    :web-search (ToolUnion/ofWebSearchTool20260318
+                 (let [b (WebSearchTool20260318/builder)]
                    (when max-uses (.maxUses b (long max-uses)))
                    (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
                    (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
                    (when user-location (.userLocation b (->user-location user-location)))
                    (doseq [c allowed-callers]
-                     (.addAllowedCaller b (WebSearchTool20260209$AllowedCaller/of (name c))))
+                     (.addAllowedCaller b (WebSearchTool20260318$AllowedCaller/of (name c))))
                    (.build b)))
-    :web-fetch (ToolUnion/ofWebFetchTool20260309
-                (let [b (WebFetchTool20260309/builder)]
+    :web-fetch (ToolUnion/ofWebFetchTool20260318
+                (let [b (WebFetchTool20260318/builder)]
                   (when max-uses (.maxUses b (long max-uses)))
                   (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
                   (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
                   (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
                   (doseq [c allowed-callers]
-                    (.addAllowedCaller b (WebFetchTool20260309$AllowedCaller/of (name c))))
+                    (.addAllowedCaller b (WebFetchTool20260318$AllowedCaller/of (name c))))
                   (.build b)))
     :code-execution (ToolUnion/ofCodeExecutionTool20260521
                      (let [b (CodeExecutionTool20260521/builder)]
