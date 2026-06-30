@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.6] - 2026-06-30
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.45.0 -> 2.47.0. Purely additive on the
+  wrapper's surface: SDK 2.46.0 adds the `claude-sonnet-5` model id (already
+  usable today since `:model` is passed through as a plain string), and 2.47.0
+  adds a new Managed Agents / Webhooks beta API surface (sessions, deployments,
+  environments, memory stores) that this wrapper does not expose yet.
+
 ## [0.6.5] - 2026-06-29
 
 ### Changed
