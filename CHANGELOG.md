@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.7] - 2026-07-02
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.47.0 -> 2.47.1. SDK patch release
+  removing an unused `MILITARY_WEAPONS` refusal-category enum value; this
+  wrapper doesn't touch refusal types, so no code change.
+
 ## [0.6.6] - 2026-06-30
 
 ### Changed
