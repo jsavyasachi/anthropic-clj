@@ -43,6 +43,8 @@ net.clojars.savya/anthropic-clj {:mvn/version "0.6.7"}
 
 Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
 
+Tracks [`com.anthropic/anthropic-java` 2.47.1](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.47.1) - see `CHANGELOG.md` for the bump history.
+
 ## Usage
 
 ```clojure
