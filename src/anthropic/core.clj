@@ -11,6 +11,7 @@
            (com.anthropic.client.okhttp AnthropicOkHttpClient)
            (com.anthropic.core JsonValue)
            (com.anthropic.core.http HttpResponse StreamResponse)
+           (java.time Duration)
            (com.anthropic.models.beta.files DeletedFile FileListPage FileMetadata
                                             FileUploadParams)
            (com.anthropic.models.models ModelInfo ModelListPage)
@@ -36,11 +37,13 @@
                                           CitationsWebSearchResultLocation
                                           CodeExecutionTool20260521
                                           CodeExecutionTool20260521$AllowedCaller
+                                          Container
                                           ContentBlock ContentBlockParam
                                           DocumentBlockParam DocumentBlockParam$Source
                                           ImageBlockParam ImageBlockParam$Source
                                           JsonOutputFormat JsonOutputFormat$Schema
                                           Message
+                                          MessageCountTokensTool
                                           MessageCountTokensParams
                                           MessageCountTokensParams$Builder
                                           MessageCreateParams
@@ -66,11 +69,15 @@
                                           ToolChoiceAny ToolChoiceAuto
                                           ToolChoiceNone ToolChoiceTool
                                           ServerToolUseBlock
-                                          ToolResultBlockParam ToolTextEditor20250728
+                                          ToolResultBlockParam ToolResultBlockParam$Builder
+                                          ToolTextEditor20250728
                                           ToolUnion ToolUseBlock
                                           ToolUseBlockParam
                                           MemoryTool20250818
                                           PlainTextSource UrlImageSource UrlPdfSource
+                                          RefusalStopDetails
+                                          CacheCreation OutputTokensDetails
+                                          ServerToolUsage
                                           UserLocation
                                           WebSearchTool20260318
                                           WebSearchTool20260318$AllowedCaller
@@ -80,12 +87,18 @@
 
 (defn client
   "An Anthropic client. With no args, resolves credentials from the environment
-  (`ANTHROPIC_API_KEY`). Pass `{:api-key \"...\"}` to set the key explicitly."
+  (`ANTHROPIC_API_KEY`). With a map, accepts optional `:api-key`, `:auth-token`,
+  `:base-url`, `:timeout-ms`, and `:max-retries`; only supplied keys are set on
+  the SDK builder."
   (^AnthropicClient [] (AnthropicOkHttpClient/fromEnv))
-  (^AnthropicClient [{:keys [api-key]}]
-   (-> (AnthropicOkHttpClient/builder)
-       (.apiKey ^String api-key)
-       (.build))))
+  (^AnthropicClient [{:keys [api-key auth-token base-url timeout-ms max-retries]}]
+   (let [b (AnthropicOkHttpClient/builder)]
+     (when api-key (.apiKey b ^String api-key))
+     (when auth-token (.authToken b ^String auth-token))
+     (when base-url (.baseUrl b ^String base-url))
+     (when timeout-ms (.timeout b (Duration/ofMillis (long timeout-ms))))
+     (when max-retries (.maxRetries b (int max-retries)))
+     (.build b))))
 
 (defn- ->json ^JsonValue [m]
   (JsonValue/from (walk/stringify-keys m)))
@@ -112,40 +125,67 @@
 (def ^:private server-tool-types
   #{:web-search :web-fetch :code-execution :bash :text-editor :memory})
 
+(defn- ->web-search-tool ^WebSearchTool20260318
+  [{:keys [max-uses allowed-domains blocked-domains user-location allowed-callers]}]
+  (let [b (WebSearchTool20260318/builder)]
+    (when max-uses (.maxUses b (long max-uses)))
+    (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+    (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+    (when user-location (.userLocation b (->user-location user-location)))
+    (doseq [c allowed-callers]
+      (.addAllowedCaller b (WebSearchTool20260318$AllowedCaller/of (name c))))
+    (.build b)))
+
+(defn- ->web-fetch-tool ^WebFetchTool20260318
+  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains allowed-callers]}]
+  (let [b (WebFetchTool20260318/builder)]
+    (when max-uses (.maxUses b (long max-uses)))
+    (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
+    (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+    (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+    (doseq [c allowed-callers]
+      (.addAllowedCaller b (WebFetchTool20260318$AllowedCaller/of (name c))))
+    (.build b)))
+
+(defn- ->code-execution-tool ^CodeExecutionTool20260521
+  [{:keys [allowed-callers]}]
+  (let [b (CodeExecutionTool20260521/builder)]
+    (doseq [c allowed-callers]
+      (.addAllowedCaller b (CodeExecutionTool20260521$AllowedCaller/of (name c))))
+    (.build b)))
+
+(defn- ->bash-tool ^ToolBash20250124 [_]
+  (.build (ToolBash20250124/builder)))
+
+(defn- ->text-editor-tool ^ToolTextEditor20250728
+  [{:keys [max-characters]}]
+  (let [b (ToolTextEditor20250728/builder)]
+    (when max-characters (.maxCharacters b (long max-characters)))
+    (.build b)))
+
+(defn- ->memory-tool ^MemoryTool20250818 [_]
+  (.build (MemoryTool20250818/builder)))
+
 (defn- ->server-tool
   "Map a server-side tool spec (latest version of each) to a ToolUnion."
-  ^ToolUnion [{:keys [type max-uses allowed-domains blocked-domains user-location
-                      max-content-tokens max-characters allowed-callers]}]
+  ^ToolUnion [{:keys [type] :as t}]
   (case (keyword type)
-    :web-search (ToolUnion/ofWebSearchTool20260318
-                 (let [b (WebSearchTool20260318/builder)]
-                   (when max-uses (.maxUses b (long max-uses)))
-                   (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
-                   (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
-                   (when user-location (.userLocation b (->user-location user-location)))
-                   (doseq [c allowed-callers]
-                     (.addAllowedCaller b (WebSearchTool20260318$AllowedCaller/of (name c))))
-                   (.build b)))
-    :web-fetch (ToolUnion/ofWebFetchTool20260318
-                (let [b (WebFetchTool20260318/builder)]
-                  (when max-uses (.maxUses b (long max-uses)))
-                  (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
-                  (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
-                  (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
-                  (doseq [c allowed-callers]
-                    (.addAllowedCaller b (WebFetchTool20260318$AllowedCaller/of (name c))))
-                  (.build b)))
-    :code-execution (ToolUnion/ofCodeExecutionTool20260521
-                     (let [b (CodeExecutionTool20260521/builder)]
-                       (doseq [c allowed-callers]
-                         (.addAllowedCaller b (CodeExecutionTool20260521$AllowedCaller/of (name c))))
-                       (.build b)))
-    :bash (ToolUnion/ofBash20250124 (.build (ToolBash20250124/builder)))
-    :text-editor (ToolUnion/ofTextEditor20250728
-                  (let [b (ToolTextEditor20250728/builder)]
-                    (when max-characters (.maxCharacters b (long max-characters)))
-                    (.build b)))
-    :memory (ToolUnion/ofMemoryTool20250818 (.build (MemoryTool20250818/builder)))))
+    :web-search (ToolUnion/ofWebSearchTool20260318 (->web-search-tool t))
+    :web-fetch (ToolUnion/ofWebFetchTool20260318 (->web-fetch-tool t))
+    :code-execution (ToolUnion/ofCodeExecutionTool20260521 (->code-execution-tool t))
+    :bash (ToolUnion/ofBash20250124 (->bash-tool t))
+    :text-editor (ToolUnion/ofTextEditor20250728 (->text-editor-tool t))
+    :memory (ToolUnion/ofMemoryTool20250818 (->memory-tool t))))
+
+(defn- ->count-tool ^MessageCountTokensTool [{:keys [type] :as t}]
+  (case (keyword type)
+    :web-search (MessageCountTokensTool/ofWebSearchTool20260318 (->web-search-tool t))
+    :web-fetch (MessageCountTokensTool/ofWebFetchTool20260318 (->web-fetch-tool t))
+    :code-execution (MessageCountTokensTool/ofCodeExecutionTool20260521 (->code-execution-tool t))
+    :bash (MessageCountTokensTool/ofToolBash20250124 (->bash-tool t))
+    :text-editor (MessageCountTokensTool/ofToolTextEditor20250728 (->text-editor-tool t))
+    :memory (MessageCountTokensTool/ofMemoryTool20250818 (->memory-tool t))
+    (MessageCountTokensTool/ofTool (->custom-tool t))))
 
 (defn- server-tool? [t] (contains? server-tool-types (keyword (:type t))))
 
@@ -199,10 +239,13 @@
                 (when (:context blk) (.context b ^String (:context blk)))
                 (when cache-control (.cacheControl b (->cache-control cache-control)))
                 (ContentBlockParam/ofDocument (.build b)))
-    :tool-result (let [b (-> (ToolResultBlockParam/builder)
-                             (.toolUseId ^String (:tool-use-id blk))
-                             (.content ^String (str (:content blk))))]
-                   (when cache-control (.cacheControl b (->cache-control cache-control)))
+    :tool-result (let [^String content-str (if (string? (:content blk))
+                                             (:content blk)
+                                             (json/write-value-as-string (:content blk)))
+                       b ^ToolResultBlockParam$Builder (ToolResultBlockParam/builder)]
+                   (.toolUseId ^ToolResultBlockParam$Builder b ^String (:tool-use-id blk))
+                   (.content ^ToolResultBlockParam$Builder b content-str)
+                   (when cache-control (.cacheControl ^ToolResultBlockParam$Builder b (->cache-control cache-control)))
                    (ContentBlockParam/ofToolResult (.build b)))
     :tool-use (let [b (-> (ToolUseBlockParam/builder)
                           (.id ^String (:id blk))
@@ -267,7 +310,8 @@
   ^MessageCreateParams [{:keys [model max-tokens system messages tools
                                 temperature top-p top-k stop-sequences
                                 tool-choice thinking metadata service-tier
-                                response-format effort]
+                                response-format effort container inference-geo
+                                user-profile-id cache-control]
                          :or {model "claude-opus-4-8" max-tokens 1024}}]
   (let [b (doto (MessageCreateParams/builder)
             (.model (Model/of model))
@@ -281,6 +325,10 @@
     (when thinking (.thinking b (->thinking thinking)))
     (when metadata (.metadata b (->metadata metadata)))
     (when service-tier (.serviceTier b (->service-tier service-tier)))
+    (when container (.container b ^String container))
+    (when inference-geo (.inferenceGeo b ^String inference-geo))
+    (when user-profile-id (.userProfileId b ^String user-profile-id))
+    (when cache-control (.cacheControl b (->cache-control cache-control)))
     (when (or response-format effort)
       (.outputConfig b (->output-config response-format effort)))
     (doseq [t tools] (.addTool b (->tool t)))
@@ -303,15 +351,20 @@
   same `:model`/`:system`/`:messages`/`:tools`/`:thinking`/`:tool-choice` keys as
   `->params`; `:max-tokens` and sampling params are ignored (not part of the
   count-tokens request)."
-  ^MessageCountTokensParams [{:keys [model system messages tools thinking tool-choice]
+  ^MessageCountTokensParams [{:keys [model system messages tools thinking tool-choice
+                                     response-format effort user-profile-id
+                                     cache-control]
                               :or {model "claude-opus-4-8"}}]
   (let [b (doto (MessageCountTokensParams/builder)
             (.model (Model/of model)))]
     (when system (.system b ^String system))
     (when thinking (.thinking b (->thinking thinking)))
     (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
-    ;; count-tokens uses a distinct tool union; support custom tools only here.
-    (doseq [t tools :when (not (server-tool? t))] (.addTool b (->custom-tool t)))
+    (when user-profile-id (.userProfileId b ^String user-profile-id))
+    (when cache-control (.cacheControl b (->cache-control cache-control)))
+    (when (or response-format effort)
+      (.outputConfig b (->output-config response-format effort)))
+    (doseq [t tools] (.addTool b (->count-tool t)))
     (doseq [m messages] (add-count-message b m))
     (.build b)))
 
@@ -325,6 +378,9 @@
 
 (defn- json->clj [^JsonValue jv]
   (java->clj (.convert jv java.lang.Object)))
+
+(defn- ->keyword [x]
+  (-> x str str/lower-case (str/replace "_" "-") keyword))
 
 (defn- citation->map [^TextCitation c]
   (let [cl (.charLocation c)
@@ -406,25 +462,60 @@
       (.isPresent (.redactedThinking b)) {:type :redacted-thinking}
       :else {:type :other})))
 
+(defn- cache-creation->map [^CacheCreation c]
+  {:ephemeral-1h-input-tokens (.ephemeral1hInputTokens c)
+   :ephemeral-5m-input-tokens (.ephemeral5mInputTokens c)})
+
+(defn- output-tokens-details->map [^OutputTokensDetails d]
+  {:thinking-tokens (.thinkingTokens d)})
+
+(defn- server-tool-usage->map [^ServerToolUsage s]
+  {:web-fetch-requests (.webFetchRequests s)
+   :web-search-requests (.webSearchRequests s)})
+
 (defn- usage->map [^Usage u]
-  (let [cc (.cacheCreationInputTokens u)
-        cr (.cacheReadInputTokens u)]
+  (let [ccit (.cacheCreationInputTokens u)
+        crit (.cacheReadInputTokens u)
+        stu (.serverToolUse u)
+        st (.serviceTier u)
+        cc (.cacheCreation u)
+        ig (.inferenceGeo u)
+        otd (.outputTokensDetails u)]
     (cond-> {:input-tokens (.inputTokens u)
              :output-tokens (.outputTokens u)}
-      (.isPresent cc) (assoc :cache-creation-input-tokens (.get cc))
-      (.isPresent cr) (assoc :cache-read-input-tokens (.get cr)))))
+      (.isPresent ccit) (assoc :cache-creation-input-tokens (.get ccit))
+      (.isPresent crit) (assoc :cache-read-input-tokens (.get crit))
+      (.isPresent stu) (assoc :server-tool-use (server-tool-usage->map (.get stu)))
+      (.isPresent st) (assoc :service-tier (->keyword (.get st)))
+      (.isPresent cc) (assoc :cache-creation (cache-creation->map (.get cc)))
+      (.isPresent ig) (assoc :inference-geo (.get ig))
+      (.isPresent otd) (assoc :output-tokens-details (output-tokens-details->map (.get otd))))))
 
-(defn- ->keyword [x]
-  (-> x str str/lower-case (str/replace "_" "-") keyword))
+(defn- container->map [^Container c]
+  {:id (.id c)
+   :expires-at (str (.expiresAt c))})
+
+(defn- stop-details->map [^RefusalStopDetails sd]
+  (let [cat (.category sd)
+        exp (.explanation sd)]
+    (cond-> {}
+      (.isPresent cat) (assoc :category (->keyword (.get cat)))
+      (.isPresent exp) (assoc :explanation (.get exp)))))
 
 (defn- message->map [^Message m]
-  (let [sr (.stopReason m)]
-    {:id (.id m)
-     :model (str (.model m))
-     :role :assistant ; Messages API responses are always the assistant turn
-     :stop-reason (when (.isPresent sr) (->keyword (.get sr)))
-     :content (mapv block->map (.content m))
-     :usage (usage->map (.usage m))}))
+  (let [sr (.stopReason m)
+        c (.container m)
+        ss (.stopSequence m)
+        sd (.stopDetails m)]
+    (cond-> {:id (.id m)
+             :model (str (.model m))
+             :role :assistant ; Messages API responses are always the assistant turn
+             :stop-reason (when (.isPresent sr) (->keyword (.get sr)))
+             :content (mapv block->map (.content m))
+             :usage (usage->map (.usage m))}
+      (.isPresent c) (assoc :container (container->map (.get c)))
+      (.isPresent ss) (assoc :stop-sequence (.get ss))
+      (.isPresent sd) (assoc :stop-details (stop-details->map (.get sd))))))
 
 (defn- parse-text
   "Decode the first text block of a response map as JSON (keyword keys), or nil."

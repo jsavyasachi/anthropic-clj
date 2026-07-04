@@ -1,8 +1,12 @@
 (ns anthropic.core-test
   (:require [clojure.test :refer [deftest testing is]]
             [clojure.string :as str]
+            [jsonista.core :as json]
             [anthropic.core :as a])
-  (:import (com.anthropic.models.messages MessageCreateParams
+  (:import (com.anthropic.client AnthropicClient)
+           (com.anthropic.models.messages CacheCreation Container
+                                          Message MessageCountTokensParams
+                                          MessageCreateParams
                                           MessageCreateParams$ServiceTier
                                           RawContentBlockDelta
                                           RawContentBlockDeltaEvent
@@ -11,16 +15,21 @@
                                           RawContentBlockStopEvent
                                           RawMessageStopEvent
                                           RawMessageStreamEvent
+                                          RefusalStopDetails RefusalStopDetails$Category
                                           InputJsonDelta TextDelta ThinkingDelta
                                           DirectCaller ToolUseBlock ToolUseBlock$Caller
-                                          OutputConfig Usage Usage$Builder)
+                                          OutputConfig OutputTokensDetails
+                                          ServerToolUsage Usage Usage$Builder
+                                          StopReason Usage$ServiceTier)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
            (com.anthropic.models.beta.files FileMetadata)
            (com.anthropic.models.messages.batches BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params)))
 
 (def ->params #'a/->params)
+(def ->count-params #'a/->count-params)
 (def usage->map #'a/usage->map)
+(def message->map #'a/message->map)
 (def event->map #'a/event->map)
 (def model->map #'a/model->map)
 (def parse-text #'a/parse-text)
@@ -72,6 +81,37 @@
     (is (some? (opt (.thinking (->params {:messages [{:role :user :content "hi"}]
                                           :thinking {:type :enabled :budget-tokens 2048}})))))))
 
+(deftest client-construction
+  (doseq [opts [{:api-key "sk-test"}
+                {:auth-token "token-test"}
+                {:base-url "https://api.anthropic.com"}
+                {:timeout-ms 1000}
+                {:max-retries 1}]]
+    (testing (str "client option " opts)
+      (is (instance? AnthropicClient (a/client opts))))))
+
+(deftest newer-request-params
+  (testing "create params include container, inference-geo, user-profile-id, cache-control"
+    (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                            :container "container_123"
+                                            :inference-geo "us"
+                                            :user-profile-id "user_123"
+                                            :cache-control true})]
+      (is (= "container_123" (opt (.container p))))
+      (is (= "us" (opt (.inferenceGeo p))))
+      (is (= "user_123" (opt (.userProfileId p))))
+      (is (some? (opt (.cacheControl p))))))
+  (testing "count params include supported shared keys and skip unsupported keys"
+    (let [^MessageCountTokensParams p (->count-params {:messages [{:role :user :content "hi"}]
+                                                       :container "container_123"
+                                                       :inference-geo "us"
+                                                       :user-profile-id "user_123"
+                                                       :cache-control true
+                                                       :response-format {:type "object"}})]
+      (is (= "user_123" (opt (.userProfileId p))))
+      (is (some? (opt (.cacheControl p))))
+      (is (some? (opt (.outputConfig p)))))))
+
 (def ^:private empty-opt (java.util.Optional/empty))
 
 (defn- usage
@@ -105,6 +145,18 @@
     (is (.isPresent (.tool (->tool {:name "x"
                                     :input-schema {:type "object" :properties {}}}))))))
 
+(deftest count-token-tools
+  (testing "custom and server tools are both present in count-token params"
+    (let [^MessageCountTokensParams p
+          (->count-params {:messages [{:role :user :content "hi"}]
+                           :tools [{:name "x"
+                                    :input-schema {:type "object" :properties {}}}
+                                   {:type :web-search :max-uses 2}]})
+          tools (vec (opt (.tools p)))]
+      (is (= 2 (count tools)))
+      (is (.isPresent (.tool (first tools))))
+      (is (.isPresent (.webSearchTool20260318 (second tools)))))))
+
 (deftest content-blocks
   (testing "image block, base64 and url sources"
     (is (.isPresent (.image (->content-block {:type :image
@@ -124,7 +176,20 @@
       (is (.isPresent (.cacheControl (.get (.text cb)))))))
   (testing "cache-control with a ttl"
     (let [cb (->content-block {:type :text :text "x" :cache-control {:ttl :1h}})]
-      (is (.isPresent (.cacheControl (.get (.text cb))))))))
+      (is (.isPresent (.cacheControl (.get (.text cb)))))))
+  (testing "tool-result map content is encoded as JSON"
+    (let [cb (->content-block {:type :tool-result
+                               :tool-use-id "toolu_1"
+                               :content {:x 1 :nested {:ok true}}})
+          content (.get (.content (.get (.toolResult cb))))]
+      (is (= {:x 1 :nested {:ok true}}
+             (json/read-value (.asString content) (json/object-mapper {:decode-key-fn true}))))))
+  (testing "tool-result string content passes through unchanged"
+    (let [cb (->content-block {:type :tool-result
+                               :tool-use-id "toolu_1"
+                               :content "plain text"})
+          content (.get (.content (.get (.toolResult cb))))]
+      (is (= "plain text" (.asString content))))))
 
 (deftest structured-output-params
   (let [schema {:type "object"
@@ -172,6 +237,63 @@
   (testing "absent cache tokens leave the keys off"
     (is (= {:input-tokens 10 :output-tokens 20}
            (usage->map (usage 10 20 nil nil))))))
+
+(deftest usage-completeness
+  (let [u (-> (Usage/builder)
+              (.inputTokens 10)
+              (.outputTokens 20)
+              (.cacheCreation (-> (CacheCreation/builder)
+                                  (.ephemeral1hInputTokens 3)
+                                  (.ephemeral5mInputTokens 4)
+                                  (.build)))
+              (.cacheCreationInputTokens 7)
+              (.cacheReadInputTokens 8)
+              (.serverToolUse (-> (ServerToolUsage/builder)
+                                  (.webSearchRequests 2)
+                                  (.webFetchRequests 1)
+                                  (.build)))
+              (.serviceTier Usage$ServiceTier/PRIORITY)
+              (.inferenceGeo "us")
+              (.outputTokensDetails (-> (OutputTokensDetails/builder)
+                                        (.thinkingTokens 5)
+                                        (.build)))
+              (.build))]
+    (is (= {:input-tokens 10
+            :output-tokens 20
+            :cache-creation-input-tokens 7
+            :cache-read-input-tokens 8
+            :server-tool-use {:web-fetch-requests 1
+                              :web-search-requests 2}
+            :service-tier :priority
+            :cache-creation {:ephemeral-1h-input-tokens 3
+                             :ephemeral-5m-input-tokens 4}
+            :inference-geo "us"
+            :output-tokens-details {:thinking-tokens 5}}
+           (usage->map u)))))
+
+(deftest message-completeness
+  (let [m (-> (Message/builder)
+              (.id "msg_1")
+              (.model "claude-haiku-4-5")
+              (.role (com.anthropic.core.JsonValue/from "assistant"))
+              (.type (com.anthropic.core.JsonValue/from "message"))
+              (.content [])
+              (.usage (usage 1 2 nil nil))
+              (.container (-> (Container/builder)
+                              (.id "container_123")
+                              (.expiresAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
+                              (.build)))
+              (.stopReason StopReason/STOP_SEQUENCE)
+              (.stopSequence "END")
+              (.stopDetails (-> (RefusalStopDetails/builder)
+                                (.category RefusalStopDetails$Category/CYBER)
+                                (.explanation "blocked")
+                                (.build)))
+              (.build))
+        mm (message->map m)]
+    (is (= {:id "container_123" :expires-at "2026-01-01T00:00Z"} (:container mm)))
+    (is (= "END" (:stop-sequence mm)))
+    (is (= {:category :cyber :explanation "blocked"} (:stop-details mm)))))
 
 (defn- model-info
   "Build a ModelInfo with required fields; token limits optional."
