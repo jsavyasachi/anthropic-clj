@@ -32,18 +32,18 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.6.7"]
+[net.clojars.savya/anthropic-clj "0.6.8"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.6.7"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.6.8"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
 
-Tracks [`com.anthropic/anthropic-java` 2.47.1](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.47.1) - see `CHANGELOG.md` for the bump history.
+Tracks [`com.anthropic/anthropic-java` 2.48.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.48.0) - see `CHANGELOG.md` for the bump history.
 
 ## Usage
 

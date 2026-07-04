@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.6.8] - 2026-07-03
+
+### Changed
+- Bump `com.anthropic/anthropic-java` 2.47.1 -> 2.48.0. SDK release adding the
+  `agent-memory-2026-07-22` beta header for the beta memory-stores surface,
+  which this wrapper does not expose; no wrapper-surface changes.
+
 ## [0.6.7] - 2026-07-02
 
 ### Changed
