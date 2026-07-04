@@ -4,6 +4,7 @@
             [jsonista.core :as json]
             [anthropic.core :as a])
   (:import (com.anthropic.client AnthropicClient)
+           (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.messages CacheCreation Container
                                           Message MessageCountTokensParams
                                           MessageCreateParams
@@ -24,7 +25,9 @@
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
            (com.anthropic.models.beta.files FileMetadata)
            (com.anthropic.models.messages.batches BatchCreateParams$Request
-                                                  BatchCreateParams$Request$Params)))
+                                                  BatchCreateParams$Request$Params
+                                                  MessageBatchCanceledResult
+                                                  MessageBatchIndividualResponse)))
 
 (def ->params #'a/->params)
 (def ->count-params #'a/->count-params)
@@ -36,6 +39,8 @@
 (def ->batch-request #'a/->batch-request)
 (def ->content-block #'a/->content-block)
 (def ->tool #'a/->tool)
+(def ->count-tool #'a/->count-tool)
+(def reduce-batch-result-stream #'a/reduce-batch-result-stream)
 (def file->map #'a/file->map)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
@@ -145,6 +150,21 @@
     (is (.isPresent (.tool (->tool {:name "x"
                                     :input-schema {:type "object" :properties {}}}))))))
 
+(deftest tool-search-server-tools
+  (testing "tool-search bm25 and regex specs map to the right ToolUnion variants"
+    (let [bm25 (->tool {:type :tool-search :variant :bm25
+                        :allowed-callers [:direct]
+                        :defer-loading true
+                        :strict true
+                        :cache-control true})
+          regex (->tool {:type :tool-search :variant :regex})]
+      (is (.isPresent (.searchToolBm25_20251119 bm25)))
+      (is (.isPresent (.cacheControl (.get (.searchToolBm25_20251119 bm25)))))
+      (is (= true (opt (.deferLoading (.get (.searchToolBm25_20251119 bm25))))))
+      (is (= true (opt (.strict (.get (.searchToolBm25_20251119 bm25))))))
+      (is (= ["direct"] (mapv str (opt (.allowedCallers (.get (.searchToolBm25_20251119 bm25)))))))
+      (is (.isPresent (.searchToolRegex20251119 regex))))))
+
 (deftest count-token-tools
   (testing "custom and server tools are both present in count-token params"
     (let [^MessageCountTokensParams p
@@ -155,7 +175,12 @@
           tools (vec (opt (.tools p)))]
       (is (= 2 (count tools)))
       (is (.isPresent (.tool (first tools))))
-      (is (.isPresent (.webSearchTool20260318 (second tools)))))))
+      (is (.isPresent (.webSearchTool20260318 (second tools))))))
+  (testing "tool-search specs are available to count-tokens too"
+    (let [bm25 (->count-tool {:type :tool-search :variant :bm25})
+          regex (->count-tool {:type :tool-search :variant :regex})]
+      (is (.isPresent (.toolSearchToolBm25_20251119 bm25)))
+      (is (.isPresent (.toolSearchToolRegex20251119 regex))))))
 
 (deftest content-blocks
   (testing "image block, base64 and url sources"
@@ -189,7 +214,36 @@
                                :tool-use-id "toolu_1"
                                :content "plain text"})
           content (.get (.content (.get (.toolResult cb))))]
-      (is (= "plain text" (.asString content))))))
+      (is (= "plain text" (.asString content)))))
+  (testing "search-result block carries source title content citations and cache-control"
+    (let [cb (->content-block {:type :search-result
+                               :source "https://example.com/a"
+                               :title "Example"
+                               :citations true
+                               :cache-control true
+                               :content [{:type :text :text "found text"}]})
+          sr (.get (.searchResult cb))]
+      (is (= "https://example.com/a" (.source sr)))
+      (is (= "Example" (.title sr)))
+      (is (= "found text" (.text (first (.content sr)))))
+      (is (= true (opt (.enabled (.get (.citations sr))))))
+      (is (.isPresent (.cacheControl sr)))))
+  (testing "thinking block carries thinking and signature"
+    (let [th (.get (.thinking (->content-block {:type :thinking
+                                                :thinking "internal trace"
+                                                :signature "sig_123"})))]
+      (is (= "internal trace" (.thinking th)))
+      (is (= "sig_123" (.signature th)))))
+  (testing "redacted-thinking block carries data"
+    (let [rt (.get (.redactedThinking (->content-block {:type :redacted-thinking
+                                                        :data "encrypted"})))]
+      (is (= "encrypted" (.data rt)))))
+  (testing "container-upload block carries file id and cache-control"
+    (let [cu (.get (.containerUpload (->content-block {:type :container-upload
+                                                       :file-id "file_123"
+                                                       :cache-control true})))]
+      (is (= "file_123" (.fileId cu)))
+      (is (.isPresent (.cacheControl cu))))))
 
 (deftest structured-output-params
   (let [schema {:type "object"
@@ -228,6 +282,29 @@
     (let [^BatchCreateParams$Request$Params p (.params r)]
       (is (= "claude-haiku-4-5" (str (.model p))))
       (is (= 64 (.maxTokens p))))))
+
+(deftest batch-result-stream-reduction
+  (testing "reduces batch results without retaining the full result collection and closes the stream"
+    (let [closed? (atom false)
+          seen? (atom false)
+          mk (fn [id]
+               (-> (MessageBatchIndividualResponse/builder)
+                   (.customId id)
+                   (.result (.build (MessageBatchCanceledResult/builder)))
+                   (.build)))
+          sr (reify StreamResponse
+               (stream [_]
+                 (.stream (java.util.ArrayList. [(mk "r1")])))
+               (close [_] (reset! closed? true)))]
+      (is (= ["r1"]
+             (reduce-batch-result-stream
+              sr
+              (fn [acc m]
+                (reset! seen? true)
+                (conj acc (:custom-id m)))
+              [])))
+      (is @seen?)
+      (is @closed?))))
 
 (deftest usage-cache-tokens
   (testing "cache tokens surface when present"

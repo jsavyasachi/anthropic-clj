@@ -3,6 +3,28 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.7.0] - 2026-07-04
+
+### Added
+- `client` accepts `:auth-token`, `:base-url`, `:timeout-ms`, and
+  `:max-retries` in addition to `:api-key`.
+- `create-message` accepts newer request params: `:container`,
+  `:inference-geo`, `:user-profile-id`, top-level `:cache-control`,
+  `:response-format`, and `:effort`; responses surface newer usage/container/
+  stop-detail fields when present.
+- Content block params for `:search-result`, `:thinking`,
+  `:redacted-thinking`, and `:container-upload`.
+- Server-side tool-search tools via
+  `{:type :tool-search :variant :bm25|:regex}` for Messages and count-tokens.
+- `reduce-batch-results` for streaming reduction over batch results without
+  retaining the full result set.
+
+### Changed
+- `:tool-result` map/vector content is now JSON-encoded before sending instead
+  of being coerced with `str`.
+- `count-tokens` now maps server tools through the count-token tool union
+  instead of treating server-tool specs as custom tools.
+
 ## [0.6.8] - 2026-07-03
 
 ### Changed

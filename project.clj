@@ -1,4 +1,4 @@
-(defproject net.clojars.savya/anthropic-clj "0.6.8"
+(defproject net.clojars.savya/anthropic-clj "0.7.0"
   :description "Idiomatic Clojure wrapper over the official Anthropic Java SDK"
   :url "https://github.com/jsavyasachi/anthropic-clj"
   :license {:name "Eclipse Public License 2.0"

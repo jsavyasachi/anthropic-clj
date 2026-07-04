@@ -33,11 +33,13 @@
                                           CitationCharLocation
                                           CitationContentBlockLocation
                                           CitationPageLocation
+                                          CitationsConfigParam
                                           CitationsSearchResultLocation
                                           CitationsWebSearchResultLocation
                                           CodeExecutionTool20260521
                                           CodeExecutionTool20260521$AllowedCaller
                                           Container
+                                          ContainerUploadBlockParam
                                           ContentBlock ContentBlockParam
                                           DocumentBlockParam DocumentBlockParam$Source
                                           ImageBlockParam ImageBlockParam$Source
@@ -58,13 +60,22 @@
                                           RawMessageDeltaEvent
                                           RawMessageStreamEvent
                                           InputJsonDelta
+                                          RedactedThinkingBlockParam
+                                          SearchResultBlockParam SearchResultBlockParam$Builder
                                           TextBlock TextBlockParam TextCitation
                                           TextDelta
                                           ThinkingBlock ThinkingConfigAdaptive
                                           ThinkingConfigDisabled
                                           ThinkingConfigEnabled
                                           ThinkingConfigParam ThinkingDelta
+                                          ThinkingBlockParam
                                           Tool Tool$InputSchema ToolBash20250124
+                                          ToolSearchToolBm25_20251119
+                                          ToolSearchToolBm25_20251119$AllowedCaller
+                                          ToolSearchToolBm25_20251119$Type
+                                          ToolSearchToolRegex20251119
+                                          ToolSearchToolRegex20251119$AllowedCaller
+                                          ToolSearchToolRegex20251119$Type
                                           ToolChoice
                                           ToolChoiceAny ToolChoiceAuto
                                           ToolChoiceNone ToolChoiceTool
@@ -103,6 +114,9 @@
 (defn- ->json ^JsonValue [m]
   (JsonValue/from (walk/stringify-keys m)))
 
+(defn- anthropic-error [code message data]
+  (ex-info message (assoc data :anthropic/error code)))
+
 (defn- ->custom-tool ^Tool [{:keys [name description input-schema]}]
   (let [required (:required input-schema)
         isb (Tool$InputSchema/builder)
@@ -123,7 +137,10 @@
     (.build b)))
 
 (def ^:private server-tool-types
-  #{:web-search :web-fetch :code-execution :bash :text-editor :memory})
+  #{:web-search :web-fetch :code-execution :bash :text-editor :memory
+    :tool-search})
+
+(declare ->cache-control)
 
 (defn- ->web-search-tool ^WebSearchTool20260318
   [{:keys [max-uses allowed-domains blocked-domains user-location allowed-callers]}]
@@ -166,6 +183,28 @@
 (defn- ->memory-tool ^MemoryTool20250818 [_]
   (.build (MemoryTool20250818/builder)))
 
+(defn- ->tool-search-bm25 ^ToolSearchToolBm25_20251119
+  [{:keys [allowed-callers cache-control defer-loading strict]}]
+  (let [b (ToolSearchToolBm25_20251119/builder)]
+    (.type b ToolSearchToolBm25_20251119$Type/TOOL_SEARCH_TOOL_BM25_20251119)
+    (doseq [c allowed-callers]
+      (.addAllowedCaller b (ToolSearchToolBm25_20251119$AllowedCaller/of (name c))))
+    (when cache-control (.cacheControl b ^CacheControlEphemeral (->cache-control cache-control)))
+    (when (some? defer-loading) (.deferLoading b (boolean defer-loading)))
+    (when (some? strict) (.strict b (boolean strict)))
+    (.build b)))
+
+(defn- ->tool-search-regex ^ToolSearchToolRegex20251119
+  [{:keys [allowed-callers cache-control defer-loading strict]}]
+  (let [b (ToolSearchToolRegex20251119/builder)]
+    (.type b ToolSearchToolRegex20251119$Type/TOOL_SEARCH_TOOL_REGEX_20251119)
+    (doseq [c allowed-callers]
+      (.addAllowedCaller b (ToolSearchToolRegex20251119$AllowedCaller/of (name c))))
+    (when cache-control (.cacheControl b ^CacheControlEphemeral (->cache-control cache-control)))
+    (when (some? defer-loading) (.deferLoading b (boolean defer-loading)))
+    (when (some? strict) (.strict b (boolean strict)))
+    (.build b)))
+
 (defn- ->server-tool
   "Map a server-side tool spec (latest version of each) to a ToolUnion."
   ^ToolUnion [{:keys [type] :as t}]
@@ -175,7 +214,16 @@
     :code-execution (ToolUnion/ofCodeExecutionTool20260521 (->code-execution-tool t))
     :bash (ToolUnion/ofBash20250124 (->bash-tool t))
     :text-editor (ToolUnion/ofTextEditor20250728 (->text-editor-tool t))
-    :memory (ToolUnion/ofMemoryTool20250818 (->memory-tool t))))
+    :memory (ToolUnion/ofMemoryTool20250818 (->memory-tool t))
+    :tool-search (case (keyword (:variant t))
+                   :bm25 (ToolUnion/ofSearchToolBm25_20251119 (->tool-search-bm25 t))
+                   :regex (ToolUnion/ofSearchToolRegex20251119 (->tool-search-regex t))
+                   (throw (anthropic-error :unsupported-tool-search-variant
+                                           "Unsupported tool-search variant"
+                                           {:variant (:variant t)})))
+    (throw (anthropic-error :unsupported-server-tool
+                            "Unsupported server tool type"
+                            {:type type}))))
 
 (defn- ->count-tool ^MessageCountTokensTool [{:keys [type] :as t}]
   (case (keyword type)
@@ -185,6 +233,12 @@
     :bash (MessageCountTokensTool/ofToolBash20250124 (->bash-tool t))
     :text-editor (MessageCountTokensTool/ofToolTextEditor20250728 (->text-editor-tool t))
     :memory (MessageCountTokensTool/ofMemoryTool20250818 (->memory-tool t))
+    :tool-search (case (keyword (:variant t))
+                   :bm25 (MessageCountTokensTool/ofToolSearchToolBm25_20251119 (->tool-search-bm25 t))
+                   :regex (MessageCountTokensTool/ofToolSearchToolRegex20251119 (->tool-search-regex t))
+                   (throw (anthropic-error :unsupported-tool-search-variant
+                                           "Unsupported tool-search variant"
+                                           {:variant (:variant t)})))
     (MessageCountTokensTool/ofTool (->custom-tool t))))
 
 (defn- server-tool? [t] (contains? server-tool-types (keyword (:type t))))
@@ -213,7 +267,10 @@
                  (.mediaType (Base64ImageSource$MediaType/of media-type))
                  (.build)))
     :url (ImageBlockParam$Source/ofUrl
-          (-> (UrlImageSource/builder) (.url ^String url) (.build)))))
+          (-> (UrlImageSource/builder) (.url ^String url) (.build)))
+    (throw (anthropic-error :unsupported-content-source
+                            "Unsupported image source type"
+                            {:type type}))))
 
 (defn- ->document-source ^DocumentBlockParam$Source [{:keys [type data url]}]
   (case (keyword type)
@@ -222,7 +279,20 @@
     :url (DocumentBlockParam$Source/ofUrl
           (-> (UrlPdfSource/builder) (.url ^String url) (.build)))
     :text (DocumentBlockParam$Source/ofText
-           (-> (PlainTextSource/builder) (.data ^String data) (.build)))))
+           (-> (PlainTextSource/builder) (.data ^String data) (.build)))
+    (throw (anthropic-error :unsupported-content-source
+                            "Unsupported document source type"
+                            {:type type}))))
+
+(defn- ->citations-config ^CitationsConfigParam [enabled]
+  (-> (CitationsConfigParam/builder)
+      (.enabled (boolean enabled))
+      (.build)))
+
+(defn- ->search-result-text ^TextBlockParam [{:keys [text cache-control]}]
+  (let [b (-> (TextBlockParam/builder) (.text ^String text))]
+    (when cache-control (.cacheControl b (->cache-control cache-control)))
+    (.build b)))
 
 (defn- ->content-block ^ContentBlockParam [{:keys [type cache-control] :as blk}]
   (case (keyword type)
@@ -239,6 +309,28 @@
                 (when (:context blk) (.context b ^String (:context blk)))
                 (when cache-control (.cacheControl b (->cache-control cache-control)))
                 (ContentBlockParam/ofDocument (.build b)))
+    :search-result (let [b ^SearchResultBlockParam$Builder
+                         (-> (SearchResultBlockParam/builder)
+                             (.source ^String (:source blk))
+                             (.title ^String (:title blk))
+                             (.content ^java.util.List (mapv ->search-result-text (:content blk))))]
+                     (when (contains? blk :citations)
+                       (.citations b (->citations-config (:citations blk))))
+                     (when cache-control (.cacheControl b (->cache-control cache-control)))
+                     (ContentBlockParam/ofSearchResult (.build b)))
+    :thinking (ContentBlockParam/ofThinking
+               (-> (ThinkingBlockParam/builder)
+                   (.thinking ^String (:thinking blk))
+                   (.signature ^String (:signature blk))
+                   (.build)))
+    :redacted-thinking (ContentBlockParam/ofRedactedThinking
+                        (-> (RedactedThinkingBlockParam/builder)
+                            (.data ^String (:data blk))
+                            (.build)))
+    :container-upload (let [b (-> (ContainerUploadBlockParam/builder)
+                                  (.fileId ^String (:file-id blk)))]
+                        (when cache-control (.cacheControl b (->cache-control cache-control)))
+                        (ContentBlockParam/ofContainerUpload (.build b)))
     :tool-result (let [^String content-str (if (string? (:content blk))
                                              (:content blk)
                                              (json/write-value-as-string (:content blk)))
@@ -252,7 +344,10 @@
                           (.name ^String (:name blk))
                           (.input (->json (:input blk))))]
                 (when cache-control (.cacheControl b (->cache-control cache-control)))
-                (ContentBlockParam/ofToolUse (.build b)))))
+                (ContentBlockParam/ofToolUse (.build b)))
+    (throw (anthropic-error :unsupported-content-block
+                            "Unsupported content block type"
+                            {:type type}))))
 
 (defn- ->thinking ^ThinkingConfigParam [{:keys [type budget-tokens]}]
   (case (keyword type)
@@ -260,7 +355,10 @@
               (-> (ThinkingConfigEnabled/builder)
                   (.budgetTokens (long budget-tokens)) (.build)))
     :disabled (ThinkingConfigParam/ofDisabled (.build (ThinkingConfigDisabled/builder)))
-    :adaptive (ThinkingConfigParam/ofAdaptive (.build (ThinkingConfigAdaptive/builder)))))
+    :adaptive (ThinkingConfigParam/ofAdaptive (.build (ThinkingConfigAdaptive/builder)))
+    (throw (anthropic-error :unsupported-thinking-type
+                            "Unsupported thinking type"
+                            {:type type}))))
 
 (defn- ->tool-choice ^ToolChoice [tc]
   (if (map? tc)
@@ -268,7 +366,10 @@
     (case (keyword tc)
       :auto (ToolChoice/ofAuto (.build (ToolChoiceAuto/builder)))
       :any (ToolChoice/ofAny (.build (ToolChoiceAny/builder)))
-      :none (ToolChoice/ofNone (.build (ToolChoiceNone/builder))))))
+      :none (ToolChoice/ofNone (.build (ToolChoiceNone/builder)))
+      (throw (anthropic-error :unsupported-tool-choice
+                              "Unsupported tool choice"
+                              {:tool-choice tc})))))
 
 (defn- ->service-tier ^MessageCreateParams$ServiceTier [t]
   (MessageCreateParams$ServiceTier/of (-> t name (str/replace "-" "_"))))
@@ -678,14 +779,32 @@
   (let [^DeletedMessageBatch d (-> (.messages client) (.batches) (.delete id))]
     {:id (.id d) :deleted true}))
 
+(defn- reduce-batch-result-stream
+  [^StreamResponse sr f init]
+  (with-open [^StreamResponse s sr]
+    (reduce (fn [acc r] (f acc (batch-result->map r)))
+            init
+            (iterator-seq (.iterator (.stream s))))))
+
+(defn reduce-batch-results
+  "Fetch a completed batch's results and reduce over result maps without
+  retaining the full result set. Calls `(f acc result-map)` for each
+  `{:custom-id ... :result {:type :succeeded|:errored|:canceled|:expired ...}}`
+  and closes the underlying results stream automatically."
+  [^AnthropicClient client ^String id f init]
+  (reduce-batch-result-stream
+   (-> (.messages client) (.batches) (.resultsStreaming id))
+   f
+   init))
+
 (defn batch-results
   "Fetch a completed batch's results as a vector of
   `{:custom-id ... :result {:type :succeeded|:errored|:canceled|:expired ...}}`;
   succeeded results include the parsed `:message`. The results stream is closed
-  automatically."
+  automatically. Use `reduce-batch-results` to consume large result sets without
+  retaining them."
   [^AnthropicClient client ^String id]
-  (with-open [^StreamResponse sr (-> (.messages client) (.batches) (.resultsStreaming id))]
-    (mapv batch-result->map (iterator-seq (.iterator (.stream sr))))))
+  (reduce-batch-results client id conj []))
 
 (defn- start-block->map [^RawContentBlockStartEvent$ContentBlock cb]
   (let [tu (.toolUse cb)

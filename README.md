@@ -23,8 +23,8 @@ Build a request as a Clojure map, get a Clojure map back.
 Every other Clojure Anthropic library hand-rolls HTTP against the REST API, which
 means each one is perpetually chasing Anthropic's surface and tends to fall
 behind. This one wraps Anthropic's own actively-maintained Java SDK instead, so
-streaming, tool use, retries, and every new model and feature arrive the moment
-Anthropic ships them in Java - you just get a Clojure-shaped API on top: maps in,
+streaming, tool use, retries, and new model ids stay close to Anthropic's Java
+surface. The wrapper intentionally exposes a Clojure-shaped subset: maps in,
 maps out, keywords for roles and block types.
 
 ## Installation
@@ -32,16 +32,17 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.6.8"]
+[net.clojars.savya/anthropic-clj "0.7.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.6.8"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.7.0"}
 ```
 
-Set `ANTHROPIC_API_KEY` in your environment (or pass `:api-key` to `client`).
+Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
+`:api-key`, `:auth-token`, `:base-url`, `:timeout-ms`, `:max-retries`.
 
 Tracks [`com.anthropic/anthropic-java` 2.48.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.48.0) - see `CHANGELOG.md` for the bump history.
 
@@ -69,15 +70,18 @@ Tracks [`com.anthropic/anthropic-java` 2.48.0](https://github.com/anthropics/ant
 `:top-k`, `:stop-sequences`, `:tool-choice` (`:auto`/`:any`/`:none` or
 `{:type :tool :name "x"}`), `:thinking` (`{:type :enabled :budget-tokens N}`,
 `{:type :adaptive}`, or `{:type :disabled}`), `:metadata` (`{:user-id "..."}`),
-and `:service-tier` (`:auto`/`:standard-only`). When the response uses prompt
-caching, `:usage` also carries `:cache-creation-input-tokens` and
-`:cache-read-input-tokens`.
+`:service-tier` (`:auto`/`:standard-only`), `:container`, `:inference-geo`,
+`:user-profile-id`, and top-level `:cache-control`. For structured output, pass
+`:response-format` and/or `:effort`. Responses include newer `:usage` fields
+when present, including cache creation/read tokens, server-tool usage,
+service-tier, inference geo, cache creation details, and output-token details.
 
 ### Images, PDFs, and prompt caching
 
 Message content can be a vector of blocks. Beyond `:text`, `:tool-use`, and
-`:tool-result`, you can send `:image` and `:document` blocks, and mark any block
-with `:cache-control` to set a prompt-cache breakpoint.
+`:tool-result`, you can send `:image`, `:document`, `:search-result`,
+`:thinking`, `:redacted-thinking`, and `:container-upload` blocks. Blocks that
+support prompt caching accept `:cache-control`.
 
 ```clojure
 (anthropic/create-message
@@ -90,9 +94,19 @@ with `:cache-control` to set a prompt-cache breakpoint.
                          {:type :document
                           :source {:type :url :url "https://…/paper.pdf"}
                           :title "Paper"}
+                         {:type :search-result
+                          :source "https://example.com/result"
+                          :title "Result"
+                          :citations true
+                          :content [{:type :text :text "Relevant excerpt"}]}
                          {:type :text :text "Summarize the paper and the image."
                           :cache-control true}]}]})  ; :cache-control {:ttl :1h} for 1-hour
 ```
+
+Assistant turns that contained thinking can be round-tripped with
+`{:type :thinking :thinking "..." :signature "..."}` or
+`{:type :redacted-thinking :data "..."}`. Container uploads use
+`{:type :container-upload :file-id "file_..."}`.
 
 ### Server-side tools
 
@@ -113,7 +127,11 @@ blocks and typed result blocks (`:web-search-result`, `:code-execution-result`,
            {:type :code-execution}
            {:type :bash}
            {:type :text-editor :max-characters 2000}
-           {:type :memory}]
+           {:type :memory}
+           {:type :tool-search :variant :bm25}   ; or :regex
+           {:type :tool-search :variant :regex
+            :defer-loading true :strict true
+            :allowed-callers [:direct]}]
    :messages [{:role :user :content "Search the web for today's Clojure news."}]})
 ```
 
@@ -193,6 +211,11 @@ Submit many requests at the 50%-cost batch tier. Each request is
 ;; Once ended, pull results (succeeded entries carry the parsed :message):
 (anthropic/batch-results client (:id batch))
 ;; => [{:custom-id "a" :result {:type :succeeded :message {...}}} ...]
+
+;; Streaming reduction for large result sets:
+(anthropic/reduce-batch-results client (:id batch)
+  (fn [acc result] (conj acc (:custom-id result)))
+  [])
 ```
 
 ### Streaming
@@ -268,11 +291,12 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
   controls (sampling, stop sequences, tool-choice, thinking, metadata,
   service-tier), cache-token usage, and **structured output** (`:response-format`
   → `:parsed`, plus `:effort`)
-- **Content blocks** - text, `tool_use`/`tool_result`, **images** (base64/url),
-  **documents/PDFs** (base64/url/text), and `:cache-control` breakpoints on any block
+- **Content blocks** - text, `tool_use`/`tool_result`, images (base64/url),
+  documents/PDFs (base64/url/text), search results, thinking/redacted-thinking
+  round-trips, container uploads, and `:cache-control` breakpoints where supported
 - **Tools** - custom tools, plus **server-side tools** (web search, web fetch,
-  code execution, bash, text editor, memory), with `:server-tool-use` and typed
-  result blocks parsed back out
+  code execution, bash, text editor, memory, tool-search bm25/regex), with
+  `:server-tool-use` and typed result blocks parsed back out
 - **Citations** - text blocks carry `:citations` (char/page/content-block/
   web-search/search-result locations) when present
 - `count-tokens` - input-token count without sending
@@ -281,15 +305,21 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
   text/thinking/tool-use/signature deltas)
 - `list-models` / `get-model` - Models API
 - Message Batches - `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
-  `delete-batch`, `batch-results`
+  `delete-batch`, `batch-results`, `reduce-batch-results`
 - Files (beta) - `upload-file`, `get-file`, `list-files`, `download-file`, `delete-file`
 
-This covers the full **GA** surface of the Messages API and its supporting
-endpoints. The beta surface - `beta.messages` (and with it MCP connectors,
-`file_id` content, beta-only tools), webhooks, and the Managed Agents platform
-(Agents/Sessions/Environments/Deployments/Skills/MemoryStore/Vault) - is a
-separate parallel `Beta*` API and is intentionally **out of scope**; reach for
-the [Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly for those.
+Wrapped surfaces: Messages, streaming, tool use including server tools, Message
+Batches, Files beta, Models, and count-tokens. Not wrapped: beta platform
+surfaces such as Agents, Sessions, Skills, Memory Stores, webhooks, and other
+parallel `Beta*` APIs; reach for the
+[Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly for those.
+
+## Errors
+
+Wrapper request-shaping failures use `ex-info` with `:anthropic/error` in
+`ex-data`. API and transport failures are not wrapped; they surface the
+underlying Anthropic Java SDK exceptions unchanged. The SDK base exception is
+`com.anthropic.errors.AnthropicException`.
 
 ## Tests
 
