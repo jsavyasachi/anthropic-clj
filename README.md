@@ -32,13 +32,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.7.0"]
+[net.clojars.savya/anthropic-clj "0.8.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.7.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.8.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -316,10 +316,31 @@ parallel `Beta*` APIs; reach for the
 
 ## Errors
 
-Wrapper request-shaping failures use `ex-info` with `:anthropic/error` in
-`ex-data`. API and transport failures are not wrapped; they surface the
-underlying Anthropic Java SDK exceptions unchanged. The SDK base exception is
-`com.anthropic.errors.AnthropicException`.
+All failures throw `ex-info` keyed `:anthropic/error` in `ex-data`:
+
+- Request-shaping errors (bad tool spec, missing key) throw before any network
+  call, with an error keyword describing the problem.
+- API failures carry `{:anthropic/error :api-error :status <http status>
+  :error-type <kw>}` where `:error-type` is one of `:bad-request`,
+  `:unauthorized`, `:permission-denied`, `:not-found`,
+  `:unprocessable-entity`, `:rate-limit`, `:internal-server`, or
+  `:unexpected-status`. The original SDK exception is preserved as
+  `(ex-cause e)`.
+- Network/IO failures carry `{:anthropic/error :io-error}`, original exception
+  as cause.
+
+Other SDK exceptions (e.g. `AnthropicInvalidDataException`) propagate
+unchanged.
+
+## Bedrock and Vertex
+
+The SDK ships separate backend artifacts,
+[`com.anthropic/anthropic-java-bedrock` and
+`com.anthropic/anthropic-java-vertex`](https://github.com/anthropics/anthropic-sdk-java#amazon-bedrock-and-google-vertex-ai),
+for Amazon Bedrock and Google Vertex AI. `client` here builds the direct-API
+client only, but every function takes the client as its first argument, so an
+`AnthropicClient` constructed from either backend artifact works with all of
+them.
 
 ## Tests
 

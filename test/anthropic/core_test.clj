@@ -625,3 +625,29 @@
                                                              :content "18C and sunny"}]}]})]
           (is (= :assistant (:role r2)))
           (is (some #(= :text (:type %)) (:content r2))))))))
+
+(def throw-normalized! #'a/throw-normalized!)
+
+(defn- rate-limit-ex ^com.anthropic.errors.RateLimitException []
+  (let [ctor (first (.getConstructors com.anthropic.errors.RateLimitException))]
+    (.newInstance ctor (object-array [(.build (com.anthropic.core.http.Headers/builder))
+                                      (com.anthropic.core.JsonValue/from {"error" "rate"})
+                                      nil nil]))))
+
+(deftest api-error-normalization
+  (testing "service exceptions become ex-info with status, error-type, and the original as cause"
+    (let [orig (rate-limit-ex)
+          ex (try (throw-normalized! orig) (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :api-error (:anthropic/error (ex-data ex))))
+      (is (= 429 (:status (ex-data ex))))
+      (is (= :rate-limit (:error-type (ex-data ex))))
+      (is (identical? orig (ex-cause ex)))))
+  (testing "io exceptions become :io-error ex-info"
+    (let [orig (com.anthropic.errors.AnthropicIoException. "boom")
+          ex (try (throw-normalized! orig) (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :io-error (:anthropic/error (ex-data ex))))
+      (is (identical? orig (ex-cause ex)))))
+  (testing "other Anthropic exceptions pass through unchanged"
+    (let [orig (com.anthropic.errors.AnthropicInvalidDataException. "bad" nil)
+          ex (try (throw-normalized! orig) (catch Throwable e e))]
+      (is (identical? orig ex)))))

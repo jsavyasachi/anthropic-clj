@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.8.0] - 2026-07-04
+
+### Changed
+- **API and I/O failures are now normalized to `ex-info`.** Service errors
+  throw `ex-info` with `{:anthropic/error :api-error :status <http-status>
+  :error-type <kw>}` and I/O errors with `{:anthropic/error :io-error}`; the
+  original SDK exception is always `(ex-cause e)`. Callers that previously
+  caught `com.anthropic.errors.AnthropicException` directly must catch
+  `clojure.lang.ExceptionInfo` and inspect `ex-data`/`ex-cause` instead.
+  Other SDK exceptions still propagate unchanged.
+
+### Added
+- README documents using Bedrock/Vertex-built `AnthropicClient` instances
+  with this wrapper.
+
 ## [0.7.0] - 2026-07-04
 
 ### Added

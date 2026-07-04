@@ -94,7 +94,18 @@
                                           WebSearchTool20260318$AllowedCaller
                                           WebFetchTool20260318
                                           WebFetchTool20260318$AllowedCaller
-                                          Usage)))
+                                          Usage)
+           (com.anthropic.errors AnthropicException
+                                 AnthropicIoException
+                                 AnthropicServiceException
+                                 BadRequestException
+                                 InternalServerException
+                                 NotFoundException
+                                 PermissionDeniedException
+                                 RateLimitException
+                                 UnauthorizedException
+                                 UnexpectedStatusCodeException
+                                 UnprocessableEntityException)))
 
 (defn client
   "An Anthropic client. With no args, resolves credentials from the environment
@@ -110,6 +121,40 @@
      (when timeout-ms (.timeout b (Duration/ofMillis (long timeout-ms))))
      (when max-retries (.maxRetries b (int max-retries)))
      (.build b))))
+
+(defn- service-error-type [e]
+  (condp instance? e
+    BadRequestException :bad-request
+    UnauthorizedException :unauthorized
+    PermissionDeniedException :permission-denied
+    NotFoundException :not-found
+    UnprocessableEntityException :unprocessable-entity
+    RateLimitException :rate-limit
+    InternalServerException :internal-server
+    UnexpectedStatusCodeException :unexpected-status
+    :api-error))
+
+(defn- throw-normalized!
+  "Rethrow an SDK exception: service errors and I/O errors become ex-info
+  keyed `:anthropic/error` with the original as cause; anything else
+  propagates unchanged."
+  [^Throwable e]
+  (cond
+    (instance? AnthropicServiceException e)
+    (throw (ex-info (or (.getMessage e) "Anthropic API error")
+                    {:anthropic/error :api-error
+                     :status (.statusCode ^AnthropicServiceException e)
+                     :error-type (service-error-type e)}
+                    e))
+    (instance? AnthropicIoException e)
+    (throw (ex-info (or (.getMessage e) "Anthropic I/O error")
+                    {:anthropic/error :io-error}
+                    e))
+    :else (throw e)))
+
+(defmacro ^:private with-api-errors [& body]
+  `(try ~@body
+        (catch AnthropicException e# (throw-normalized! e#))))
 
 (defn- ->json ^JsonValue [m]
   (JsonValue/from (walk/stringify-keys m)))
@@ -640,19 +685,21 @@
   Clojure map. Returns
   `{:id :model :role :stop-reason :content [...] :usage {...}}`."
   [^AnthropicClient client req]
-  (let [resp (-> (.messages client)
-                 (.create (->params req))
-                 (message->map))]
-    (cond-> resp
-      (:response-format req) (assoc :parsed (parse-text resp)))))
+  (with-api-errors
+    (let [resp (-> (.messages client)
+                   (.create (->params req))
+                   (message->map))]
+      (cond-> resp
+        (:response-format req) (assoc :parsed (parse-text resp))))))
 
 (defn count-tokens
   "Count the input tokens a request would use, without sending it. Takes the same
   `req` map as `create-message` (sampling params and `:max-tokens` are ignored).
   Returns `{:input-tokens n}`."
   [^AnthropicClient client req]
-  (let [^MessageTokensCount r (-> (.messages client) (.countTokens (->count-params req)))]
-    {:input-tokens (.inputTokens r)}))
+  (with-api-errors
+    (let [^MessageTokensCount r (-> (.messages client) (.countTokens (->count-params req)))]
+      {:input-tokens (.inputTokens r)})))
 
 (defn- model->map [^ModelInfo m]
   (let [mit (.maxInputTokens m)
@@ -668,13 +715,15 @@
   `:display-name`, `:created-at` (ISO-8601 string), and `:max-input-tokens` /
   `:max-tokens` when the API reports them. Pages are followed automatically."
   [^AnthropicClient client]
-  (let [^ModelListPage p (-> (.models client) (.list))]
-    (mapv model->map (.autoPager p))))
+  (with-api-errors
+    (let [^ModelListPage p (-> (.models client) (.list))]
+      (mapv model->map (.autoPager p)))))
 
 (defn get-model
   "Retrieve one model's info by id, as a map shaped like `list-models`' entries."
   [^AnthropicClient client ^String id]
-  (model->map (-> (.models client) (.retrieve id))))
+  (with-api-errors
+    (model->map (-> (.models client) (.retrieve id)))))
 
 ;; ---- Message Batches ------------------------------------------------------
 
@@ -752,32 +801,37 @@
   `{:custom-id \"...\" :params <same map as create-message>}` (`:params` ignores
   `:service-tier`). Returns the batch as a map (see `get-batch`)."
   [^AnthropicClient client requests]
-  (let [reqs ^java.util.List (mapv ->batch-request requests)
-        bp (-> (BatchCreateParams/builder) (.requests reqs) (.build))]
-    (batch->map (-> (.messages client) (.batches) (.create bp)))))
+  (with-api-errors
+    (let [reqs ^java.util.List (mapv ->batch-request requests)
+          bp (-> (BatchCreateParams/builder) (.requests reqs) (.build))]
+      (batch->map (-> (.messages client) (.batches) (.create bp))))))
 
 (defn get-batch
   "Retrieve a batch by id. Returns `{:id :processing-status :request-counts
   :created-at :expires-at}` plus `:ended-at`/`:results-url` once available."
   [^AnthropicClient client ^String id]
-  (batch->map (-> (.messages client) (.batches) (.retrieve id))))
+  (with-api-errors
+    (batch->map (-> (.messages client) (.batches) (.retrieve id)))))
 
 (defn list-batches
   "List all batches (pages followed) as a seq of maps like `get-batch`."
   [^AnthropicClient client]
-  (let [^BatchListPage p (-> (.messages client) (.batches) (.list))]
-    (mapv batch->map (.autoPager p))))
+  (with-api-errors
+    (let [^BatchListPage p (-> (.messages client) (.batches) (.list))]
+      (mapv batch->map (.autoPager p)))))
 
 (defn cancel-batch
   "Request cancellation of a batch; returns the updated batch map."
   [^AnthropicClient client ^String id]
-  (batch->map (-> (.messages client) (.batches) (.cancel id))))
+  (with-api-errors
+    (batch->map (-> (.messages client) (.batches) (.cancel id)))))
 
 (defn delete-batch
   "Delete a batch by id. Returns `{:id ... :deleted true}`."
   [^AnthropicClient client ^String id]
-  (let [^DeletedMessageBatch d (-> (.messages client) (.batches) (.delete id))]
-    {:id (.id d) :deleted true}))
+  (with-api-errors
+    (let [^DeletedMessageBatch d (-> (.messages client) (.batches) (.delete id))]
+      {:id (.id d) :deleted true})))
 
 (defn- reduce-batch-result-stream
   [^StreamResponse sr f init]
@@ -792,10 +846,11 @@
   `{:custom-id ... :result {:type :succeeded|:errored|:canceled|:expired ...}}`
   and closes the underlying results stream automatically."
   [^AnthropicClient client ^String id f init]
-  (reduce-batch-result-stream
-   (-> (.messages client) (.batches) (.resultsStreaming id))
-   f
-   init))
+  (with-api-errors
+    (reduce-batch-result-stream
+     (-> (.messages client) (.batches) (.resultsStreaming id))
+     f
+     init)))
 
 (defn batch-results
   "Fetch a completed batch's results as a vector of
@@ -864,13 +919,14 @@
   reconstruct a streamed tool call, accumulate `:input-json-delta` `:partial-json`
   per `:index` (the matching `:content-block-start` carries the tool `:id`/`:name`)."
   ^String [^AnthropicClient client req on-event]
-  (with-open [^StreamResponse sr (.createStreaming (.messages client) (->params req))]
-    (let [sb (StringBuilder.)]
-      (doseq [ev (iterator-seq (.iterator (.stream sr)))]
-        (let [m (event->map ev)]
-          (when (= :text-delta (:type m)) (.append sb ^String (:text m)))
-          (when on-event (on-event m))))
-      (str sb))))
+  (with-api-errors
+    (with-open [^StreamResponse sr (.createStreaming (.messages client) (->params req))]
+      (let [sb (StringBuilder.)]
+        (doseq [ev (iterator-seq (.iterator (.stream sr)))]
+          (let [m (event->map ev)]
+            (when (= :text-delta (:type m)) (.append sb ^String (:text m)))
+            (when on-event (on-event m))))
+        (str sb)))))
 
 (defn stream-text
   "Stream a Messages request, calling `on-text` with each text delta (a string)
@@ -909,29 +965,34 @@
   `InputStream`, or byte array) to the Files API. Returns its metadata map
   (see `get-file`). Uses the beta Files API."
   [^AnthropicClient client file]
-  (file->map (-> (.beta client) (.files) (.upload (->upload-params file)))))
+  (with-api-errors
+    (file->map (-> (.beta client) (.files) (.upload (->upload-params file))))))
 
 (defn get-file
   "Retrieve a file's metadata by id: `{:id :filename :mime-type :size-bytes
   :created-at}` plus `:downloadable` when reported."
   [^AnthropicClient client ^String id]
-  (file->map (-> (.beta client) (.files) (.retrieveMetadata id))))
+  (with-api-errors
+    (file->map (-> (.beta client) (.files) (.retrieveMetadata id)))))
 
 (defn list-files
   "List uploaded files (pages followed) as a seq of maps like `get-file`."
   [^AnthropicClient client]
-  (let [^FileListPage p (-> (.beta client) (.files) (.list))]
-    (mapv file->map (.autoPager p))))
+  (with-api-errors
+    (let [^FileListPage p (-> (.beta client) (.files) (.list))]
+      (mapv file->map (.autoPager p)))))
 
 (defn delete-file
   "Delete a file by id. Returns `{:id ... :deleted true}`."
   [^AnthropicClient client ^String id]
-  (let [^DeletedFile d (-> (.beta client) (.files) (.delete id))]
-    {:id (.id d) :deleted true}))
+  (with-api-errors
+    (let [^DeletedFile d (-> (.beta client) (.files) (.delete id))]
+      {:id (.id d) :deleted true})))
 
 (defn download-file
   "Download a file's contents by id, returning a byte array. The HTTP response
   is closed automatically."
   ^bytes [^AnthropicClient client ^String id]
-  (with-open [^HttpResponse r (-> (.beta client) (.files) (.download id))]
-    (.readAllBytes (.body r))))
+  (with-api-errors
+    (with-open [^HttpResponse r (-> (.beta client) (.files) (.download id))]
+      (.readAllBytes (.body r)))))
