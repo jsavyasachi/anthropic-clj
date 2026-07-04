@@ -32,13 +32,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.8.0"]
+[net.clojars.savya/anthropic-clj "0.9.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.8.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.9.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -331,6 +331,35 @@ All failures throw `ex-info` keyed `:anthropic/error` in `ex-data`:
 
 Other SDK exceptions (e.g. `AnthropicInvalidDataException`) propagate
 unchanged.
+
+## Beta agents platform
+
+`anthropic.beta` wraps the beta agents-platform APIs - skills, memory
+stores, agents, and sessions - with the same maps-in/maps-out shape and the
+same error contract as `anthropic.core`:
+
+```clojure
+(require '[anthropic.beta :as beta])
+
+(beta/create-skill client {:display-title "Summarizer" :files ["SKILL.md"]})
+(beta/list-skills client)
+
+(beta/create-memory-store client {:name "notes" :description "team notes"})
+(beta/update-memory-store client "ms_123" {:description "renamed"})
+
+(def agent (beta/create-agent client {:name "helper"
+                                      :model "claude-opus-4-8"
+                                      :system "be helpful"}))
+(beta/update-agent client (:id agent) {:version (:version agent) :system "new"})
+
+(beta/create-session client {:agent (:id agent) :title "run 1"})
+```
+
+Each service also has `get-*`, `list-*`, and `archive-*`/`delete-*` variants.
+Not wrapped yet: deployments, environments, vaults, user profiles, webhooks,
+skill versions, individual memories, session events/threads/resources, and
+agent skill/tool/MCP configuration. These are beta endpoints - Anthropic may
+change them.
 
 ## Bedrock and Vertex
 

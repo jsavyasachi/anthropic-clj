@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.9.0] - 2026-07-04
+
+### Added
+- New `anthropic.beta` namespace wrapping the beta agents-platform APIs:
+  skills (`create-skill`/`get-skill`/`list-skills`/`delete-skill`), memory
+  stores (create/get/list/update/archive/delete), agents
+  (create/get/list/update/archive - update requires `:version` for
+  optimistic concurrency), and sessions
+  (create/get/list/update/archive/delete). Maps in/maps out, same
+  `:anthropic/error` contract as `anthropic.core`. Deployments,
+  environments, vaults, user profiles, webhooks, and the nested
+  sub-resources are not wrapped yet.
+
 ## [0.8.0] - 2026-07-04
 
 ### Changed
