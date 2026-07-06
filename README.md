@@ -32,13 +32,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.9.0"]
+[net.clojars.savya/anthropic-clj "0.10.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.9.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.10.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -309,10 +309,9 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
 - Files (beta) - `upload-file`, `get-file`, `list-files`, `download-file`, `delete-file`
 
 Wrapped surfaces: Messages, streaming, tool use including server tools, Message
-Batches, Files beta, Models, and count-tokens. Not wrapped: beta platform
-surfaces such as Agents, Sessions, Skills, Memory Stores, webhooks, and other
-parallel `Beta*` APIs; reach for the
-[Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly for those.
+Batches, Files beta, Models, and count-tokens - plus the beta agents platform
+in `anthropic.beta` (see below). For anything not wrapped, reach for the
+[Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly.
 
 ## Errors
 
@@ -334,32 +333,60 @@ unchanged.
 
 ## Beta agents platform
 
-`anthropic.beta` wraps the beta agents-platform APIs - skills, memory
-stores, agents, and sessions - with the same maps-in/maps-out shape and the
-same error contract as `anthropic.core`:
+`anthropic.beta` wraps the beta agents-platform APIs - skills (and skill
+versions), memory stores (and memories), agents, sessions (events and
+threads), deployments (and runs), environments, vaults, user profiles, and
+webhook payload parsing - with the same maps-in/maps-out shape and the same
+error contract as `anthropic.core`:
 
 ```clojure
 (require '[anthropic.beta :as beta])
 
 (beta/create-skill client {:display-title "Summarizer" :files ["SKILL.md"]})
-(beta/list-skills client)
+(beta/list-skill-versions client "skill_123")
+(beta/download-skill-version client "skill_123" "2") ;; => byte[]
 
 (beta/create-memory-store client {:name "notes" :description "team notes"})
-(beta/update-memory-store client "ms_123" {:description "renamed"})
+(beta/create-memory client "ms_123" {:path "/notes/prefs"
+                                     :content "prefers tables"})
 
-(def agent (beta/create-agent client {:name "helper"
-                                      :model "claude-opus-4-8"
-                                      :system "be helpful"}))
+(def agent (beta/create-agent
+            client
+            {:name "helper"
+             :model "claude-opus-4-8"
+             :system "be helpful"
+             :skills [{:type :anthropic :skill-id "skill_123" :version "2"}]
+             :mcp-servers [{:name "github" :url "https://mcp.example.test"}]
+             :tools [{:type :mcp-toolset :mcp-server-name "github"}]}))
 (beta/update-agent client (:id agent) {:version (:version agent) :system "new"})
 
-(beta/create-session client {:agent (:id agent) :title "run 1"})
+(def session (beta/create-session client {:agent (:id agent) :title "run 1"}))
+(beta/send-session-events client (:id session)
+                          [{:type :user-message :content "hello"}])
+(beta/list-session-events client (:id session))
+(beta/list-session-threads client (:id session))
+
+(beta/create-environment client {:name "prod"})
+(beta/create-vault client {:display-name "secrets"})
+(beta/create-user-profile client {:name "Ada" :external-id "u-1"})
+(beta/create-enrollment-url client "up_123")
+
+(beta/create-deployment client {:name "nightly"
+                                :agent (:id agent)
+                                :environment-id "env_123"
+                                :initial-events [{:type :user-message
+                                                  :content "run the report"}]})
+(beta/run-deployment client "deploy_123")
+(beta/list-deployment-runs client)
+
+(beta/unwrap-webhook client payload) ;; parse a webhook payload string
+(beta/unwrap-webhook client payload {:headers headers :secret secret}) ;; verify
 ```
 
 Each service also has `get-*`, `list-*`, and `archive-*`/`delete-*` variants.
-Not wrapped yet: deployments, environments, vaults, user profiles, webhooks,
-skill versions, individual memories, session events/threads/resources, and
-agent skill/tool/MCP configuration. These are beta endpoints - Anthropic may
-change them.
+Not wrapped yet: vault credentials, environment work, memory versions, thread
+events, session event streaming, session resources, and agent versions. These
+are beta endpoints - Anthropic may change them.
 
 ## Bedrock and Vertex
 
