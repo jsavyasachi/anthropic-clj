@@ -32,13 +32,13 @@ maps out, keywords for roles and block types.
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.10.0"]
+[net.clojars.savya/anthropic-clj "0.11.0"]
 ```
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.10.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.11.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -284,6 +284,28 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
                                       :content "18°C and sunny"}]}]})
 ;; => {... :content [{:type :text :text "It's 18°C and sunny in Paris."}]}
 ```
+
+Or let `run-tools` drive that loop: give each tool a `:fn` (a function of the
+parsed `:input` map) and it keeps calling `create-message`, executing every
+requested tool call (parallel calls included) and feeding results back, until
+the model stops asking for tools.
+
+```clojure
+(anthropic/run-tools
+  client
+  {:messages [ask]
+   :tools [(assoc weather-tool
+                  :fn (fn [{:keys [city]}] (fetch-weather city)))]}
+  {:max-iterations 5              ; create-message calls; default 10, exceeding throws
+   :on-message println})          ; optional: observe each API response
+;; => the final response map, plus :messages - the full accumulated
+;;    conversation, ready to continue from
+```
+
+A tool `:fn` that throws sends the exception message back as an `:is-error`
+tool result instead of aborting, so the model can recover. String returns are
+sent as-is; any other value is JSON-encoded. `:fn` is stripped before every
+API call.
 
 ## What's covered
 

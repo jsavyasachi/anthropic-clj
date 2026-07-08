@@ -3,6 +3,34 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.11.0] - 2026-07-07
+
+### Added
+- `run-tools` - agentic tool-use loop over `create-message`. Tools may carry
+  `:fn` (a function of the parsed tool `:input`); the loop executes every
+  requested tool call per turn (parallel calls included), feeds `:tool-result`
+  blocks back, and repeats until the model stops asking for tools. Options:
+  `:max-iterations` (default 10; exceeding throws `:max-iterations-exceeded`)
+  and `:on-message` (called with each response map). A throwing `:fn` becomes
+  an `:is-error` tool result instead of aborting. Returns the final response
+  map plus `:messages`, the accumulated conversation.
+- `:tool-result` input blocks accept `:is-error`.
+
+### Fixed
+- `:thinking` response blocks now include `:signature`, so extended-thinking
+  assistant turns replay through `:messages` without a NullPointerException
+  (the API requires the signature on replayed thinking blocks).
+
+## [0.10.0] - 2026-07-06
+
+### Added
+- `anthropic.beta` now wraps the remaining agents-platform services:
+  deployments (+ runs), environments, vaults, user profiles, enrollment URLs,
+  and webhook unwrapping (including the verifying arity); nested
+  sub-resources: skill versions (with download-to-bytes), memories, session
+  events (send/list), and session threads; agent `:skills`/`:mcp-servers`/
+  `:tools` configuration.
+
 ## [0.9.0] - 2026-07-04
 
 ### Added
