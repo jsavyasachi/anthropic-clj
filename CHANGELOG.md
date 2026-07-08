@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.11.1] - 2026-07-08
+
+Docs-only release: cljdoc guide articles (Getting Started, Tool Use, Streaming,
+Batches/Files/Structured Output) under doc/. No code changes.
+
 ## [0.11.0] - 2026-07-07
 
 ### Added
