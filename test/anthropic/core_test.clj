@@ -21,7 +21,8 @@
                                           DirectCaller ToolUseBlock ToolUseBlock$Caller
                                           OutputConfig OutputTokensDetails
                                           ServerToolUsage Usage Usage$Builder
-                                          StopReason Usage$ServiceTier)
+                                          StopReason ToolResultBlockParam
+                                          Usage$ServiceTier)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
            (com.anthropic.models.beta.files FileMetadata)
            (com.anthropic.models.messages.batches BatchCreateParams$Request
@@ -42,6 +43,7 @@
 (def ->count-tool #'a/->count-tool)
 (def reduce-batch-result-stream #'a/reduce-batch-result-stream)
 (def file->map #'a/file->map)
+(def run-tools* #'a/run-tools*)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -215,6 +217,13 @@
                                :content "plain text"})
           content (.get (.content (.get (.toolResult cb))))]
       (is (= "plain text" (.asString content)))))
+  (testing "tool-result can mark tool execution errors"
+    (let [cb (->content-block {:type :tool-result
+                               :tool-use-id "toolu_1"
+                               :content "boom"
+                               :is-error true})
+          tr ^ToolResultBlockParam (.get (.toolResult cb))]
+      (is (= true (opt (.isError tr))))))
   (testing "search-result block carries source title content citations and cache-control"
     (let [cb (->content-block {:type :search-result
                                :source "https://example.com/a"
@@ -371,6 +380,20 @@
     (is (= {:id "container_123" :expires-at "2026-01-01T00:00Z"} (:container mm)))
     (is (= "END" (:stop-sequence mm)))
     (is (= {:category :cyber :explanation "blocked"} (:stop-details mm)))))
+
+(deftest thinking-block-round-trips-with-signature
+  ;; extended-thinking responses must re-enter :messages intact: the API
+  ;; requires the signature on replayed thinking blocks, and the input
+  ;; translation NPEs without it.
+  (let [blk (com.anthropic.models.messages.ContentBlock/ofThinking
+             (-> (com.anthropic.models.messages.ThinkingBlock/builder)
+                 (.thinking "let me reason")
+                 (.signature "sig_abc")
+                 (.build)))
+        m (#'a/block->map blk)]
+    (is (= {:type :thinking :thinking "let me reason" :signature "sig_abc"} m))
+    (is (some? (#'a/->params {:model "m"
+                              :messages [{:role :assistant :content [m]}]})))))
 
 (defn- model-info
   "Build a ModelInfo with required fields; token limits optional."
@@ -585,6 +608,150 @@
       (is (contains? types :message-delta))
       (is (contains? types :message-stop))
       (is (= full (apply str (keep #(when (= :text-delta (:type %)) (:text %)) @events)))))))
+
+(defn- base-tool [name f]
+  {:name name
+   :description (str "tool " name)
+   :input-schema {:type "object" :properties {}}
+   :fn f})
+
+(defn- text-response [id text]
+  {:id id
+   :role :assistant
+   :stop-reason :end-turn
+   :content [{:type :text :text text}]
+   :usage {:input-tokens 1 :output-tokens 1}})
+
+(defn- tool-response [& blocks]
+  {:id "msg_tool"
+   :role :assistant
+   :stop-reason :tool-use
+   :content (vec blocks)
+   :usage {:input-tokens 1 :output-tokens 1}})
+
+(deftest run-tools-loop
+  (testing "single tool call continues with assistant and tool-result turns"
+    (let [calls (atom [])
+          params {:model "claude-haiku-4-5"
+                  :messages [{:role :user :content "weather?"}]
+                  :tools [(base-tool "get_weather"
+                                     (fn [input]
+                                       (is (= {:location "Denver"} input))
+                                       "sunny"))]}
+          responses [(tool-response {:type :tool-use
+                                     :id "tu_1"
+                                     :name "get_weather"
+                                     :input {:location "Denver"}})
+                     (text-response "msg_final" "done")]
+          call-fn (fn [p]
+                    (swap! calls conj p)
+                    (doseq [t (:tools p)]
+                      (is (not (contains? t :fn))))
+                    (when (= 2 (count @calls))
+                      (is (= [{:role :user :content "weather?"}
+                              {:role :assistant :content (:content (first responses))}
+                              {:role :user
+                               :content [{:type :tool-result
+                                          :tool-use-id "tu_1"
+                                          :content "sunny"}]}]
+                             (:messages p))))
+                    (nth responses (dec (count @calls))))
+          result (run-tools* call-fn params {})]
+      (is (= "msg_final" (:id result)))
+      (is (= [{:role :user :content "weather?"}
+              {:role :assistant :content (:content (first responses))}
+              {:role :user
+               :content [{:type :tool-result
+                          :tool-use-id "tu_1"
+                          :content "sunny"}]}
+              {:role :assistant :content (:content (second responses))}]
+             (:messages result)))))
+  (testing "parallel tool calls produce one user turn with ordered results"
+    (let [calls (atom [])
+          params {:messages "run both"
+                  :tools [(base-tool "a" (fn [input] (:x input)))
+                          (base-tool "b" (fn [input] (inc (:y input))))]}
+          first-response (tool-response {:type :tool-use :id "tu_a" :name "a" :input {:x "A"}}
+                                        {:type :tool-use :id "tu_b" :name "b" :input {:y 1}})
+          responses [first-response (text-response "msg_final" "done")]
+          call-fn (fn [p]
+                    (swap! calls conj p)
+                    (when (= 2 (count @calls))
+                      (is (= [{:type :tool-result :tool-use-id "tu_a" :content "A"}
+                              {:type :tool-result :tool-use-id "tu_b" :content 2}]
+                             (get-in p [:messages 2 :content]))))
+                    (nth responses (dec (count @calls))))]
+      (is (= "msg_final" (:id (run-tools* call-fn params {}))))
+      (is (= [{:role :user :content "run both"}]
+             (:messages (first @calls))))))
+  (testing "tool exceptions are sent back as error tool-results"
+    (let [calls (atom [])
+          params {:messages [{:role :user :content "fail"}]
+                  :tools [(base-tool "explode"
+                                     (fn [_]
+                                       (throw (ex-info "bad tool" {}))))]}
+          responses [(tool-response {:type :tool-use :id "tu_1" :name "explode" :input {}})
+                     (text-response "msg_final" "recovered")]
+          call-fn (fn [p]
+                    (swap! calls conj p)
+                    (when (= 2 (count @calls))
+                      (is (= [{:type :tool-result
+                               :tool-use-id "tu_1"
+                               :content "bad tool"
+                               :is-error true}]
+                             (get-in p [:messages 2 :content]))))
+                    (nth responses (dec (count @calls))))]
+      (is (= "msg_final" (:id (run-tools* call-fn params {}))))))
+  (testing "called tools must have a function"
+    (let [params {:messages [{:role :user :content "weather?"}]
+                  :tools [(dissoc (base-tool "get_weather" constantly) :fn)]}
+          ex (try
+               (run-tools* (constantly (tool-response {:type :tool-use
+                                                       :id "tu_1"
+                                                       :name "get_weather"
+                                                       :input {}}))
+                           params
+                           {})
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :no-tool-fn (:anthropic/error (ex-data ex))))
+      (is (= "get_weather" (:name (ex-data ex))))))
+  (testing "max iterations limits create-message calls"
+    (let [calls (atom 0)
+          params {:messages [{:role :user :content "loop"}]
+                  :tools [(base-tool "loop" (constantly "again"))]}
+          call-fn (fn [_]
+                    (swap! calls inc)
+                    (tool-response {:type :tool-use :id (str "tu_" @calls) :name "loop" :input {}}))
+          ex (try
+               (run-tools* call-fn params {:max-iterations 2})
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (= 2 @calls))
+      (is (= :max-iterations-exceeded (:anthropic/error (ex-data ex))))
+      (is (= 2 (:iterations (ex-data ex))))
+      (is (vector? (:messages (ex-data ex))))))
+  (testing "non-string return values remain tool-result content values"
+    (let [calls (atom [])
+          params {:messages [{:role :user :content "data"}]
+                  :tools [(base-tool "data" (constantly {:ok true}))]}
+          responses [(tool-response {:type :tool-use :id "tu_1" :name "data" :input {}})
+                     (text-response "msg_final" "done")]
+          call-fn (fn [p]
+                    (swap! calls conj p)
+                    (when (= 2 (count @calls))
+                      (is (= {:ok true}
+                             (get-in p [:messages 2 :content 0 :content]))))
+                    (nth responses (dec (count @calls))))]
+      (run-tools* call-fn params {})))
+  (testing "on-message sees every response in order"
+    (let [seen (atom [])
+          responses [(tool-response {:type :tool-use :id "tu_1" :name "x" :input {}})
+                     (text-response "msg_final" "done")]
+          params {:messages [{:role :user :content "x"}]
+                  :tools [(base-tool "x" (constantly "ok"))]}]
+      (run-tools* (fn [_] (nth responses (count @seen)))
+                  params
+                  {:on-message #(swap! seen conj %)})
+      (is (= responses @seen)))))
 
 (deftest ^:integration sampling-params-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")

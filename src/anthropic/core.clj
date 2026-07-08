@@ -382,6 +382,8 @@
                        b ^ToolResultBlockParam$Builder (ToolResultBlockParam/builder)]
                    (.toolUseId ^ToolResultBlockParam$Builder b ^String (:tool-use-id blk))
                    (.content ^ToolResultBlockParam$Builder b content-str)
+                   (when (contains? blk :is-error)
+                     (.isError ^ToolResultBlockParam$Builder b (boolean (:is-error blk))))
                    (when cache-control (.cacheControl ^ToolResultBlockParam$Builder b (->cache-control cache-control)))
                    (ContentBlockParam/ofToolResult (.build b)))
     :tool-use (let [b (-> (ToolUseBlockParam/builder)
@@ -592,7 +594,10 @@
                          :id (.id x)
                          :name (.name x)
                          :input (json->clj (._input x))})
-      (.isPresent th) {:type :thinking :thinking (.thinking ^ThinkingBlock (.get th))}
+      (.isPresent th) (let [x ^ThinkingBlock (.get th)]
+                        {:type :thinking
+                         :thinking (.thinking x)
+                         :signature (.signature x)})
       (.isPresent stu) (let [x ^ServerToolUseBlock (.get stu)]
                          {:type :server-tool-use
                           :id (.id x)
@@ -669,6 +674,77 @@
   (when-let [t (->> (:content resp) (filter #(= :text (:type %))) first :text)]
     (json/read-value t json-mapper)))
 
+(defn- strip-tool-fn [tool]
+  (dissoc tool :fn))
+
+(defn- strip-tool-fns [params]
+  (if (contains? params :tools)
+    (update params :tools #(mapv strip-tool-fn %))
+    params))
+
+(defn- tool-fns [tools]
+  (into {}
+        (keep (fn [{:keys [name fn]}]
+                (when fn [name fn])))
+        tools))
+
+(defn- normalize-messages [messages]
+  (cond
+    (nil? messages) []
+    (string? messages) [{:role :user :content messages}]
+    :else (vec messages)))
+
+(defn- assistant-turn [resp]
+  {:role :assistant :content (:content resp)})
+
+(defn- tool-result-block [block f]
+  (try
+    {:type :tool-result
+     :tool-use-id (:id block)
+     :content (f (:input block))}
+    (catch Throwable e
+      {:type :tool-result
+       :tool-use-id (:id block)
+       :content (or (.getMessage e) (str e))
+       :is-error true})))
+
+(defn- tool-result-blocks [fns blocks]
+  (mapv (fn [{:keys [name] :as block}]
+          (let [f (get fns name)]
+            (when-not f
+              (throw (anthropic-error :no-tool-fn
+                                      "Tool call has no matching :fn"
+                                      {:name name})))
+            (tool-result-block block f)))
+        blocks))
+
+(defn- run-tools*
+  "Implementation for `run-tools`; `call-fn` accepts a create-message params map
+  and returns a response map."
+  [call-fn params {:keys [max-iterations on-message]
+                   :or {max-iterations 10}}]
+  (let [fns (tool-fns (:tools params))]
+    (loop [iterations 0
+           messages (normalize-messages (:messages params))]
+      (when (>= iterations max-iterations)
+        (throw (anthropic-error :max-iterations-exceeded
+                                "Tool loop exceeded max iterations"
+                                {:iterations iterations
+                                 :messages messages})))
+      (let [req (-> params
+                    strip-tool-fns
+                    (assoc :messages messages))
+            resp (call-fn req)]
+        (when on-message (on-message resp))
+        (if (= :tool-use (:stop-reason resp))
+          (let [blocks (filterv #(= :tool-use (:type %)) (:content resp))
+                results (tool-result-blocks fns blocks)]
+            (recur (inc iterations)
+                   (conj messages
+                         (assistant-turn resp)
+                         {:role :user :content results})))
+          (assoc resp :messages (conj messages (assistant-turn resp))))))))
+
 (defn create-message
   "Send a Messages request and return the response as a Clojure map.
 
@@ -683,7 +759,8 @@
   JSON Schema map) and/or `:effort` (`:low`…`:max`); when `:response-format` is
   set the returned map also carries `:parsed`, the response text decoded as a
   Clojure map. Returns
-  `{:id :model :role :stop-reason :content [...] :usage {...}}`."
+  `{:id :model :role :stop-reason :content [...] :usage {...}}`. See also
+  `run-tools` for hand-rolled tool execution over this request shape."
   [^AnthropicClient client req]
   (with-api-errors
     (let [resp (-> (.messages client)
@@ -691,6 +768,20 @@
                    (message->map))]
       (cond-> resp
         (:response-format req) (assoc :parsed (parse-text resp))))))
+
+(defn run-tools
+  "Run a Messages request with local tool functions until the model stops asking
+  for tools. Tools may include `:fn`, a function of parsed tool input returning
+  the tool result; `:fn` is stripped before each API call. Returns the final
+  response map from `create-message` plus `:messages`, the accumulated
+  conversation including the final assistant turn.
+
+  `opts`: `:max-iterations` (default 10 create-message calls) and
+  `:on-message` (called with each response map)."
+  ([^AnthropicClient client params]
+   (run-tools client params {}))
+  ([^AnthropicClient client params opts]
+   (run-tools* (partial create-message client) params opts)))
 
 (defn count-tokens
   "Count the input tokens a request would use, without sending it. Takes the same
