@@ -1,0 +1,6 @@
+{:cljdoc.doc/tree
+ [["Readme" {:file "README.md"}]
+  ["Getting Started" {:file "doc/getting-started.md"}]
+  ["Tool Use" {:file "doc/tool-use.md"}]
+  ["Streaming" {:file "doc/streaming.md"}]
+  ["Batches, Files & Structured Output" {:file "doc/batches-files-structured-output.md"}]]}
