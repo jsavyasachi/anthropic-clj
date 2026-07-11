@@ -8,6 +8,7 @@
            (com.anthropic.models.messages CacheCreation Container
                                           Message MessageCountTokensParams
                                           MessageCreateParams
+                                          MessageCreateParams$System
                                           MessageCreateParams$ServiceTier
                                           RawContentBlockDelta
                                           RawContentBlockDeltaEvent
@@ -18,7 +19,7 @@
                                           RawMessageStreamEvent
                                           RefusalStopDetails RefusalStopDetails$Category
                                           InputJsonDelta TextDelta ThinkingDelta
-                                          DirectCaller ToolUseBlock ToolUseBlock$Caller
+                                          DirectCaller TextBlockParam Tool ToolUseBlock ToolUseBlock$Caller
                                           OutputConfig OutputTokensDetails
                                           ServerToolUsage Usage Usage$Builder
                                           StopReason ToolResultBlockParam
@@ -44,6 +45,9 @@
 (def reduce-batch-result-stream #'a/reduce-batch-result-stream)
 (def file->map #'a/file->map)
 (def run-tools* #'a/run-tools*)
+
+(defn- resolved-fn [sym]
+  (some-> (ns-resolve 'anthropic.core sym) deref))
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -97,6 +101,24 @@
     (testing (str "client option " opts)
       (is (instance? AnthropicClient (a/client opts))))))
 
+(deftest extended-client-construction
+  (let [configured (atom nil)
+        c (a/client {:api-key "sk-test"
+                     :webhook-key "whsec_test"
+                     :log-level :debug
+                     :response-validation true
+                     :proxy java.net.Proxy/NO_PROXY
+                     :headers {"x-test" "header"}
+                     :query-params {"test" "query"}
+                     :configure #(reset! configured %)})]
+    (is (instance? AnthropicClient c))
+    (is (some? @configured))))
+
+(deftest per-call-request-options-api
+  (is (some #{'[client req opts]} (:arglists (meta #'a/create-message))))
+  (is (some #{'[client req opts]} (:arglists (meta #'a/count-tokens))))
+  (is (fn? (resolved-fn '->request-options))))
+
 (deftest newer-request-params
   (testing "create params include container, inference-geo, user-profile-id, cache-control"
     (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
@@ -118,6 +140,38 @@
       (is (= "user_123" (opt (.userProfileId p))))
       (is (some? (opt (.cacheControl p))))
       (is (some? (opt (.outputConfig p)))))))
+
+(deftest stable-request-parity-params
+  (testing "system text blocks and tool cache control"
+    (let [^MessageCreateParams p
+          (->params {:system [{:text "stable" :cache-control {:ttl :1h}}]
+                     :tools [{:name "cached"
+                              :cache-control true
+                              :input-schema {:type "object" :properties {}}}]
+                     :messages [{:role :user :content "hi"}]})
+          ^MessageCreateParams$System system (opt (.system p))
+          ^TextBlockParam block (first (.asTextBlockParams system))
+          ^com.anthropic.models.messages.ToolUnion tool-union (first (opt (.tools p)))
+          ^Tool tool (.get (.tool tool-union))]
+      (is (= "stable" (.text block)))
+      (is (.isPresent (.cacheControl block)))
+      (is (.isPresent (.cacheControl tool)))))
+  (testing "additional request properties reach create and count params"
+    (let [req {:messages [{:role :user :content "hi"}]
+               :extra-headers {"x-stable" "yes"}
+               :extra-query {"preview" "true"}
+               :extra-body {:future {:enabled true}}}
+          ^MessageCreateParams create-p (->params req)
+          ^MessageCountTokensParams count-p (->count-params req)]
+      (doseq [[headers query body]
+              [[(._additionalHeaders create-p) (._additionalQueryParams create-p)
+                (._additionalBodyProperties create-p)]
+               [(._additionalHeaders count-p) (._additionalQueryParams count-p)
+                (._additionalBodyProperties count-p)]]]
+        (is (= ["yes"] (vec (.values ^com.anthropic.core.http.Headers headers "x-stable"))))
+        (is (= ["true"] (vec (.values ^com.anthropic.core.http.QueryParams query "preview"))))
+        (is (= {"enabled" true}
+               (.convert ^com.anthropic.core.JsonValue (get body "future") Object)))))))
 
 (def ^:private empty-opt (java.util.Optional/empty))
 
@@ -472,6 +526,9 @@
     (is (= {:type :message-stop}
            (event->map (RawMessageStreamEvent/ofMessageStop
                         (.build (RawMessageStopEvent/builder))))))))
+
+(deftest stream-message-api
+  (is (fn? (some-> (ns-resolve 'anthropic.core 'stream-message) deref))))
 
 ;; Live round-trip — only runs when ANTHROPIC_API_KEY is set (network + billed).
 (deftest ^:integration create-message-roundtrip

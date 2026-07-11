@@ -8,9 +8,11 @@
             [clojure.walk :as walk]
             [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
-           (com.anthropic.client.okhttp AnthropicOkHttpClient)
-           (com.anthropic.core JsonValue)
-           (com.anthropic.core.http HttpResponse StreamResponse)
+           (com.anthropic.client.okhttp AnthropicOkHttpClient AnthropicOkHttpClient$Builder)
+           (com.anthropic.core JsonValue LogLevel RequestOptions)
+           (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
+           (com.anthropic.helpers MessageAccumulator)
+           (java.net Proxy)
            (java.time Duration)
            (com.anthropic.models.beta.files DeletedFile FileListPage FileMetadata
                                             FileUploadParams)
@@ -110,16 +112,36 @@
 (defn client
   "An Anthropic client. With no args, resolves credentials from the environment
   (`ANTHROPIC_API_KEY`). With a map, accepts optional `:api-key`, `:auth-token`,
-  `:base-url`, `:timeout-ms`, and `:max-retries`; only supplied keys are set on
-  the SDK builder."
+  `:base-url`, `:timeout-ms`, `:max-retries`, `:webhook-key`, `:log-level`
+  (`:off`/`:info`/`:error`/`:debug`), `:response-validation`, `:proxy`,
+  `:headers`, and `:query-params`; only supplied keys are set on the SDK builder.
+  `:configure` receives the raw builder last for SDK features not wrapped here."
   (^AnthropicClient [] (AnthropicOkHttpClient/fromEnv))
-  (^AnthropicClient [{:keys [api-key auth-token base-url timeout-ms max-retries]}]
-   (let [b (AnthropicOkHttpClient/builder)]
+  (^AnthropicClient [{:keys [api-key auth-token base-url timeout-ms max-retries
+                             webhook-key log-level response-validation proxy
+                             headers query-params configure]
+                      :as opts}]
+   (let [^AnthropicOkHttpClient$Builder b (AnthropicOkHttpClient/builder)]
      (when api-key (.apiKey b ^String api-key))
      (when auth-token (.authToken b ^String auth-token))
      (when base-url (.baseUrl b ^String base-url))
      (when timeout-ms (.timeout b (Duration/ofMillis (long timeout-ms))))
      (when max-retries (.maxRetries b (int max-retries)))
+     (when webhook-key (.webhookKey b ^String webhook-key))
+     (when log-level
+       (.logLevel b (case (keyword log-level)
+                      :off LogLevel/OFF
+                      :info LogLevel/INFO
+                      :error LogLevel/ERROR
+                      :debug LogLevel/DEBUG)))
+     (when (contains? opts :response-validation)
+       (.responseValidation b (boolean response-validation)))
+     (when proxy (.proxy b ^Proxy proxy))
+     (doseq [[name value] headers]
+       (.putHeader b ^String name ^String value))
+     (doseq [[k v] query-params]
+       (.putQueryParam b ^String k ^String v))
+     (when configure (configure b))
      (.build b))))
 
 (defn- service-error-type [e]
@@ -162,7 +184,9 @@
 (defn- anthropic-error [code message data]
   (ex-info message (assoc data :anthropic/error code)))
 
-(defn- ->custom-tool ^Tool [{:keys [name description input-schema]}]
+(declare ->cache-control)
+
+(defn- ->custom-tool ^Tool [{:keys [name description input-schema cache-control]}]
   (let [required (:required input-schema)
         isb (Tool$InputSchema/builder)
         tb (Tool/builder)]
@@ -171,6 +195,8 @@
     (.name tb ^String name)
     (.inputSchema tb (.build isb))
     (when description (.description tb ^String description))
+    (when cache-control
+      (.cacheControl tb ^CacheControlEphemeral (->cache-control cache-control)))
     (.build tb)))
 
 (defn- ->user-location ^UserLocation [{:keys [city region country timezone]}]
@@ -184,8 +210,6 @@
 (def ^:private server-tool-types
   #{:web-search :web-fetch :code-execution :bash :text-editor :memory
     :tool-search})
-
-(declare ->cache-control)
 
 (defn- ->web-search-tool ^WebSearchTool20260318
   [{:keys [max-uses allowed-domains blocked-domains user-location allowed-callers]}]
@@ -339,6 +363,11 @@
     (when cache-control (.cacheControl b (->cache-control cache-control)))
     (.build b)))
 
+(defn- ->system-block ^TextBlockParam [{:keys [text cache-control]}]
+  (let [b (-> (TextBlockParam/builder) (.text ^String text))]
+    (when cache-control (.cacheControl b (->cache-control cache-control)))
+    (.build b)))
+
 (defn- ->content-block ^ContentBlockParam [{:keys [type cache-control] :as blk}]
   (case (keyword type)
     :text (let [b (-> (TextBlockParam/builder) (.text ^String (:text blk)))]
@@ -459,12 +488,16 @@
                                 temperature top-p top-k stop-sequences
                                 tool-choice thinking metadata service-tier
                                 response-format effort container inference-geo
-                                user-profile-id cache-control]
+                                user-profile-id cache-control extra-headers
+                                extra-query extra-body]
                          :or {model "claude-opus-4-8" max-tokens 1024}}]
   (let [b (doto (MessageCreateParams/builder)
             (.model (Model/of model))
             (.maxTokens (long max-tokens)))]
-    (when system (.system b ^String system))
+    (when system
+      (if (string? system)
+        (.system b ^String system)
+        (.systemOfTextBlockParams b ^java.util.List (mapv ->system-block system))))
     (when temperature (.temperature b (double temperature)))
     (when top-p (.topP b (double top-p)))
     (when top-k (.topK b (long top-k)))
@@ -481,6 +514,13 @@
       (.outputConfig b (->output-config response-format effort)))
     (doseq [t tools] (.addTool b (->tool t)))
     (doseq [m messages] (add-message b m))
+    (doseq [[k v] extra-headers]
+      (.putAdditionalHeader b ^String k ^String v))
+    (doseq [[k v] extra-query]
+      (.putAdditionalQueryParam b ^String k ^String v))
+    (doseq [[k v] extra-body]
+      (let [^String property-name (name k)]
+        (.putAdditionalBodyProperty b property-name (->json v))))
     (.build b)))
 
 (defn- add-count-message [^MessageCountTokensParams$Builder b {:keys [role content]}]
@@ -501,11 +541,15 @@
   count-tokens request)."
   ^MessageCountTokensParams [{:keys [model system messages tools thinking tool-choice
                                      response-format effort user-profile-id
-                                     cache-control]
+                                     cache-control extra-headers extra-query
+                                     extra-body]
                               :or {model "claude-opus-4-8"}}]
   (let [b (doto (MessageCountTokensParams/builder)
             (.model (Model/of model)))]
-    (when system (.system b ^String system))
+    (when system
+      (if (string? system)
+        (.system b ^String system)
+        (.systemOfTextBlockParams b ^java.util.List (mapv ->system-block system))))
     (when thinking (.thinking b (->thinking thinking)))
     (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
@@ -514,6 +558,13 @@
       (.outputConfig b (->output-config response-format effort)))
     (doseq [t tools] (.addTool b (->count-tool t)))
     (doseq [m messages] (add-count-message b m))
+    (doseq [[k v] extra-headers]
+      (.putAdditionalHeader b ^String k ^String v))
+    (doseq [[k v] extra-query]
+      (.putAdditionalQueryParam b ^String k ^String v))
+    (doseq [[k v] extra-body]
+      (let [^String property-name (name k)]
+        (.putAdditionalBodyProperty b property-name (->json v))))
     (.build b)))
 
 (defn- java->clj [x]
@@ -745,29 +796,67 @@
                          {:role :user :content results})))
           (assoc resp :messages (conj messages (assistant-turn resp))))))))
 
+(defn- ->request-options ^RequestOptions [{:keys [timeout-ms response-validation] :as opts}]
+  (if (or (contains? opts :timeout-ms)
+          (contains? opts :response-validation))
+    (let [b (RequestOptions/builder)]
+      (when (contains? opts :timeout-ms)
+        (.timeout b (Duration/ofMillis (long timeout-ms))))
+      (when (contains? opts :response-validation)
+        (.responseValidation b (boolean response-validation)))
+      (.build b))
+    (RequestOptions/none)))
+
+(defn- headers->map [^Headers headers]
+  (into {}
+        (map (fn [^String name]
+               [(str/lower-case name) (vec (.values headers name))]))
+        (.names headers)))
+
+(defn- response-metadata [^HttpResponse r]
+  (let [request-id (.requestId r)]
+    {:status (.statusCode r)
+     :request-id (when (.isPresent request-id) (.get request-id))
+     :headers (headers->map (.headers r))}))
+
 (defn create-message
   "Send a Messages request and return the response as a Clojure map.
 
   `req` keys: `:model` (string, defaults to \"claude-opus-4-8\"), `:max-tokens`
-  (defaults to 1024), `:system` (string), `:messages` (a seq of
+  (defaults to 1024), `:system` (a string or text-block maps supporting
+  `:cache-control`; system-block citations are not wrapped), `:messages` (a seq of
   `{:role :user|:assistant :content \"...\"}`), `:tools`, and the optional
   controls `:temperature`, `:top-p`, `:top-k`, `:stop-sequences` (seq of
   strings), `:tool-choice` (`:auto`/`:any`/`:none` or `{:type :tool :name \"x\"}`),
   `:thinking` (`{:type :enabled :budget-tokens N}` / `{:type :adaptive}` /
   `{:type :disabled}`), `:metadata` (`{:user-id \"...\"}`), and `:service-tier`
-  (`:auto`/`:standard-only`). For structured output, pass `:response-format` (a
+  (`:auto`/`:standard-only`). Custom tools accept `:cache-control`. The request
+  escape hatches `:extra-headers`, `:extra-query`, and `:extra-body` pass
+  unwrapped values to the SDK builder. For structured output, pass
+  `:response-format` (a
   JSON Schema map) and/or `:effort` (`:low`…`:max`); when `:response-format` is
   set the returned map also carries `:parsed`, the response text decoded as a
-  Clojure map. Returns
+  Clojure map. An optional third `opts` map accepts `:timeout-ms`,
+  `:response-validation`, and truthy `:include-response`; the latter adds raw
+  HTTP `:response` metadata (`:status`, `:request-id`, and lowercase headers).
+  Returns
   `{:id :model :role :stop-reason :content [...] :usage {...}}`. See also
   `run-tools` for hand-rolled tool execution over this request shape."
-  [^AnthropicClient client req]
-  (with-api-errors
-    (let [resp (-> (.messages client)
-                   (.create (->params req))
-                   (message->map))]
-      (cond-> resp
-        (:response-format req) (assoc :parsed (parse-text resp))))))
+  ([^AnthropicClient client req]
+   (create-message client req {}))
+  ([^AnthropicClient client req opts]
+   (with-api-errors
+     (let [params (->params req)
+           request-options (->request-options opts)
+           [resp response]
+           (if (:include-response opts)
+             (with-open [^HttpResponseFor r (.create (.withRawResponse (.messages client))
+                                                     params request-options)]
+               [(message->map (.parse r)) (response-metadata r)])
+             [(message->map (.create (.messages client) params request-options)) nil])]
+       (cond-> resp
+         (:response-format req) (assoc :parsed (parse-text resp))
+         response (assoc :response response))))))
 
 (defn run-tools
   "Run a Messages request with local tool functions until the model stops asking
@@ -786,11 +875,24 @@
 (defn count-tokens
   "Count the input tokens a request would use, without sending it. Takes the same
   `req` map as `create-message` (sampling params and `:max-tokens` are ignored).
+  Shared system blocks, tool cache control, and `:extra-headers`/`:extra-query`/
+  `:extra-body` request escape hatches are supported.
+  An optional third `opts` map accepts `:timeout-ms`, `:response-validation`, and
+  truthy `:include-response`; the latter adds raw HTTP response metadata.
   Returns `{:input-tokens n}`."
-  [^AnthropicClient client req]
-  (with-api-errors
-    (let [^MessageTokensCount r (-> (.messages client) (.countTokens (->count-params req)))]
-      {:input-tokens (.inputTokens r)})))
+  ([^AnthropicClient client req]
+   (count-tokens client req {}))
+  ([^AnthropicClient client req opts]
+   (with-api-errors
+     (let [params (->count-params req)
+           request-options (->request-options opts)]
+       (if (:include-response opts)
+         (with-open [^HttpResponseFor r (.countTokens (.withRawResponse (.messages client))
+                                                      params request-options)]
+           (assoc {:input-tokens (.inputTokens ^MessageTokensCount (.parse r))}
+                  :response (response-metadata r)))
+         (let [^MessageTokensCount r (.countTokens (.messages client) params request-options)]
+           {:input-tokens (.inputTokens r)}))))))
 
 (defn- model->map [^ModelInfo m]
   (let [mit (.maxInputTokens m)
@@ -1018,6 +1120,23 @@
             (when (= :text-delta (:type m)) (.append sb ^String (:text m)))
             (when on-event (on-event m))))
         (str sb)))))
+
+(defn stream-message
+  "Stream a Messages request and return the fully reconstructed message map.
+  Calls `on-event` with each normalized event map as it arrives. Unlike `stream`,
+  the result includes all content blocks, tool inputs, usage, and stop metadata.
+  When `req` has `:response-format`, the result also includes `:parsed`. The
+  underlying HTTP stream is closed automatically."
+  [^AnthropicClient client req on-event]
+  (with-api-errors
+    (with-open [^StreamResponse sr (.createStreaming (.messages client) (->params req))]
+      (let [^MessageAccumulator acc (MessageAccumulator/create)]
+        (doseq [^RawMessageStreamEvent ev (iterator-seq (.iterator (.stream sr)))]
+          (.accumulate acc ev)
+          (when on-event (on-event (event->map ev))))
+        (let [resp (message->map (.message acc))]
+          (cond-> resp
+            (:response-format req) (assoc :parsed (parse-text resp))))))))
 
 (defn stream-text
   "Stream a Messages request, calling `on-text` with each text delta (a string)

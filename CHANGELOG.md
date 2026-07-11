@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Stable client transport options for webhook keys, logging, response
+  validation, proxies, default headers/query parameters, and raw builder
+  configuration.
+- `stream-message` for fully reconstructed streamed message maps.
+- Per-call request options and optional raw HTTP response metadata on
+  `create-message` and `count-tokens`.
+- System text blocks, custom-tool cache control, and additional header, query,
+  and body request properties for message creation and token counting.
+
 ## [0.11.1] - 2026-07-08
 
 Docs-only release: cljdoc guide articles (Getting Started, Tool Use, Streaming,
