@@ -248,10 +248,14 @@ Submit many requests at the 50%-cost batch tier. Each request is
 
 For thinking or tool-use streams, `stream` surfaces every normalized event and
 still returns the full text. Each event is a map keyed by `:type`:
-`:message-start`, `:content-block-start` (`:index`, `:block`),
-`:text-delta`/`:thinking-delta`/`:input-json-delta`/`:signature-delta` (`:index`
-plus payload), `:content-block-stop` (`:index`), `:message-delta`
-(`:stop-reason`), and `:message-stop`.
+
+- `:message-start`
+- `:content-block-start` - `:index`, `:block`
+- `:text-delta` / `:thinking-delta` / `:input-json-delta` / `:signature-delta` -
+  `:index` plus the payload
+- `:content-block-stop` - `:index`
+- `:message-delta` - `:stop-reason`
+- `:message-stop`
 
 ```clojure
 (anthropic/stream
@@ -390,11 +394,16 @@ unchanged.
 
 ## Beta agents platform
 
-`anthropic.beta` wraps the beta agents-platform APIs - skills (and skill
-versions), memory stores (and memories), agents, sessions (events and
-threads), deployments (and runs), environments, vaults, user profiles, and
-webhook payload parsing - with the same maps-in/maps-out shape and the same
-error contract as `anthropic.core`:
+`anthropic.beta` wraps the beta agents-platform APIs with the same
+maps-in/maps-out shape and error contract as `anthropic.core`:
+
+- skills (and skill versions)
+- memory stores (and memories)
+- agents
+- sessions (events and threads)
+- deployments (and runs)
+- environments, vaults, user profiles
+- webhook payload parsing
 
 ```clojure
 (require '[anthropic.beta :as beta])
@@ -441,9 +450,14 @@ error contract as `anthropic.core`:
 ```
 
 Each service also has `get-*`, `list-*`, and `archive-*`/`delete-*` variants.
-Not wrapped yet: vault credentials, environment work, memory versions, thread
-events, session event streaming, session resources, and agent versions. These
-are beta endpoints - Anthropic may change them.
+Not wrapped yet (beta endpoints Anthropic may still change):
+
+- vault credentials
+- environment work
+- memory versions
+- thread events, session event streaming
+- session resources
+- agent versions
 
 ## Bedrock and Vertex
 
