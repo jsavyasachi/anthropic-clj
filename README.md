@@ -42,12 +42,16 @@ net.clojars.savya/anthropic-clj {:mvn/version "0.12.0"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
-`:api-key`, `:auth-token`, `:base-url`, `:timeout-ms`, `:max-retries`,
-`:webhook-key`, `:log-level` (`:off`/`:info`/`:error`/`:debug`),
-`:response-validation`, `:proxy` (a `java.net.Proxy`), `:headers` (default
-request headers), and `:query-params`. `:configure` gets the raw SDK builder
-last for anything not wrapped here (interceptors, a custom `jsonMapper`, or a
-Bedrock/Vertex `backend`).
+
+- `:api-key`, `:auth-token`, `:base-url` - credentials and endpoint
+- `:timeout-ms`, `:max-retries` - request behavior
+- `:webhook-key` - key for `unwrap-webhook` signature verification
+- `:log-level` - `:off`/`:info`/`:error`/`:debug`
+- `:response-validation` - strict response-shape checking
+- `:proxy` - a `java.net.Proxy`
+- `:headers`, `:query-params` - defaults sent on every request
+- `:configure` - receives the raw SDK builder last, for anything not wrapped
+  here (interceptors, a custom `jsonMapper`, or a Bedrock/Vertex `backend`)
 
 Tracks [`com.anthropic/anthropic-java` 2.48.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.48.0) - see `CHANGELOG.md` for the bump history.
 
@@ -71,15 +75,21 @@ Tracks [`com.anthropic/anthropic-java` 2.48.0](https://github.com/anthropics/ant
 ;;     :usage {:input-tokens 18 :output-tokens 9}}
 ```
 
-`create-message` also accepts the optional controls `:temperature`, `:top-p`,
-`:top-k`, `:stop-sequences`, `:tool-choice` (`:auto`/`:any`/`:none` or
-`{:type :tool :name "x"}`), `:thinking` (`{:type :enabled :budget-tokens N}`,
-`{:type :adaptive}`, or `{:type :disabled}`), `:metadata` (`{:user-id "..."}`),
-`:service-tier` (`:auto`/`:standard-only`), `:container`, `:inference-geo`,
-`:user-profile-id`, and top-level `:cache-control`. For structured output, pass
-`:response-format` and/or `:effort`. Responses include newer `:usage` fields
-when present, including cache creation/read tokens, server-tool usage,
-service-tier, inference geo, cache creation details, and output-token details.
+`create-message` also accepts these optional controls:
+
+- `:temperature`, `:top-p`, `:top-k`, `:stop-sequences` - sampling
+- `:tool-choice` - `:auto`/`:any`/`:none` or `{:type :tool :name "x"}`
+- `:thinking` - `{:type :enabled :budget-tokens N}`, `{:type :adaptive}`, or
+  `{:type :disabled}`
+- `:metadata` - `{:user-id "..."}`
+- `:service-tier` - `:auto`/`:standard-only`
+- `:container`, `:inference-geo`, `:user-profile-id`
+- `:cache-control` - top-level prompt-cache breakpoint
+
+For structured output, pass `:response-format` and/or `:effort`. Responses
+include newer `:usage` fields when present: cache creation/read tokens,
+server-tool usage, service-tier, inference geo, cache creation details, and
+output-token details.
 
 ### Images, PDFs, and prompt caching
 
