@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.12.1] - 2026-07-11
+
+Docs-only release: README tightened - streaming section reordered so
+`stream-message` no longer splits `stream`'s prose from its example, and the
+client-options, `create-message` controls, stream events, and beta service
+lists are now bulleted. No code changes.
+
 ## [0.12.0] - 2026-07-11
 
 ### Added
