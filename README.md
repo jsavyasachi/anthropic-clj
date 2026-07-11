@@ -42,7 +42,12 @@ net.clojars.savya/anthropic-clj {:mvn/version "0.11.1"}
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
-`:api-key`, `:auth-token`, `:base-url`, `:timeout-ms`, `:max-retries`.
+`:api-key`, `:auth-token`, `:base-url`, `:timeout-ms`, `:max-retries`,
+`:webhook-key`, `:log-level` (`:off`/`:info`/`:error`/`:debug`),
+`:response-validation`, `:proxy` (a `java.net.Proxy`), `:headers` (default
+request headers), and `:query-params`. `:configure` gets the raw SDK builder
+last for anything not wrapped here (interceptors, a custom `jsonMapper`, or a
+Bedrock/Vertex `backend`).
 
 Tracks [`com.anthropic/anthropic-java` 2.48.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.48.0) - see `CHANGELOG.md` for the bump history.
 
@@ -240,6 +245,20 @@ text. To rebuild a streamed tool call, accumulate `:input-json-delta`
 `:partial-json` per `:index` - the matching `:content-block-start` carries the
 tool `:id`/`:name`.
 
+Or skip the manual reassembly: `stream-message` fires the same events but
+returns the **fully reconstructed** response map (all content blocks, tool
+`:input`, `:usage`, `:stop-reason`, and `:parsed` when `:response-format` is
+set) - the same shape `create-message` returns.
+
+```clojure
+(anthropic/stream-message
+  client
+  {:max-tokens 256 :messages [{:role :user :content "What's the weather?"}]
+   :tools [weather-tool]}
+  (fn [ev] (when (= :text-delta (:type ev)) (print (:text ev)))))
+;; => {:id ... :content [{:type :tool-use :input {...}} ...] :usage {...}}
+```
+
 ```clojure
 (anthropic/stream
   client
@@ -312,7 +331,11 @@ API call.
 - `create-message` - request map ↔ response map, with the full set of request
   controls (sampling, stop sequences, tool-choice, thinking, metadata,
   service-tier), cache-token usage, and **structured output** (`:response-format`
-  → `:parsed`, plus `:effort`)
+  → `:parsed`, plus `:effort`). A `:system` string or text blocks (with
+  `:cache-control`), an optional third `opts` map for per-call `:timeout-ms` /
+  `:response-validation` / `:include-response` (raw HTTP `:status`,
+  `:request-id`, headers), and `:extra-headers`/`:extra-query`/`:extra-body`
+  forward-compat escape hatches
 - **Content blocks** - text, `tool_use`/`tool_result`, images (base64/url),
   documents/PDFs (base64/url/text), search results, thinking/redacted-thinking
   round-trips, container uploads, and `:cache-control` breakpoints where supported
@@ -321,10 +344,12 @@ API call.
   `:server-tool-use` and typed result blocks parsed back out
 - **Citations** - text blocks carry `:citations` (char/page/content-block/
   web-search/search-result locations) when present
-- `count-tokens` - input-token count without sending
+- `count-tokens` - input-token count without sending (same `opts` third arg as
+  `create-message`)
 - `stream-text` - incremental text deltas
 - `stream` - every normalized stream event (message + content-block lifecycle,
   text/thinking/tool-use/signature deltas)
+- `stream-message` - stream events plus the fully reconstructed response map
 - `list-models` / `get-model` - Models API
 - Message Batches - `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
   `delete-batch`, `batch-results`, `reduce-batch-results`
