@@ -236,28 +236,12 @@ Submit many requests at the 50%-cost batch tier. Each request is
 ;; => returns the complete string when the stream ends
 ```
 
-For thinking or tool-use streams, `stream` surfaces every normalized event. Each
-event is a map keyed by `:type`: `:message-start`, `:content-block-start`
-(`:index`, `:block`), `:text-delta`/`:thinking-delta`/`:input-json-delta`/
-`:signature-delta` (`:index` plus payload), `:content-block-stop` (`:index`),
-`:message-delta` (`:stop-reason`), and `:message-stop`. It still returns the full
-text. To rebuild a streamed tool call, accumulate `:input-json-delta`
-`:partial-json` per `:index` - the matching `:content-block-start` carries the
-tool `:id`/`:name`.
-
-Or skip the manual reassembly: `stream-message` fires the same events but
-returns the **fully reconstructed** response map (all content blocks, tool
-`:input`, `:usage`, `:stop-reason`, and `:parsed` when `:response-format` is
-set) - the same shape `create-message` returns.
-
-```clojure
-(anthropic/stream-message
-  client
-  {:max-tokens 256 :messages [{:role :user :content "What's the weather?"}]
-   :tools [weather-tool]}
-  (fn [ev] (when (= :text-delta (:type ev)) (print (:text ev)))))
-;; => {:id ... :content [{:type :tool-use :input {...}} ...] :usage {...}}
-```
+For thinking or tool-use streams, `stream` surfaces every normalized event and
+still returns the full text. Each event is a map keyed by `:type`:
+`:message-start`, `:content-block-start` (`:index`, `:block`),
+`:text-delta`/`:thinking-delta`/`:input-json-delta`/`:signature-delta` (`:index`
+plus payload), `:content-block-stop` (`:index`), `:message-delta`
+(`:stop-reason`), and `:message-stop`.
 
 ```clojure
 (anthropic/stream
@@ -268,6 +252,22 @@ set) - the same shape `create-message` returns.
       :thinking-delta (print "[thinking]" (:thinking ev))
       :text-delta     (print (:text ev))
       nil)))
+```
+
+When you want the assembled result instead of raw events, `stream-message` fires
+the same events but returns the **fully reconstructed** response map - all content
+blocks, tool `:input`, `:usage`, `:stop-reason`, and `:parsed` when
+`:response-format` is set: the same shape `create-message` returns. It reassembles
+streamed tool calls for you, so there's no accumulating `:input-json-delta`
+`:partial-json` per `:index` by hand.
+
+```clojure
+(anthropic/stream-message
+  client
+  {:max-tokens 256 :messages [{:role :user :content "What's the weather?"}]
+   :tools [weather-tool]}
+  (fn [ev] (when (= :text-delta (:type ev)) (print (:text ev)))))
+;; => {:id ... :content [{:type :tool-use :input {...}} ...] :usage {...}}
 ```
 
 ### Tool use
@@ -331,10 +331,10 @@ API call.
 - `create-message` - request map ↔ response map, with the full set of request
   controls (sampling, stop sequences, tool-choice, thinking, metadata,
   service-tier), cache-token usage, and **structured output** (`:response-format`
-  → `:parsed`, plus `:effort`). A `:system` string or text blocks (with
-  `:cache-control`), an optional third `opts` map for per-call `:timeout-ms` /
-  `:response-validation` / `:include-response` (raw HTTP `:status`,
-  `:request-id`, headers), and `:extra-headers`/`:extra-query`/`:extra-body`
+  → `:parsed`, plus `:effort`). `:system` takes a string or text blocks (with
+  `:cache-control`); a third `opts` map adds per-call `:timeout-ms`,
+  `:response-validation`, and `:include-response` (raw HTTP `:status`,
+  `:request-id`, headers); `:extra-headers`/`:extra-query`/`:extra-body` are
   forward-compat escape hatches
 - **Content blocks** - text, `tool_use`/`tool_result`, images (base64/url),
   documents/PDFs (base64/url/text), search results, thinking/redacted-thinking
@@ -441,9 +441,9 @@ The SDK ships separate backend artifacts,
 [`com.anthropic/anthropic-java-bedrock` and
 `com.anthropic/anthropic-java-vertex`](https://github.com/anthropics/anthropic-sdk-java#amazon-bedrock-and-google-vertex-ai),
 for Amazon Bedrock and Google Vertex AI. `client` here builds the direct-API
-client only, but every function takes the client as its first argument, so an
-`AnthropicClient` constructed from either backend artifact works with all of
-them.
+client, but its `:configure` option can set a `.backend(...)` on the SDK builder,
+and every function takes the client as its first argument - so an
+`AnthropicClient` built from either backend artifact works with all of them.
 
 ## Tests
 
