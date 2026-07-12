@@ -14,7 +14,8 @@
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
 
 (defn clean [_]
-  (b/delete {:path "target"}))
+  (b/delete {:path "target"})
+  (b/delete {:path "pom.xml"}))
 
 (defn jar [_]
   (clean nil)
