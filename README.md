@@ -15,6 +15,8 @@ Build a request as a Clojure map, get a Clojure map back.
 ## Stack
 
 <a href="https://clojure.org"><img src="https://img.shields.io/badge/Clojure-5881D8?style=flat&logo=clojure&logoColor=fff" alt="Clojure" /></a>
+<a href="https://clojure.org/guides/deps_and_cli"><img src="https://img.shields.io/badge/deps.edn-5881D8?style=flat&logo=clojure&logoColor=fff" alt="deps.edn" /></a>
+<a href="https://clojure.github.io/tools.build/"><img src="https://img.shields.io/badge/tools.build-5881D8?style=flat&logo=clojure&logoColor=fff" alt="tools.build" /></a>
 <a href="https://docs.anthropic.com"><img src="https://img.shields.io/badge/Anthropic-D97757?style=flat&logo=anthropic&logoColor=fff" alt="Anthropic" /></a>
 <a href="https://github.com/metosin/jsonista"><img src="https://img.shields.io/badge/jsonista-2D3748?style=flat&logo=clojure&logoColor=fff" alt="jsonista" /></a>
 
@@ -29,16 +31,16 @@ maps out, keywords for roles and block types.
 
 ## Installation
 
-Leiningen (`project.clj`):
-
-```clojure
-[net.clojars.savya/anthropic-clj "0.12.1"]
-```
-
 tools.deps (`deps.edn`):
 
 ```clojure
 net.clojars.savya/anthropic-clj {:mvn/version "0.12.1"}
+```
+
+Leiningen (`project.clj`):
+
+```clojure
+[net.clojars.savya/anthropic-clj "0.12.1"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -474,14 +476,14 @@ and every function takes the client as its first argument - so an
 Unit tests (the request/response translation) run with no network:
 
 ```
-lein test
+clojure -M:test
 ```
 
 The `:integration` suite hits the live API and is billed - it needs
 `ANTHROPIC_API_KEY` and is run explicitly:
 
 ```
-ANTHROPIC_API_KEY=sk-... lein test :integration
+ANTHROPIC_API_KEY=sk-... clojure -M:test --focus-meta :integration
 ```
 
 ## License
