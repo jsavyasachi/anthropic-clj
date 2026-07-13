@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
-## [Unreleased]
+## [0.12.2] - 2026-07-12
 
 ### Changed
 - Migrate the build to deps.edn and tools.build, with Leiningen supported via
