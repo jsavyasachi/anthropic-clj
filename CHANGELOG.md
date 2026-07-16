@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.12.3] - 2026-07-16
+
+### Changed
+- Track `com.anthropic/anthropic-java` 2.49.0. The bump is dependency currency only; the GA Messages surface this library wraps is unchanged (2.49.0 adds new beta services — dreams and MCP tunnels — which are not yet wrapped).
+
 ## [0.12.2] - 2026-07-12
 
 ### Changed
