@@ -1127,8 +1127,14 @@
 
 (defn- rate-limit-ex ^com.anthropic.errors.RateLimitException []
   (let [ctor (first (.getConstructors com.anthropic.errors.RateLimitException))]
-    (.newInstance ctor (object-array [(.build (com.anthropic.core.http.Headers/builder))
-                                      (com.anthropic.core.JsonValue/from {"error" "rate"})
+    (.newInstance ctor (object-array [(-> (com.anthropic.core.http.Headers/builder)
+                                          (.put "request-id" "req_123")
+                                          (.put "retry-after" "1")
+                                          (.build))
+                                      (com.anthropic.core.JsonValue/from
+                                       {"type" "error"
+                                        "error" {"type" "rate_limit_error"
+                                                 "message" "slow down"}})
                                       nil nil]))))
 
 (deftest api-error-normalization
@@ -1138,11 +1144,32 @@
       (is (= :api-error (:anthropic/error (ex-data ex))))
       (is (= 429 (:status (ex-data ex))))
       (is (= :rate-limit (:error-type (ex-data ex))))
+      (is (= :rate-limit (:classification (ex-data ex))))
+      (is (= true (:retryable (ex-data ex))))
+      (is (= "req_123" (:request-id (ex-data ex))))
+      (is (= ["1"] (get-in (ex-data ex) [:headers "retry-after"])))
+      (is (= "slow down" (get-in (ex-data ex) [:body :error :message])))
+      (is (= :rate-limit-error (:sdk-error-type (ex-data ex))))
       (is (identical? orig (ex-cause ex)))))
+  (testing "bad requests and SSE failures have distinct classifications"
+    (let [headers (.build (com.anthropic.core.http.Headers/builder))
+          body (com.anthropic.core.JsonValue/from
+                {"type" "error" "error" {"type" "invalid_request_error"}})
+          bad (-> (com.anthropic.errors.BadRequestException/builder)
+                  (.headers headers) (.body body) (.build))
+          sse (-> (com.anthropic.errors.SseException/builder)
+                  (.statusCode 502) (.headers headers) (.body body) (.build))
+          normalize #(try (throw-normalized! %) (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :invalid-request (:classification (ex-data (normalize bad)))))
+      (is (= false (:retryable (ex-data (normalize bad)))))
+      (is (= :stream-error (:classification (ex-data (normalize sse)))))
+      (is (= true (:retryable (ex-data (normalize sse)))))))
   (testing "io exceptions become :io-error ex-info"
     (let [orig (com.anthropic.errors.AnthropicIoException. "boom")
           ex (try (throw-normalized! orig) (catch clojure.lang.ExceptionInfo e e))]
       (is (= :io-error (:anthropic/error (ex-data ex))))
+      (is (= :retryable (:classification (ex-data ex))))
+      (is (= true (:retryable (ex-data ex))))
       (is (identical? orig (ex-cause ex)))))
   (testing "other Anthropic exceptions pass through unchanged"
     (let [orig (com.anthropic.errors.AnthropicInvalidDataException. "bad" nil)

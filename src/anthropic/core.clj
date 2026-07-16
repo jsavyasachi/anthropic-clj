@@ -102,15 +102,21 @@
                                           Usage)
            (com.anthropic.errors AnthropicException
                                  AnthropicIoException
+                                 AnthropicRetryableException
                                  AnthropicServiceException
                                  BadRequestException
+                                 CredentialResolutionException
                                  InternalServerException
+                                 NoCredentialsException
                                  NotFoundException
                                  PermissionDeniedException
                                  RateLimitException
+                                 SseException
                                  UnauthorizedException
                                  UnexpectedStatusCodeException
                                  UnprocessableEntityException)))
+
+(declare headers->map json->clj ->keyword)
 
 (defn client
   "An Anthropic client. With no args, resolves credentials from the environment
@@ -159,6 +165,29 @@
     UnexpectedStatusCodeException :unexpected-status
     :api-error))
 
+(defn- error-classification [e]
+  (cond
+    (instance? SseException e) :stream-error
+    (instance? RateLimitException e) :rate-limit
+    (or (instance? BadRequestException e)
+        (instance? UnprocessableEntityException e)) :invalid-request
+    (or (instance? UnauthorizedException e)
+        (instance? PermissionDeniedException e)
+        (instance? CredentialResolutionException e)
+        (instance? NoCredentialsException e)) :auth
+    (or (instance? InternalServerException e)
+        (instance? UnexpectedStatusCodeException e)
+        (instance? AnthropicRetryableException e)
+        (instance? AnthropicIoException e)) :retryable
+    :else :api-error))
+
+(defn- retryable-error? [e]
+  (contains? #{:stream-error :rate-limit :retryable}
+             (error-classification e)))
+
+(defn- request-id-from-headers [headers]
+  (some-> (or (get headers "request-id") (get headers "x-request-id")) first))
+
 (defn- throw-normalized!
   "Rethrow an SDK exception: service errors and I/O errors become ex-info
   keyed `:anthropic/error` with the original as cause; anything else
@@ -166,14 +195,37 @@
   [^Throwable e]
   (cond
     (instance? AnthropicServiceException e)
-    (throw (ex-info (or (.getMessage e) "Anthropic API error")
-                    {:anthropic/error :api-error
-                     :status (.statusCode ^AnthropicServiceException e)
-                     :error-type (service-error-type e)}
-                    e))
+    (let [se ^AnthropicServiceException e
+          headers (headers->map (.headers se))
+          sdk-type (.errorType se)]
+      (throw (ex-info (or (.getMessage e) "Anthropic API error")
+                      (cond-> {:anthropic/error :api-error
+                               :status (.statusCode se)
+                               :error-type (service-error-type e)
+                               :classification (error-classification e)
+                               :retryable (retryable-error? e)
+                               :headers headers
+                               :body (json->clj (.body se))}
+                        (request-id-from-headers headers)
+                        (assoc :request-id (request-id-from-headers headers))
+                        (.isPresent sdk-type)
+                        (assoc :sdk-error-type
+                               (->keyword (.asString ^com.anthropic.models.ErrorType
+                                                     (.get sdk-type)))))
+                      e)))
     (instance? AnthropicIoException e)
     (throw (ex-info (or (.getMessage e) "Anthropic I/O error")
-                    {:anthropic/error :io-error}
+                    {:anthropic/error :io-error
+                     :classification :retryable
+                     :retryable true}
+                    e))
+    (or (instance? AnthropicRetryableException e)
+        (instance? CredentialResolutionException e)
+        (instance? NoCredentialsException e))
+    (throw (ex-info (or (.getMessage e) "Anthropic client error")
+                    {:anthropic/error :api-error
+                     :classification (error-classification e)
+                     :retryable (retryable-error? e)}
                     e))
     :else (throw e)))
 
