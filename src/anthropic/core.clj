@@ -21,6 +21,7 @@
                                                   BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params
                                                   BatchCreateParams$Request$Params$Builder
+                                                  BatchCreateParams$Request$Params$ServiceTier
                                                   BatchListPage
                                                   DeletedMessageBatch MessageBatch
                                                   MessageBatchIndividualResponse
@@ -201,7 +202,11 @@
   (cond
     (map? x) (into {}
                    (map (fn [[k v]]
-                          [(str/replace (name k) "-" "_") (->wire-data v)]))
+                          [(-> (name k)
+                               (str/replace #"([a-z0-9])([A-Z])" "$1_$2")
+                               (str/replace "-" "_")
+                               str/lower-case)
+                           (->wire-data v)]))
                    x)
     (sequential? x) (mapv ->wire-data x)
     (keyword? x) (or (content-wire-types x)
@@ -994,27 +999,37 @@
           :assistant (.addAssistantMessageOfBlockParams b blocks))))))
 
 (defn- ->batch-req-params
-  "Translate a per-request map into a batch Request.Params. Same keys as
-  `->params` except `:service-tier` (not supported per batch request)."
+  "Translate a per-request map into batch params through `->params` so both
+  request surfaces preserve the same stable fields."
   ^BatchCreateParams$Request$Params
-  [{:keys [model max-tokens system messages tools temperature top-p top-k
-           stop-sequences tool-choice thinking metadata response-format effort]
-    :or {model "claude-opus-4-8" max-tokens 1024}}]
-  (let [b (doto (BatchCreateParams$Request$Params/builder)
-            (.model (Model/of model))
-            (.maxTokens (long max-tokens)))]
-    (when system (.system b ^String system))
-    (when temperature (.temperature b (double temperature)))
-    (when top-p (.topP b (double top-p)))
-    (when top-k (.topK b (long top-k)))
-    (when (seq stop-sequences) (.stopSequences b ^java.util.List (vec stop-sequences)))
-    (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
-    (when thinking (.thinking b (->thinking thinking)))
-    (when metadata (.metadata b (->metadata metadata)))
-    (when (or response-format effort)
-      (.outputConfig b (->output-config response-format effort)))
-    (doseq [t tools] (.addTool b (->tool t)))
-    (doseq [m messages] (add-batch-message b m))
+  [req]
+  (let [^MessageCreateParams p (->params req)
+        b (doto (BatchCreateParams$Request$Params/builder)
+            (.maxTokens (.maxTokens p))
+            (.messages (.messages p))
+            (.model (.model p)))]
+    (doseq [[value setter]
+            [[(.cacheControl p) #(.cacheControl b %)]
+             [(.container p) #(.container b ^String %)]
+             [(.inferenceGeo p) #(.inferenceGeo b ^String %)]
+             [(.metadata p) #(.metadata b %)]
+             [(.outputConfig p) #(.outputConfig b %)]
+             [(.stopSequences p) #(.stopSequences b ^java.util.List %)]
+             [(.temperature p) #(.temperature b (double %))]
+             [(.thinking p) #(.thinking b %)]
+             [(.toolChoice p) #(.toolChoice b %)]
+             [(.tools p) #(.tools b ^java.util.List %)]
+             [(.topK p) #(.topK b (long %))]
+             [(.topP p) #(.topP b (double %))]]]
+      (when (.isPresent ^java.util.Optional value)
+        (setter (.get ^java.util.Optional value))))
+    (when-let [system (:system req)]
+      (if (string? system)
+        (.system b ^String system)
+        (.systemOfTextBlockParams b ^java.util.List (mapv ->system-block system))))
+    (when-let [tier (:service-tier req)]
+      (.serviceTier b (BatchCreateParams$Request$Params$ServiceTier/of
+                       (-> tier name (str/replace "-" "_")))))
     (.build b)))
 
 (defn- ->batch-request ^BatchCreateParams$Request [{:keys [custom-id params]}]
@@ -1053,8 +1068,8 @@
 
 (defn create-batch
   "Submit a Message Batch. `requests` is a seq of
-  `{:custom-id \"...\" :params <same map as create-message>}` (`:params` ignores
-  `:service-tier`). Returns the batch as a map (see `get-batch`)."
+  `{:custom-id \"...\" :params <same map as create-message>}`. Returns the batch
+  as a map (see `get-batch`)."
   [^AnthropicClient client requests]
   (with-api-errors
     (let [reqs ^java.util.List (mapv ->batch-request requests)

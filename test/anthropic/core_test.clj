@@ -455,6 +455,28 @@
       (is (= "claude-haiku-4-5" (str (.model p))))
       (is (= 64 (.maxTokens p))))))
 
+(deftest batch-request-fidelity
+  (let [^BatchCreateParams$Request r
+        (->batch-request
+         {:custom-id "complete"
+          :params {:model "claude-sonnet-4-6"
+                   :max-tokens 128
+                   :system [{:text "cached system" :cache-control true}]
+                   :messages [{:role :user :content "hi"}]
+                   :cache-control true
+                   :container "container_123"
+                   :inference-geo "us"
+                   :service-tier :standard-only}})
+        ^BatchCreateParams$Request$Params p (.params r)
+        system (opt (.system p))]
+    (is (= "complete" (.customId r)))
+    (is (= "cached system" (.text (first (.asTextBlockParams system)))))
+    (is (.isPresent (.cacheControl (first (.asTextBlockParams system)))))
+    (is (.isPresent (.cacheControl p)))
+    (is (= "container_123" (opt (.container p))))
+    (is (= "us" (opt (.inferenceGeo p))))
+    (is (= "standard_only" (str (opt (.serviceTier p)))))))
+
 (deftest batch-result-stream-reduction
   (testing "reduces batch results without retaining the full result collection and closes the stream"
     (let [closed? (atom false)
