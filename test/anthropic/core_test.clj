@@ -37,6 +37,9 @@
 (def message->map #'a/message->map)
 (def event->map #'a/event->map)
 (def model->map #'a/model->map)
+(def ->model-list-params
+  #(when-let [v (ns-resolve 'anthropic.core '->model-list-params)]
+     ((deref v) %)))
 (def parse-text #'a/parse-text)
 (def ->batch-request #'a/->batch-request)
 (def ->content-block #'a/->content-block)
@@ -619,6 +622,51 @@
     (let [m (model->map (model-info "claude-y" "Claude Y" nil nil))]
       (is (not (contains? m :max-input-tokens)))
       (is (not (contains? m :max-tokens))))))
+
+(deftest model-capabilities-and-list-options
+  (testing "all stable capabilities are returned as nested Clojure data"
+    (let [caps-json (json/write-value-as-string
+                     {:batch {:supported true}
+                      :citations {:supported true}
+                      :code_execution {:supported false}
+                      :context_management {:supported true
+                                           :compact_20260112 {:supported true}}
+                      :effort {:supported true
+                               :low {:supported true} :medium {:supported true}
+                               :high {:supported true} :max {:supported false}}
+                      :image_input {:supported true}
+                      :pdf_input {:supported true}
+                      :structured_outputs {:supported true}
+                      :thinking {:supported true
+                                 :types {:adaptive {:supported true}
+                                         :enabled {:supported true}}}})
+          caps (.readValue (com.anthropic.core.JsonValue/access$getJSON_MAPPER$cp)
+                           caps-json
+                           com.anthropic.models.models.ModelCapabilities)
+          info (-> (ModelInfo/builder)
+                   (.id "claude-capable")
+                   (.displayName "Claude Capable")
+                   (.createdAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
+                   (.type (com.anthropic.core.JsonValue/from "model"))
+                   (.capabilities caps)
+                   (.maxInputTokens empty-opt)
+                   (.maxTokens empty-opt)
+                   (.build))
+          c (:capabilities (model->map info))]
+      (is (= true (get-in c [:batch :supported])))
+      (is (= false (get-in c [:code-execution :supported])))
+      (is (= true (get-in c [:context-management :compact-20260112 :supported])))
+      (is (= false (get-in c [:effort :max :supported])))
+      (is (= true (get-in c [:thinking :types :adaptive :supported])))
+      (is (= #{:batch :citations :code-execution :context-management :effort
+               :image-input :pdf-input :structured-outputs :thinking}
+             (set (keys c))))))
+  (testing "list-models accepts the stable pagination options"
+    (let [p (->model-list-params {:limit 25 :before-id "before" :after-id "after"})]
+      (is (= 25 (opt (.limit p))))
+      (is (= "before" (opt (.beforeId p))))
+      (is (= "after" (opt (.afterId p))))
+      (is (some #{'[client opts]} (:arglists (meta #'a/list-models)))))))
 
 (defn- delta-event [^RawContentBlockDelta d]
   (RawMessageStreamEvent/ofContentBlockDelta

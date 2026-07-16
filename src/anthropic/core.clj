@@ -16,7 +16,7 @@
            (java.time Duration)
            (com.anthropic.models.beta.files DeletedFile FileListPage FileMetadata
                                             FileUploadParams)
-           (com.anthropic.models.models ModelInfo ModelListPage)
+           (com.anthropic.models.models ModelCapabilities ModelInfo ModelListPage ModelListParams)
            (com.anthropic.models.messages.batches BatchCreateParams
                                                   BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params
@@ -963,21 +963,37 @@
 
 (defn- model->map [^ModelInfo m]
   (let [mit (.maxInputTokens m)
-        mt (.maxTokens m)]
+        mt (.maxTokens m)
+        caps (.capabilities m)]
     (cond-> {:id (.id m)
              :display-name (.displayName m)
              :created-at (str (.createdAt m))}
       (.isPresent mit) (assoc :max-input-tokens (.get mit))
-      (.isPresent mt) (assoc :max-tokens (.get mt)))))
+      (.isPresent mt) (assoc :max-tokens (.get mt))
+      (.isPresent caps) (assoc :capabilities
+                               (-> (JsonValue/from ^ModelCapabilities (.get caps))
+                                   json->clj
+                                   normalize-content-data)))))
+
+(defn- ->model-list-params ^ModelListParams
+  [{:keys [limit before-id after-id]}]
+  (let [b (ModelListParams/builder)]
+    (when limit (.limit b (long limit)))
+    (when before-id (.beforeId b ^String before-id))
+    (when after-id (.afterId b ^String after-id))
+    (.build b)))
 
 (defn list-models
   "List the available models as a seq of maps, newest first. Each map has `:id`,
   `:display-name`, `:created-at` (ISO-8601 string), and `:max-input-tokens` /
-  `:max-tokens` when the API reports them. Pages are followed automatically."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^ModelListPage p (-> (.models client) (.list))]
-      (mapv model->map (.autoPager p)))))
+  `:max-tokens` and `:capabilities` when the API reports them. Pages are followed
+  automatically. Optional `opts`: `:limit`, `:before-id`, and `:after-id`."
+  ([^AnthropicClient client]
+   (list-models client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^ModelListPage p (-> (.models client) (.list (->model-list-params opts)))]
+       (mapv model->map (.autoPager p))))))
 
 (defn get-model
   "Retrieve one model's info by id, as a map shaped like `list-models`' entries."
