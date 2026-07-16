@@ -3,10 +3,20 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
-## [0.12.3] - 2026-07-16
+## [0.13.0] - 2026-07-16
+
+### Added
+- Closed the stable-surface parity gaps against the Anthropic Java SDK. All changes are backward compatible.
+- Lossless content-block round-trip: server-tool-use / server-tool-result inputs and outputs, and document content sources (text/base64/url/file-id/content) with document citations.
+- Complete stable tool configuration: per-tool `allowed-callers`, `cache-control`, `defer-loading`, and `strict` options on custom and server tools.
+- Full streaming payloads: `stream`/`stream-message` events now surface message-start data, message-delta usage/container/stop-reason/stop-sequence/stop-details, content-block start/delta (text, thinking + signature, input-json, citation deltas), and content-block-stop.
+- Message Batch request fidelity: batch requests carry the same params as `create-message` (cache-control, container, inference-geo, service-tier, structured system blocks).
+- Model capability metadata on `list-models`/`get-model`, plus `ModelListParams` options.
+- Richer error normalization: the `:anthropic/error` ex-info now includes service headers, body, request-id, SDK error type, and a finer error classification, while keeping the existing keys.
+- `bedrock-client` and `vertex-client` constructors backed by optional `:bedrock` / `:vertex` deps.edn aliases (not pulled by base users).
 
 ### Changed
-- Track `com.anthropic/anthropic-java` 2.49.0. The bump is dependency currency only; the GA Messages surface this library wraps is unchanged (2.49.0 adds new beta services — dreams and MCP tunnels — which are not yet wrapped).
+- Track `com.anthropic/anthropic-java` 2.49.0. (2.49.0's own additions — the dreams and MCP tunnels beta services — remain unwrapped.)
 
 ## [0.12.2] - 2026-07-12
 

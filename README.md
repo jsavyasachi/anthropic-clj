@@ -34,13 +34,13 @@ maps out, keywords for roles and block types.
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.12.1"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.13.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.12.1"]
+[net.clojars.savya/anthropic-clj "0.13.0"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
