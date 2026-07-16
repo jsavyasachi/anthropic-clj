@@ -117,6 +117,19 @@
     (is (instance? AnthropicClient c))
     (is (some? @configured))))
 
+(deftest cloud-backend-client-construction
+  (testing "optional Bedrock and Vertex constructors return the shared client interface"
+    (doseq [[sym opts] [['bedrock-client {:region "us-east-1" :api-key "test"}]
+                        ['vertex-client {:region "us-east5" :project "test"
+                                         :access-token "test"}]]
+            :let [f (resolved-fn sym)]]
+      (is (fn? f))
+      (when f
+        (let [configured (atom false)
+              c (f (assoc opts :configure (fn [_] (reset! configured true))))]
+          (is (instance? AnthropicClient c))
+          (is @configured))))))
+
 (deftest per-call-request-options-api
   (is (some #{'[client req opts]} (:arglists (meta #'a/create-message))))
   (is (some #{'[client req opts]} (:arglists (meta #'a/count-tokens))))

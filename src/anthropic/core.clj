@@ -153,6 +153,84 @@
      (when configure (configure b))
      (.build b))))
 
+(defn- optional-class [class-name alias]
+  (try
+    (Class/forName class-name)
+    (catch ClassNotFoundException e
+      (throw (ex-info (str "Optional " (name alias) " dependency is not on the classpath")
+                      {:anthropic/error :missing-optional-dependency
+                       :alias alias}
+                      e)))))
+
+(defn- static-call [^Class cls method args]
+  (clojure.lang.Reflector/invokeStaticMethod cls method (object-array args)))
+
+(defn- instance-call [target method & args]
+  (clojure.lang.Reflector/invokeInstanceMethod target method (object-array args)))
+
+(defn- backend-client ^AnthropicClient [backend]
+  (let [b (AnthropicOkHttpClient/builder)]
+    (.backend b backend)
+    (.build b)))
+
+(defn bedrock-client
+  "Build an `AnthropicClient` backed by Amazon Bedrock. Requires the optional
+  `:bedrock` deps.edn alias. Options: `:region`, `:api-key`,
+  `:aws-credentials`, `:aws-credentials-provider`, and `:configure`, which
+  receives the Bedrock backend builder last. With no args, loads backend
+  settings from the AWS environment."
+  (^AnthropicClient []
+   (let [cls (optional-class "com.anthropic.bedrock.backends.BedrockBackend" :bedrock)
+         b (static-call cls "builder" [])]
+     (instance-call b "fromEnv")
+     (backend-client (instance-call b "build"))))
+  (^AnthropicClient [{:keys [region api-key aws-credentials
+                             aws-credentials-provider configure]}]
+   (let [cls (optional-class "com.anthropic.bedrock.backends.BedrockBackend" :bedrock)
+         b (static-call cls "builder" [])]
+     (when region
+       (let [region-class (optional-class "software.amazon.awssdk.regions.Region" :bedrock)]
+         (instance-call b "region" (static-call region-class "of" [region]))))
+     (when api-key (instance-call b "apiKey" api-key))
+     (when aws-credentials (instance-call b "awsCredentials" aws-credentials))
+     (when aws-credentials-provider
+       (instance-call b "awsCredentialsProvider" aws-credentials-provider))
+     (when configure (configure b))
+     (backend-client (instance-call b "build")))))
+
+(defn vertex-client
+  "Build an `AnthropicClient` backed by Google Vertex AI. Requires the optional
+  `:vertex` deps.edn alias. Options: `:region`, `:project`,
+  `:google-credentials`, `:access-token`, and `:configure`, which receives the
+  Vertex backend builder last. With no args, loads backend settings and
+  application-default credentials from the environment."
+  (^AnthropicClient []
+   (let [cls (optional-class "com.anthropic.vertex.backends.VertexBackend" :vertex)
+         b (static-call cls "builder" [])]
+     (instance-call b "fromEnv")
+     (backend-client (instance-call b "build"))))
+  (^AnthropicClient [{:keys [region project google-credentials access-token configure]}]
+   (let [cls (optional-class "com.anthropic.vertex.backends.VertexBackend" :vertex)
+         b (static-call cls "builder" [])
+         credentials (or google-credentials
+                         (when access-token
+                           (let [token-class (optional-class
+                                              "com.google.auth.oauth2.AccessToken" :vertex)
+                                 credentials-class (optional-class
+                                                    "com.google.auth.oauth2.GoogleCredentials"
+                                                    :vertex)
+                                 token (.newInstance
+                                        (.getConstructor token-class
+                                                         (into-array Class
+                                                                     [String java.util.Date]))
+                                        (object-array [access-token nil]))]
+                             (static-call credentials-class "create" [token]))))]
+     (when region (instance-call b "region" region))
+     (when project (instance-call b "project" project))
+     (when credentials (instance-call b "googleCredentials" credentials))
+     (when configure (configure b))
+     (backend-client (instance-call b "build")))))
+
 (defn- service-error-type [e]
   (condp instance? e
     BadRequestException :bad-request
