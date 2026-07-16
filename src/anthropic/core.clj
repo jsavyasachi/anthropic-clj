@@ -184,7 +184,32 @@
 (defn- anthropic-error [code message data]
   (ex-info message (assoc data :anthropic/error code)))
 
-(declare ->cache-control)
+(declare ->cache-control java->clj)
+
+(def ^:private content-wire-types
+  {:mid-conversation-system "mid_conv_system"
+   :web-search-result "web_search_tool_result"
+   :web-fetch-result "web_fetch_tool_result"
+   :code-execution-result "code_execution_tool_result"
+   :bash-code-execution-result "bash_code_execution_tool_result"
+   :text-editor-code-execution-result "text_editor_code_execution_tool_result"
+   :tool-search-result "tool_search_tool_result"})
+
+(defn- ->wire-data [x]
+  (cond
+    (map? x) (into {}
+                   (map (fn [[k v]]
+                          [(str/replace (name k) "-" "_") (->wire-data v)]))
+                   x)
+    (sequential? x) (mapv ->wire-data x)
+    (keyword? x) (or (content-wire-types x)
+                     (str/replace (name x) "-" "_"))
+    :else x))
+
+(defn- ->sdk-content-block ^ContentBlockParam [blk]
+  (.readValue (JsonValue/access$getJSON_MAPPER$cp)
+              (json/write-value-as-string (->wire-data blk))
+              ContentBlockParam))
 
 (defn- ->custom-tool ^Tool [{:keys [name description input-schema cache-control]}]
   (let [required (:required input-schema)
@@ -370,19 +395,19 @@
 
 (defn- ->content-block ^ContentBlockParam [{:keys [type cache-control] :as blk}]
   (case (keyword type)
-    :text (let [b (-> (TextBlockParam/builder) (.text ^String (:text blk)))]
-            (when cache-control (.cacheControl b (->cache-control cache-control)))
-            (ContentBlockParam/ofText (.build b)))
+    :text (if (:citations blk)
+            (->sdk-content-block blk)
+            (let [b (-> (TextBlockParam/builder) (.text ^String (:text blk)))]
+              (when cache-control (.cacheControl b (->cache-control cache-control)))
+              (ContentBlockParam/ofText (.build b))))
     :image (let [b (-> (ImageBlockParam/builder)
                        (.source ^ImageBlockParam$Source (->image-source (:source blk))))]
              (when cache-control (.cacheControl b (->cache-control cache-control)))
              (ContentBlockParam/ofImage (.build b)))
-    :document (let [b (-> (DocumentBlockParam/builder)
-                          (.source ^DocumentBlockParam$Source (->document-source (:source blk))))]
-                (when (:title blk) (.title b ^String (:title blk)))
-                (when (:context blk) (.context b ^String (:context blk)))
-                (when cache-control (.cacheControl b (->cache-control cache-control)))
-                (ContentBlockParam/ofDocument (.build b)))
+    :document (->sdk-content-block
+               (cond-> blk
+                 (boolean? (:citations blk))
+                 (assoc :citations {:enabled (:citations blk)})))
     :search-result (let [b ^SearchResultBlockParam$Builder
                          (-> (SearchResultBlockParam/builder)
                              (.source ^String (:source blk))
@@ -421,6 +446,11 @@
                           (.input (->json (:input blk))))]
                 (when cache-control (.cacheControl b (->cache-control cache-control)))
                 (ContentBlockParam/ofToolUse (.build b)))
+    (:server-tool-use :web-search-result :web-fetch-result
+     :code-execution-result :bash-code-execution-result
+     :text-editor-code-execution-result :tool-search-result
+     :mid-conversation-system)
+    (->sdk-content-block blk)
     (throw (anthropic-error :unsupported-content-block
                             "Unsupported content block type"
                             {:type type}))))
@@ -629,6 +659,27 @@
     (cond-> {:type kind}
       (.isPresent j) (assoc :json (json->clj (.get j))))))
 
+(defn- normalize-content-data [x]
+  (cond
+    (map? x) (reduce-kv (fn [m k v]
+                          (let [k' (-> (name k)
+                                       (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
+                                       (str/replace "_" "-")
+                                       str/lower-case
+                                       keyword)]
+                            (assoc m k' (if (and (= k' :type) (string? v))
+                                          (->keyword v)
+                                          (normalize-content-data v)))))
+                        {} x)
+    (sequential? x) (mapv normalize-content-data x)
+    :else x))
+
+(defn- server-block->map [^ContentBlock b type]
+  (-> (JsonValue/from (.toParam b))
+      json->clj
+      normalize-content-data
+      (assoc :type type)))
+
 (defn- block->map [^ContentBlock b]
   (let [txt (.text b)
         tu (.toolUse b)
@@ -649,17 +700,13 @@
                         {:type :thinking
                          :thinking (.thinking x)
                          :signature (.signature x)})
-      (.isPresent stu) (let [x ^ServerToolUseBlock (.get stu)]
-                         {:type :server-tool-use
-                          :id (.id x)
-                          :name (str (.name x))
-                          :input (json->clj (._input x))})
-      (.isPresent (.webSearchToolResult b)) (block-raw b :web-search-result)
-      (.isPresent (.webFetchToolResult b)) (block-raw b :web-fetch-result)
-      (.isPresent (.codeExecutionToolResult b)) (block-raw b :code-execution-result)
-      (.isPresent (.bashCodeExecutionToolResult b)) (block-raw b :bash-code-execution-result)
-      (.isPresent (.textEditorCodeExecutionToolResult b)) (block-raw b :text-editor-code-execution-result)
-      (.isPresent (.toolSearchToolResult b)) (block-raw b :tool-search-result)
+      (.isPresent stu) (server-block->map b :server-tool-use)
+      (.isPresent (.webSearchToolResult b)) (server-block->map b :web-search-result)
+      (.isPresent (.webFetchToolResult b)) (server-block->map b :web-fetch-result)
+      (.isPresent (.codeExecutionToolResult b)) (server-block->map b :code-execution-result)
+      (.isPresent (.bashCodeExecutionToolResult b)) (server-block->map b :bash-code-execution-result)
+      (.isPresent (.textEditorCodeExecutionToolResult b)) (server-block->map b :text-editor-code-execution-result)
+      (.isPresent (.toolSearchToolResult b)) (server-block->map b :tool-search-result)
       (.isPresent (.containerUpload b)) (block-raw b :container-upload)
       (.isPresent (.redactedThinking b)) {:type :redacted-thinking}
       :else {:type :other})))

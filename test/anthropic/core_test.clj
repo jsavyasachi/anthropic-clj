@@ -308,6 +308,77 @@
       (is (= "file_123" (.fileId cu)))
       (is (.isPresent (.cacheControl cu))))))
 
+(deftest lossless-stable-content-blocks
+  (testing "document sources include content strings, content blocks, and file ids"
+    (doseq [source [{:type :content :content "inline document"}
+                    {:type :content
+                     :content [{:type :text :text "page one"}
+                               {:type :image
+                                :source {:type :url :url "https://example.com/page.png"}}]}
+                    {:type :file :file-id "file_123"}]]
+      (let [document (.get (.document
+                            (->content-block {:type :document
+                                              :source source
+                                              :citations true})))]
+        (is (some? document))
+        (is (= true (opt (.enabled (opt (.citations document)))))))))
+  (testing "text citations survive assistant-turn replay"
+    (let [text (.get (.text
+                      (->content-block
+                       {:type :text
+                        :text "cited"
+                        :citations [{:type :char-location
+                                     :cited-text "cited"
+                                     :document-index 0
+                                     :start-char-index 0
+                                     :end-char-index 5}]})))]
+      (is (= 1 (count (opt (.citations text)))))))
+  (testing "mid-conversation system blocks are accepted"
+    (let [block (->content-block {:type :mid-conversation-system
+                                  :content [{:type :text :text "new policy"
+                                             :cache-control true}]
+                                  :cache-control true})]
+      (is (.isPresent (.midConvSystem block)))
+      (is (= "new policy" (.text (first (.content (.get (.midConvSystem block)))))))))
+  (testing "server tool use and result maps replay as SDK input variants"
+    (let [use (->content-block {:type :server-tool-use
+                                :id "srv_1"
+                                :name "web_search"
+                                :input {:query "clojure"}
+                                :caller {:type :direct}})
+          result (->content-block {:type :web-search-result
+                                   :tool-use-id "srv_1"
+                                   :content {:type :web-search-tool-result-error
+                                             :error-code :unavailable}
+                                   :caller {:type :direct}})]
+      (is (.isPresent (.serverToolUse use)))
+      (is (.isPresent (.webSearchToolResult result)))))
+  (testing "server tool response blocks emit replayable normalized data"
+    (let [caller (.build (DirectCaller/builder))
+          use (com.anthropic.models.messages.ContentBlock/ofServerToolUse
+               (-> (com.anthropic.models.messages.ServerToolUseBlock/builder)
+                   (.id "srv_1")
+                   (.name (com.anthropic.models.messages.ServerToolUseBlock$Name/of "web_search"))
+                   (.input (com.anthropic.core.JsonValue/from {"query" "clojure"}))
+                   (.caller caller)
+                   (.build)))
+          result (com.anthropic.models.messages.ContentBlock/ofWebSearchToolResult
+                  (-> (com.anthropic.models.messages.WebSearchToolResultBlock/builder)
+                      (.toolUseId "srv_1")
+                      (.caller caller)
+                      (.content (-> (com.anthropic.models.messages.WebSearchToolResultError/builder)
+                                    (.errorCode com.anthropic.models.messages.WebSearchToolResultErrorCode/UNAVAILABLE)
+                                    (.build)))
+                      (.build)))
+          use-map (#'a/block->map use)
+          result-map (#'a/block->map result)]
+      (is (= {:type :direct} (:caller use-map)))
+      (is (= {:query "clojure"} (:input use-map)))
+      (is (= "srv_1" (:tool-use-id result-map)))
+      (is (= :web-search-tool-result-error (get-in result-map [:content :type])))
+      (is (.isPresent (.serverToolUse (->content-block use-map))))
+      (is (.isPresent (.webSearchToolResult (->content-block result-map)))))))
+
 (deftest structured-output-params
   (let [schema {:type "object"
                 :properties {:answer {:type "string"}}
