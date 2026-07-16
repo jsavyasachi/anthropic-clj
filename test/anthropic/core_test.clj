@@ -626,7 +626,8 @@
                   (.contentBlock (RawContentBlockStartEvent$ContentBlock/ofToolUse tu))
                   (.build)))]
       (is (= {:type :content-block-start :index 0
-              :block {:type :tool-use :id "tu_1" :name "get_weather"}}
+              :block {:type :tool-use :id "tu_1" :name "get_weather"
+                      :input {} :caller {:type :direct}}}
              (event->map ev)))))
   (testing "content-block-stop and message-stop"
     (is (= {:type :content-block-stop :index 0}
@@ -635,6 +636,99 @@
     (is (= {:type :message-stop}
            (event->map (RawMessageStreamEvent/ofMessageStop
                         (.build (RawMessageStopEvent/builder))))))))
+
+(deftest full-stream-event-payloads
+  (testing "message start includes the normalized message"
+    (let [message (-> (Message/builder)
+                      (.id "msg_stream")
+                      (.model "claude-haiku-4-5")
+                      (.role (com.anthropic.core.JsonValue/from "assistant"))
+                      (.type (com.anthropic.core.JsonValue/from "message"))
+                      (.content [])
+                      (.usage (usage 3 0 nil nil))
+                      (.container empty-opt)
+                      (.stopDetails empty-opt)
+                      (.stopReason empty-opt)
+                      (.stopSequence empty-opt)
+                      (.build))
+          event (RawMessageStreamEvent/ofMessageStart
+                 (-> (com.anthropic.models.messages.RawMessageStartEvent/builder)
+                     (.message message)
+                     (.build)))]
+      (is (= "msg_stream" (get-in (event->map event) [:message :id])))
+      (is (= {:input-tokens 3 :output-tokens 0}
+             (get-in (event->map event) [:message :usage])))))
+  (testing "message delta includes usage and all stop metadata"
+    (let [delta (-> (com.anthropic.models.messages.RawMessageDeltaEvent$Delta/builder)
+                    (.container (-> (Container/builder)
+                                    (.id "container_stream")
+                                    (.expiresAt (java.time.OffsetDateTime/parse "2026-02-01T00:00:00Z"))
+                                    (.build)))
+                    (.stopReason StopReason/STOP_SEQUENCE)
+                    (.stopSequence "DONE")
+                    (.stopDetails (-> (RefusalStopDetails/builder)
+                                      (.category RefusalStopDetails$Category/CYBER)
+                                      (.explanation "blocked")
+                                      (.build)))
+                    (.build))
+          usage (-> (com.anthropic.models.messages.MessageDeltaUsage/builder)
+                    (.inputTokens 2)
+                    (.outputTokens 7)
+                    (.cacheCreationInputTokens empty-opt)
+                    (.cacheReadInputTokens 1)
+                    (.outputTokensDetails empty-opt)
+                    (.serverToolUse empty-opt)
+                    (.build))
+          event (RawMessageStreamEvent/ofMessageDelta
+                 (-> (com.anthropic.models.messages.RawMessageDeltaEvent/builder)
+                     (.delta delta)
+                     (.usage usage)
+                     (.build)))
+          m (event->map event)]
+      (is (= :stop-sequence (:stop-reason m)))
+      (is (= "DONE" (:stop-sequence m)))
+      (is (= "container_stream" (get-in m [:container :id])))
+      (is (= {:category :cyber :explanation "blocked"} (:stop-details m)))
+      (is (= {:input-tokens 2 :output-tokens 7 :cache-read-input-tokens 1}
+             (:usage m)))))
+  (testing "signature and citation deltas include their payload"
+    (let [signature (delta-event
+                     (RawContentBlockDelta/ofSignature
+                      (-> (com.anthropic.models.messages.SignatureDelta/builder)
+                          (.signature "sig_part")
+                          (.build))))
+          citation (delta-event
+                    (RawContentBlockDelta/ofCitations
+                     (-> (com.anthropic.models.messages.CitationsDelta/builder)
+                         (.citation (-> (com.anthropic.models.messages.CitationCharLocation/builder)
+                                        (.citedText "quote")
+                                        (.documentIndex 0)
+                                        (.startCharIndex 1)
+                                        (.endCharIndex 6)
+                                        (.documentTitle empty-opt)
+                                        (.fileId empty-opt)
+                                        (.build)))
+                         (.build))))]
+      (is (= {:type :signature-delta :index 0 :signature "sig_part"}
+             (event->map signature)))
+      (is (= {:type :citations-delta :index 0
+              :citation {:type :char-location :cited-text "quote"
+                         :document-index 0 :start-char-index 1 :end-char-index 6}}
+             (event->map citation)))))
+  (testing "content-block starts retain text and thinking payloads"
+    (let [text (-> (com.anthropic.models.messages.TextBlock/builder)
+                   (.text "hello") (.citations []) (.build))
+          thinking (-> (com.anthropic.models.messages.ThinkingBlock/builder)
+                       (.thinking "reason") (.signature "sig") (.build))
+          start (fn [block]
+                  (event->map
+                   (RawMessageStreamEvent/ofContentBlockStart
+                    (-> (RawContentBlockStartEvent/builder)
+                        (.index 2) (.contentBlock block) (.build)))))]
+      (is (= {:type :text :text "hello" :citations []}
+             (:block (start (RawContentBlockStartEvent$ContentBlock/ofText text)))))
+      (is (= {:type :thinking :thinking "reason" :signature "sig"}
+             (:block (start (RawContentBlockStartEvent$ContentBlock/ofThinking thinking))))))))
 
 (deftest stream-message-api
   (is (fn? (some-> (ns-resolve 'anthropic.core 'stream-message) deref))))

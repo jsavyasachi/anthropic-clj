@@ -692,6 +692,9 @@
       normalize-content-data
       (assoc :type type)))
 
+(defn- compact-map [m]
+  (into {} (remove (comp nil? val)) m))
+
 (defn- block->map [^ContentBlock b]
   (let [txt (.text b)
         tu (.toolUse b)
@@ -1114,25 +1117,34 @@
   (reduce-batch-results client id conj []))
 
 (defn- start-block->map [^RawContentBlockStartEvent$ContentBlock cb]
-  (let [tu (.toolUse cb)
-        th (.thinking cb)
-        tx (.text cb)]
-    (cond
-      (.isPresent tu) (let [x ^ToolUseBlock (.get tu)]
-                        {:type :tool-use :id (.id x) :name (.name x)})
-      (.isPresent th) {:type :thinking}
-      (.isPresent tx) {:type :text}
-      :else {:type :other})))
+  (let [m (-> (JsonValue/from cb) json->clj normalize-content-data)]
+    (update m :type {:web-search-tool-result :web-search-result
+                     :web-fetch-tool-result :web-fetch-result
+                     :code-execution-tool-result :code-execution-result
+                     :bash-code-execution-tool-result :bash-code-execution-result
+                     :text-editor-code-execution-tool-result :text-editor-code-execution-result
+                     :tool-search-tool-result :tool-search-result}
+            (:type m))))
 
 (defn- delta->map [index ^RawContentBlockDelta d]
-  (let [t (.text d) ij (.inputJson d) th (.thinking d) sg (.signature d)]
+  (let [t (.text d) ij (.inputJson d) cs (.citations d)
+        th (.thinking d) sg (.signature d)]
     (cond
       (.isPresent t) {:type :text-delta :index index :text (.text ^TextDelta (.get t))}
       (.isPresent ij) {:type :input-json-delta :index index
                        :partial-json (.partialJson ^InputJsonDelta (.get ij))}
+      (.isPresent cs) {:type :citations-delta :index index
+                       :citation (-> (JsonValue/from
+                                     (.citation ^com.anthropic.models.messages.CitationsDelta
+                                                 (.get cs)))
+                                     json->clj
+                                     normalize-content-data
+                                     compact-map)}
       (.isPresent th) {:type :thinking-delta :index index
                        :thinking (.thinking ^ThinkingDelta (.get th))}
-      (.isPresent sg) {:type :signature-delta :index index}
+      (.isPresent sg) {:type :signature-delta :index index
+                       :signature (.signature ^com.anthropic.models.messages.SignatureDelta
+                                              (.get sg))}
       :else {:type :delta :index index})))
 
 (defn- event->map
@@ -1151,10 +1163,26 @@
                          (delta->map (.index e) (.delta e)))
       (.isPresent cbp) {:type :content-block-stop
                         :index (.index ^com.anthropic.models.messages.RawContentBlockStopEvent (.get cbp))}
-      (.isPresent md) (let [sr (.stopReason (.delta ^RawMessageDeltaEvent (.get md)))]
-                        {:type :message-delta
-                         :stop-reason (when (.isPresent sr) (->keyword (.get sr)))})
-      (.isPresent (.messageStart ev)) {:type :message-start}
+      (.isPresent md) (let [e ^RawMessageDeltaEvent (.get md)
+                            delta (.delta e)
+                            sr (.stopReason delta)
+                            ss (.stopSequence delta)
+                            c (.container delta)
+                            sd (.stopDetails delta)]
+                        (cond-> {:type :message-delta
+                                 :stop-reason (when (.isPresent sr) (->keyword (.get sr)))
+                                 :usage (-> (JsonValue/from (.usage e))
+                                            json->clj
+                                            normalize-content-data
+                                            compact-map)}
+                          (.isPresent ss) (assoc :stop-sequence (.get ss))
+                          (.isPresent c) (assoc :container (container->map (.get c)))
+                          (.isPresent sd) (assoc :stop-details (stop-details->map (.get sd)))))
+      (.isPresent (.messageStart ev))
+      {:type :message-start
+       :message (message->map
+                 (.message ^com.anthropic.models.messages.RawMessageStartEvent
+                           (.get (.messageStart ev))))}
       (.isPresent (.messageStop ev)) {:type :message-stop}
       :else {:type :other})))
 
@@ -1166,8 +1194,10 @@
 
   Event maps are keyed by `:type`: `:message-start`, `:content-block-start`
   (`:index`, `:block`), `:text-delta`/`:thinking-delta`/`:input-json-delta`/
-  `:signature-delta` (`:index` plus the payload), `:content-block-stop`
-  (`:index`), `:message-delta` (`:stop-reason`), and `:message-stop`. To
+  `:signature-delta`/`:citations-delta` (`:index` plus the payload),
+  `:content-block-stop` (`:index`), `:message-delta` (usage and stop metadata),
+  and `:message-stop`. `:message-start` includes `:message`; block starts include
+  the complete initial content block. To
   reconstruct a streamed tool call, accumulate `:input-json-delta` `:partial-json`
   per `:index` (the matching `:content-block-start` carries the tool `:id`/`:name`)."
   ^String [^AnthropicClient client req on-event]
