@@ -71,7 +71,8 @@
                                           ThinkingConfigEnabled
                                           ThinkingConfigParam ThinkingDelta
                                           ThinkingBlockParam
-                                          Tool Tool$InputSchema ToolBash20250124
+                                          Tool Tool$AllowedCaller Tool$InputSchema ToolBash20250124
+                                          ToolBash20250124$AllowedCaller
                                           ToolSearchToolBm25_20251119
                                           ToolSearchToolBm25_20251119$AllowedCaller
                                           ToolSearchToolBm25_20251119$Type
@@ -84,9 +85,10 @@
                                           ServerToolUseBlock
                                           ToolResultBlockParam ToolResultBlockParam$Builder
                                           ToolTextEditor20250728
+                                          ToolTextEditor20250728$AllowedCaller
                                           ToolUnion ToolUseBlock
                                           ToolUseBlockParam
-                                          MemoryTool20250818
+                                          MemoryTool20250818 MemoryTool20250818$AllowedCaller
                                           PlainTextSource UrlImageSource UrlPdfSource
                                           RefusalStopDetails
                                           CacheCreation OutputTokensDetails
@@ -211,7 +213,16 @@
               (json/write-value-as-string (->wire-data blk))
               ContentBlockParam))
 
-(defn- ->custom-tool ^Tool [{:keys [name description input-schema cache-control]}]
+(defn- configure-tool-builder
+  [b {:keys [allowed-callers cache-control defer-loading strict]} caller-of]
+  (doseq [c allowed-callers]
+    (.addAllowedCaller b (caller-of (name c))))
+  (when cache-control (.cacheControl b (->cache-control cache-control)))
+  (when (some? defer-loading) (.deferLoading b (boolean defer-loading)))
+  (when (some? strict) (.strict b (boolean strict)))
+  b)
+
+(defn- ->custom-tool ^Tool [{:keys [name description input-schema] :as t}]
   (let [required (:required input-schema)
         isb (Tool$InputSchema/builder)
         tb (Tool/builder)]
@@ -220,8 +231,7 @@
     (.name tb ^String name)
     (.inputSchema tb (.build isb))
     (when description (.description tb ^String description))
-    (when cache-control
-      (.cacheControl tb ^CacheControlEphemeral (->cache-control cache-control)))
+    (configure-tool-builder tb t #(Tool$AllowedCaller/of %))
     (.build tb)))
 
 (defn- ->user-location ^UserLocation [{:keys [city region country timezone]}]
@@ -237,45 +247,47 @@
     :tool-search})
 
 (defn- ->web-search-tool ^WebSearchTool20260318
-  [{:keys [max-uses allowed-domains blocked-domains user-location allowed-callers]}]
+  [{:keys [max-uses allowed-domains blocked-domains user-location] :as t}]
   (let [b (WebSearchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
     (when user-location (.userLocation b (->user-location user-location)))
-    (doseq [c allowed-callers]
-      (.addAllowedCaller b (WebSearchTool20260318$AllowedCaller/of (name c))))
+    (configure-tool-builder b t #(WebSearchTool20260318$AllowedCaller/of %))
     (.build b)))
 
 (defn- ->web-fetch-tool ^WebFetchTool20260318
-  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains allowed-callers]}]
+  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains] :as t}]
   (let [b (WebFetchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
-    (doseq [c allowed-callers]
-      (.addAllowedCaller b (WebFetchTool20260318$AllowedCaller/of (name c))))
+    (configure-tool-builder b t #(WebFetchTool20260318$AllowedCaller/of %))
     (.build b)))
 
 (defn- ->code-execution-tool ^CodeExecutionTool20260521
-  [{:keys [allowed-callers]}]
+  [t]
   (let [b (CodeExecutionTool20260521/builder)]
-    (doseq [c allowed-callers]
-      (.addAllowedCaller b (CodeExecutionTool20260521$AllowedCaller/of (name c))))
+    (configure-tool-builder b t #(CodeExecutionTool20260521$AllowedCaller/of %))
     (.build b)))
 
-(defn- ->bash-tool ^ToolBash20250124 [_]
-  (.build (ToolBash20250124/builder)))
+(defn- ->bash-tool ^ToolBash20250124 [t]
+  (let [b (ToolBash20250124/builder)]
+    (configure-tool-builder b t #(ToolBash20250124$AllowedCaller/of %))
+    (.build b)))
 
 (defn- ->text-editor-tool ^ToolTextEditor20250728
-  [{:keys [max-characters]}]
+  [{:keys [max-characters] :as t}]
   (let [b (ToolTextEditor20250728/builder)]
     (when max-characters (.maxCharacters b (long max-characters)))
+    (configure-tool-builder b t #(ToolTextEditor20250728$AllowedCaller/of %))
     (.build b)))
 
-(defn- ->memory-tool ^MemoryTool20250818 [_]
-  (.build (MemoryTool20250818/builder)))
+(defn- ->memory-tool ^MemoryTool20250818 [t]
+  (let [b (MemoryTool20250818/builder)]
+    (configure-tool-builder b t #(MemoryTool20250818$AllowedCaller/of %))
+    (.build b)))
 
 (defn- ->tool-search-bm25 ^ToolSearchToolBm25_20251119
   [{:keys [allowed-callers cache-control defer-loading strict]}]

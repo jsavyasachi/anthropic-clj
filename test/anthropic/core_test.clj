@@ -221,6 +221,44 @@
       (is (= ["direct"] (mapv str (opt (.allowedCallers (.get (.searchToolBm25_20251119 bm25)))))))
       (is (.isPresent (.searchToolRegex20251119 regex))))))
 
+(deftest complete-stable-tool-configuration
+  (testing "custom tools preserve all stable configuration"
+    (let [tool (.get (.tool
+                      (->tool {:name "configured"
+                               :description "all options"
+                               :input-schema {:type "object" :properties {}}
+                               :allowed-callers [:direct]
+                               :cache-control true
+                               :defer-loading true
+                               :strict true})))]
+      (is (= ["direct"] (mapv str (opt (.allowedCallers tool)))))
+      (is (.isPresent (.cacheControl tool)))
+      (is (= true (opt (.deferLoading tool))))
+      (is (= true (opt (.strict tool))))))
+  (testing "every stable server tool preserves common configuration"
+    (doseq [tool [(->tool {:type :web-search :allowed-callers [:direct]
+                           :cache-control true :defer-loading true :strict true})
+                  (->tool {:type :web-fetch :allowed-callers [:direct]
+                           :cache-control true :defer-loading true :strict true})
+                  (->tool {:type :code-execution :allowed-callers [:direct]
+                           :cache-control true :defer-loading true :strict true})
+                  (->tool {:type :bash :allowed-callers [:direct]
+                           :cache-control true :defer-loading true :strict true})
+                  (->tool {:type :text-editor :allowed-callers [:direct]
+                           :cache-control true :defer-loading true :strict true})
+                  (->tool {:type :memory :allowed-callers [:direct]
+                           :cache-control true :defer-loading true :strict true})]
+            :let [configured (or (opt (.webSearchTool20260318 tool))
+                                 (opt (.webFetchTool20260318 tool))
+                                 (opt (.codeExecutionTool20260521 tool))
+                                 (opt (.bash20250124 tool))
+                                 (opt (.textEditor20250728 tool))
+                                 (opt (.memoryTool20250818 tool)))]]
+      (is (= ["direct"] (mapv str (opt (.allowedCallers configured)))))
+      (is (.isPresent (.cacheControl configured)))
+      (is (= true (opt (.deferLoading configured))))
+      (is (= true (opt (.strict configured)))))))
+
 (deftest count-token-tools
   (testing "custom and server tools are both present in count-token params"
     (let [^MessageCountTokensParams p
