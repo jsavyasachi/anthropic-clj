@@ -119,6 +119,7 @@
 (def tunnel-certificate->map #'beta/tunnel-certificate->map)
 (def ->thread-event-list-params #'beta/->thread-event-list-params)
 (def ->session-resource-list-params #'beta/->session-resource-list-params)
+(def ->dream-create-params #'beta/->dream-create-params)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -173,6 +174,11 @@
   (let [p (->session-resource-list-params "sess_1" {:limit 10 :page "next"})]
     (is (= "sess_1" (opt (.sessionId p))))
     (is (= 10 (opt (.limit p))))))
+
+(deftest dream-params
+  (let [p (->dream-create-params {:inputs [] :model "claude-opus-4-8" :instructions "dream"})]
+    (is (= "claude-opus-4-8" (.asString (.model p))))
+    (is (= "dream" (opt (.instructions p))))))
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))

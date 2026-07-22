@@ -1530,6 +1530,33 @@
               (.list (->agent-version-list-params agent-id opts)))]
       (mapv agent->map (.autoPager p)))))
 
+;; ---- Dreams ---------------------------------------------------------------
+
+(defn- ->dream-create-params ^com.anthropic.models.beta.dreams.DreamCreateParams
+  [{:keys [inputs model instructions]}]
+  (when-not (contains? #{nil} inputs) (when-not (sequential? inputs) (missing-key! :inputs)))
+  (when-not model (missing-key! :model))
+  (let [b (com.anthropic.models.beta.dreams.DreamCreateParams/builder)
+        ^com.anthropic.models.beta.dreams.DreamCreateParams$Model model*
+        (if (string? model)
+          (com.anthropic.models.beta.dreams.DreamCreateParams$Model/ofString ^String model)
+          model)]
+    (.inputs b ^java.util.List (vec inputs))
+    (.model b model*)
+    (when instructions (.instructions b ^String instructions)) (.build b)))
+
+(defn- dream->map [^com.anthropic.models.beta.dreams.BetaDream r]
+  (cond-> {:id (.id r) :status (str (.status r)) :created-at (str (.createdAt r))
+           :inputs (vec (.inputs r)) :outputs (vec (.outputs r))}
+    (unopt (.instructions r)) (assoc :instructions (unopt (.instructions r)))
+    (unopt (.sessionId r)) (assoc :session-id (unopt (.sessionId r)))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+(defn create-dream [^AnthropicClient client req] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.create (->dream-create-params req))))))
+(defn get-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.retrieve dream-id)))))
+(defn list-dreams [^AnthropicClient client] (with-api-errors (let [^com.anthropic.models.beta.dreams.DreamListPage p (-> (.beta client) (.dreams) (.list))] (mapv dream->map (.autoPager p)))))
+(defn archive-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.archive dream-id)))))
+(defn cancel-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.cancel dream-id)))))
+
 ;; ---- User profiles ---------------------------------------------------------
 
 (defn- ->user-profile-create-metadata ^UserProfileCreateParams$Metadata [m]
