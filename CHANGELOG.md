@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.14.1] - 2026-07-21
+
+### Changed
+- Resolved the accidental reflection warnings in message batch params and tool-builder configuration (typed dispatch, no behavior change). The remaining reflection in the bedrock/vertex client builders is deliberate, so those backends stay optional dependencies.
+
 ## [0.14.0] - 2026-07-21
 
 ### Added
