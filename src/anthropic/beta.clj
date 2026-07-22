@@ -77,12 +77,15 @@
                                              BetaManagedAgentsSkillParams
                                              BetaManagedAgentsUrlMcpServerParams
                                              BetaManagedAgentsModel
-                                             BetaManagedAgentsModelConfig)
+                                             BetaManagedAgentsModelConfig
+                                             BetaManagedAgentsModelConfig$Effort
+                                             BetaManagedAgentsModelConfigParams)
            (com.anthropic.models.beta.sessions BetaManagedAgentsDeletedSession
                                                BetaManagedAgentsSession
                                                BetaManagedAgentsSystemContentBlock
                                                BetaManagedAgentsSystemMessageEvent
                                                SessionCreateParams
+                                               SessionCreateParams$InitialEvent
                                                SessionCreateParams$Metadata
                                                SessionListPage
                                                SessionUpdateParams
@@ -148,7 +151,14 @@
                                                BetaWebhookDeploymentRunSucceededEventData
                                                BetaWebhookDeploymentUnpausedEventData
                                                BetaWebhookDeploymentUpdatedEventData
+                                               BetaWebhookEnvironmentArchivedEventData
+                                               BetaWebhookEnvironmentCreatedEventData
+                                               BetaWebhookEnvironmentDeletedEventData
+                                               BetaWebhookEnvironmentUpdatedEventData
                                                BetaWebhookEventData
+                                               BetaWebhookMemoryStoreArchivedEventData
+                                               BetaWebhookMemoryStoreCreatedEventData
+                                               BetaWebhookMemoryStoreDeletedEventData
                                                BetaWebhookSessionCreatedEventData
                                                UnwrapWebhookEvent)
            (java.util Optional)))
@@ -667,13 +677,24 @@
     (throw (ex-info (str "Unknown tool type " type)
                     {:anthropic/error :unknown-tool-type :type type}))))
 
+(defn- ->managed-agent-model-config ^BetaManagedAgentsModelConfigParams [model effort]
+  (let [b (BetaManagedAgentsModelConfigParams/builder)]
+    (.id b (BetaManagedAgentsModel/of ^String model))
+    (when effort
+      (.effort b
+               (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Effort$BetaManagedAgentsEffortLevel/of
+                (name effort))))
+    (.build b)))
+
 (defn- ->agent-create-params ^AgentCreateParams
-  [{:keys [name model system description metadata skills mcp-servers tools]}]
+  [{:keys [name model effort system description metadata skills mcp-servers tools]}]
   (when-not name (missing-key! :name))
   (when-not model (missing-key! :model))
   (let [b (AgentCreateParams/builder)]
     (.name b ^String name)
-    (.model b (BetaManagedAgentsModel/of ^String model))
+    (if effort
+      (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort))
+      (.model b ^BetaManagedAgentsModel (BetaManagedAgentsModel/of ^String model)))
     (when system (.system b ^String system))
     (when description (.description b ^String description))
     (when metadata (.metadata b (->agent-create-metadata metadata)))
@@ -683,13 +704,15 @@
     (.build b)))
 
 (defn- ->agent-update-params ^AgentUpdateParams
-  [agent-id {:keys [version name model system description metadata skills mcp-servers tools]}]
-  (when-not version (missing-key! :version))
+  [agent-id {:keys [version name model effort system description metadata skills mcp-servers tools]}]
   (let [b (AgentUpdateParams/builder)]
     (.agentId b ^String agent-id)
-    (.version b (int version))
+    (when version (.version b (int version)))
     (when name (.name b ^String name))
-    (when model (.model b (BetaManagedAgentsModel/of ^String model)))
+    (when model
+      (if effort
+        (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort))
+        (.model b ^BetaManagedAgentsModel (BetaManagedAgentsModel/of ^String model))))
     (when system (.system b ^String system))
     (when description (.description b ^String description))
     (when metadata (.metadata b (->agent-update-metadata metadata)))
@@ -723,6 +746,16 @@
       {:type :mcp-toolset :mcp-server-name (.mcpServerName tool)})
     :else {:type :unknown}))
 
+(defn- model-effort->keyword [^BetaManagedAgentsModelConfig$Effort effort]
+  (cond
+    (.isLow effort) :low
+    (.isMedium effort) :medium
+    (.isHigh effort) :high
+    (.isXhigh effort) :xhigh
+    (.isMax effort) :max
+    :else (let [^JsonValue json (or (unopt (._json effort)) (JsonValue/from nil))]
+            (.convert json Object))))
+
 (defn- agent->map [^BetaManagedAgentsAgent r]
   (cond-> {:id (.id r)
            :name (.name r)
@@ -730,6 +763,9 @@
            :version (.version r)
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))}
+    (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))
+    (assoc :effort (model-effort->keyword
+                    (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))))
     (unopt (.system r)) (assoc :system (unopt (.system r)))
     (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
@@ -761,9 +797,9 @@
       (mapv agent->map (.autoPager p)))))
 
 (defn update-agent
-  "Update an agent. `changes` requires `:version` (the current agent version,
+  "Update an agent. `changes` may include `:version` (the current agent version,
   for optimistic concurrency - see `:version` in `get-agent`'s return) plus
-  any of `:name`, `:model`, `:system`, `:description`, `:metadata`. Returns
+  `:name`, `:model`, `:system`, `:description`, or `:metadata`. Returns
   the updated agent map."
   [^AnthropicClient client ^String agent-id changes]
   (with-api-errors
@@ -790,14 +826,19 @@
       (.putAdditionalProperty b ^String k (JsonValue/from v)))
     (.build b)))
 
+(declare ^:private ->session-create-initial-event)
+
 (defn- ->session-create-params ^SessionCreateParams
-  [{:keys [agent title environment-id metadata]}]
+  [{:keys [agent title environment-id metadata initial-events]}]
   (when-not agent (missing-key! :agent))
   (let [b (SessionCreateParams/builder)]
     (.agent b ^String agent)
     (when title (.title b ^String title))
     (when environment-id (.environmentId b ^String environment-id))
     (when metadata (.metadata b (->session-create-metadata metadata)))
+    (doseq [event initial-events]
+      (let [^SessionCreateParams$InitialEvent event (->session-create-initial-event event)]
+        (.addInitialEvent b event)))
     (.build b)))
 
 (defn- ->session-update-params ^SessionUpdateParams
@@ -930,6 +971,14 @@
     :system-message (BetaManagedAgentsEventParams/ofSystemMessage (->system-message-event event))
     :user-define-outcome (BetaManagedAgentsEventParams/ofUserDefineOutcome (->user-define-outcome-event event))
     (throw (ex-info (str "Unknown event type " type)
+                    {:anthropic/error :unknown-event-type :type type}))))
+
+(defn- ->session-create-initial-event ^SessionCreateParams$InitialEvent [{:keys [type] :as event}]
+  (case type
+    :user-message (SessionCreateParams$InitialEvent/ofUserMessage (->user-message-event event))
+    :user-define-outcome (SessionCreateParams$InitialEvent/ofUserDefineOutcome
+                          (->user-define-outcome-event event))
+    (throw (ex-info (str "Unknown initial event type " type)
                     {:anthropic/error :unknown-event-type :type type}))))
 
 (defn- ->deployment-initial-event ^BetaManagedAgentsDeploymentInitialEventParams [event]
@@ -1321,7 +1370,7 @@
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 
 (defn- environment-delete->map [^BetaEnvironmentDeleteResponse r]
-  {:id (.id r) :deleted true})
+  {:id (.id r) :deleted true :type (keyword (.asString (.type r)))})
 
 (defn create-environment
   "Create an environment: `:name` (required), `:description`, `:metadata`.
@@ -1459,6 +1508,7 @@
            :state (str (.state r))}
     (unopt (.acknowledgedAt r)) (assoc :acknowledged-at (unopt (.acknowledgedAt r)))
     (unopt (.latestHeartbeatAt r)) (assoc :latest-heartbeat-at (unopt (.latestHeartbeatAt r)))
+    (unopt (.secret r)) (assoc :secret (unopt (.secret r)))
     (unopt (.startedAt r)) (assoc :started-at (unopt (.startedAt r)))
     (unopt (.stopRequestedAt r)) (assoc :stop-requested-at (unopt (.stopRequestedAt r)))
     (unopt (.stoppedAt r)) (assoc :stopped-at (unopt (.stoppedAt r)))))
@@ -1867,6 +1917,27 @@
 (defn- webhook-deployment-run-failed->map [^BetaWebhookDeploymentRunFailedEventData d]
   (webhook-common->map :deployment-run-failed (.id d) (.organizationId d) (.workspaceId d)))
 
+(defn- webhook-environment-created->map [^BetaWebhookEnvironmentCreatedEventData d]
+  (webhook-common->map :environment-created (.id d) (.organizationId d) (.workspaceId d)))
+
+(defn- webhook-environment-updated->map [^BetaWebhookEnvironmentUpdatedEventData d]
+  (webhook-common->map :environment-updated (.id d) (.organizationId d) (.workspaceId d)))
+
+(defn- webhook-environment-archived->map [^BetaWebhookEnvironmentArchivedEventData d]
+  (webhook-common->map :environment-archived (.id d) (.organizationId d) (.workspaceId d)))
+
+(defn- webhook-environment-deleted->map [^BetaWebhookEnvironmentDeletedEventData d]
+  (webhook-common->map :environment-deleted (.id d) (.organizationId d) (.workspaceId d)))
+
+(defn- webhook-memory-store-created->map [^BetaWebhookMemoryStoreCreatedEventData d]
+  (webhook-common->map :memory-store-created (.id d) (.organizationId d) (.workspaceId d)))
+
+(defn- webhook-memory-store-archived->map [^BetaWebhookMemoryStoreArchivedEventData d]
+  (webhook-common->map :memory-store-archived (.id d) (.organizationId d) (.workspaceId d)))
+
+(defn- webhook-memory-store-deleted->map [^BetaWebhookMemoryStoreDeletedEventData d]
+  (webhook-common->map :memory-store-deleted (.id d) (.organizationId d) (.workspaceId d)))
+
 (defn- webhook-data->map [^BetaWebhookEventData d]
   (cond
     (.isSessionCreated d) (webhook-session-created->map (.asSessionCreated d))
@@ -1879,6 +1950,13 @@
     (.isDeploymentRunStarted d) (webhook-deployment-run-started->map (.asDeploymentRunStarted d))
     (.isDeploymentRunSucceeded d) (webhook-deployment-run-succeeded->map (.asDeploymentRunSucceeded d))
     (.isDeploymentRunFailed d) (webhook-deployment-run-failed->map (.asDeploymentRunFailed d))
+    (.isEnvironmentCreated d) (webhook-environment-created->map (.asEnvironmentCreated d))
+    (.isEnvironmentUpdated d) (webhook-environment-updated->map (.asEnvironmentUpdated d))
+    (.isEnvironmentArchived d) (webhook-environment-archived->map (.asEnvironmentArchived d))
+    (.isEnvironmentDeleted d) (webhook-environment-deleted->map (.asEnvironmentDeleted d))
+    (.isMemoryStoreCreated d) (webhook-memory-store-created->map (.asMemoryStoreCreated d))
+    (.isMemoryStoreArchived d) (webhook-memory-store-archived->map (.asMemoryStoreArchived d))
+    (.isMemoryStoreDeleted d) (webhook-memory-store-deleted->map (.asMemoryStoreDeleted d))
     :else {:type :unknown}))
 
 (defn- webhook-event->map [^UnwrapWebhookEvent r]

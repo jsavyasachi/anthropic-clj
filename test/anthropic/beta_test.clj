@@ -1,5 +1,6 @@
 (ns anthropic.beta-test
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string]
             [anthropic.beta :as beta])
   (:import (com.anthropic.models.beta.skills SkillCreateParams
                                              SkillCreateResponse)
@@ -9,7 +10,8 @@
            (com.anthropic.models.beta.agents AgentCreateParams
                                              AgentUpdateParams
                                              BetaManagedAgentsAgent
-                                             BetaManagedAgentsAgentReference)
+                                             BetaManagedAgentsAgentReference
+                                             BetaManagedAgentsModelConfig)
            (com.anthropic.models.beta.sessions SessionCreateParams
                                                SessionUpdateParams)
            (com.anthropic.models.beta.sessions.events BetaManagedAgentsEventParams
@@ -67,6 +69,13 @@
                                                    UserProfileCreateEnrollmentUrlParams
                                                    UserProfileUpdateParams)
            (com.anthropic.models.beta.webhooks BetaWebhookEventData
+                                               BetaWebhookEnvironmentArchivedEventData
+                                               BetaWebhookEnvironmentCreatedEventData
+                                               BetaWebhookEnvironmentDeletedEventData
+                                               BetaWebhookEnvironmentUpdatedEventData
+                                               BetaWebhookMemoryStoreArchivedEventData
+                                               BetaWebhookMemoryStoreCreatedEventData
+                                               BetaWebhookMemoryStoreDeletedEventData
                                                BetaWebhookSessionCreatedEventData
                                                UnwrapWebhookEvent)))
 
@@ -241,6 +250,12 @@
     (is (= 2 (count (opt (.skills p)))))
     (is (= 1 (count (opt (.mcpServers p)))))
     (is (= 2 (count (opt (.tools p))))))
+  (let [^AgentCreateParams p (->agent-create-params
+                              {:name "helper" :model "claude-opus-4-8" :effort :high})]
+    (is (true? (.isBetaManagedAgentsModelConfigParams (.model p))))
+    (when (.isBetaManagedAgentsModelConfigParams (.model p))
+      (is (= "high" (-> p .model .asBetaManagedAgentsModelConfigParams .effort opt
+                         .asBetaManagedAgentsEffortLevel .asString)))))
   (let [^AgentUpdateParams p (->agent-update-params
                               "agent_1"
                               {:version 2
@@ -248,6 +263,7 @@
                                :skills [{:type :custom :skill-id "skill_1" :version "2"}]
                                :mcp-servers [{:name "github" :url "https://mcp.example.test"}]
                                :tools [{:type :mcp-toolset :mcp-server-name "github"}]})]
+    (is (= 2 (opt (.version p))))
     (is (= "new" (opt (.system p))))
     (is (= 1 (count (opt (.skills p)))))
     (is (= 1 (count (opt (.mcpServers p)))))
@@ -260,8 +276,7 @@
          (ex-data-for #(->agent-create-params
                         {:name "helper" :model "m"
                          :tools [{:type :x}]}))))
-  (is (= {:anthropic/error :missing-key :key :version}
-         (ex-data-for #(->agent-update-params "agent_1" {:system "new"}))))
+  (is (nil? (opt (.version (->agent-update-params "agent_1" {:system "new"})))))
   (is (= {:anthropic/error :missing-key :key :name}
          (ex-data-for #(->agent-create-params {:model "m"}))))
   (is (= {:anthropic/error :missing-key :key :model}
@@ -269,9 +284,13 @@
 
 (deftest session-params
   (let [^SessionCreateParams p (->session-create-params
-                                {:agent "agent_1" :title "t" :environment-id "env_1"})]
+                                {:agent "agent_1" :title "t" :environment-id "env_1"
+                                 :initial-events [{:type :user-message :content "hello"}]})]
     (is (some? p))
-    (is (= "t" (opt (.title p)))))
+    (is (= "t" (opt (.title p))))
+    (is (= 1 (count (opt (.initialEvents p)))))
+    (when-let [event (first (opt (.initialEvents p)))]
+      (is (= "hello" (.text (.asText (first (.content (.asUserMessage event)))))))))
   (let [^SessionUpdateParams p (->session-update-params "sess_1" {:title "t2"})]
     (is (= "t2" (opt (.title p)))))
   (is (= {:anthropic/error :missing-key :key :agent}
@@ -491,6 +510,9 @@
                              (.build)))
               (.model (-> (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfig/builder)
                           (.id (com.anthropic.models.beta.agents.BetaManagedAgentsModel/of "claude-opus-4-8"))
+                          (.effort (-> (com.anthropic.models.beta.agents.BetaManagedAgentsEffortHigh/builder)
+                                       (.type (com.anthropic.models.beta.agents.BetaManagedAgentsEffortHigh$Type/of "high"))
+                                       (.build)))
                           (.build)))
               (.multiagent (java.util.Optional/empty))
               (.name "helper")
@@ -522,7 +544,8 @@
         m (agent->map r)]
     (is (= [{:type :custom :skill-id "skill_1" :version "2"}] (:skills m)))
     (is (= [{:name "github" :url "https://mcp.example.test"}] (:mcp-servers m)))
-    (is (= [{:type :mcp-toolset :mcp-server-name "github"}] (:tools m)))))
+    (is (= [{:type :mcp-toolset :mcp-server-name "github"}] (:tools m)))
+    (is (= :high (:effort m)))))
 
 (deftest session-event-response-mapping
   (let [event (BetaManagedAgentsSessionEvent/ofUserMessage
@@ -708,13 +731,13 @@
               (.build))
         d (-> (BetaEnvironmentDeleteResponse/builder)
               (.id "env_1")
-              (.type (com.anthropic.core.JsonValue/from "environment_deleted"))
+              (.type (com.anthropic.models.beta.environments.BetaEnvironmentDeleteResponse$Type/of "environment_deleted"))
               (.build))
         m (environment->map r)]
     (is (= "env_1" (:id m)))
     (is (= "prod" (:name m)))
     (is (= "Production" (:description m)))
-    (is (= {:id "env_1" :deleted true} (environment-delete->map d)))))
+    (is (= {:id "env_1" :deleted true :type :environment_deleted} (environment-delete->map d)))))
 
 (deftest environment-work-response-mapping
   (let [work (-> (BetaSelfHostedWork/builder)
@@ -730,6 +753,7 @@
                  (.metadata (-> (com.anthropic.models.beta.environments.work.BetaSelfHostedWork$Metadata/builder)
                                 (.putAdditionalProperty "team" (com.anthropic.core.JsonValue/from "x"))
                                 (.build)))
+                 (.secret "secret_1")
                  (.startedAt "2026-07-04T00:00:30Z")
                  (.state (com.anthropic.models.beta.environments.work.BetaSelfHostedWork$State/of "running"))
                  (.stopRequestedAt (java.util.Optional/empty))
@@ -757,6 +781,7 @@
             :environment-id "env_1"
             :latest-heartbeat-at "2026-07-04T00:02:00Z"
             :metadata {:team "x"}
+            :secret "secret_1"
             :started-at "2026-07-04T00:00:30Z"
             :state "running"}
            (environment-work->map work)))
@@ -842,3 +867,52 @@
     (is (= "sess_1" (:data-id m)))
     (is (= "org_1" (:organization-id m)))
     (is (= "ws_1" (:workspace-id m)))))
+
+(deftest webhook-environment-and-memory-store-response-mapping
+  (let [event-map
+        (fn [type data]
+          (let [webhook-data
+                (case type
+                  :environment-created (BetaWebhookEventData/ofEnvironmentCreated data)
+                  :environment-updated (BetaWebhookEventData/ofEnvironmentUpdated data)
+                  :environment-archived (BetaWebhookEventData/ofEnvironmentArchived data)
+                  :environment-deleted (BetaWebhookEventData/ofEnvironmentDeleted data)
+                  :memory-store-created (BetaWebhookEventData/ofMemoryStoreCreated data)
+                  :memory-store-archived (BetaWebhookEventData/ofMemoryStoreArchived data)
+                  :memory-store-deleted (BetaWebhookEventData/ofMemoryStoreDeleted data))]
+            (select-keys
+             (webhook-event->map
+              (-> (UnwrapWebhookEvent/builder)
+                  (.id "evt_1")
+                  (.createdAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+                  (.data webhook-data)
+                  (.type (com.anthropic.core.JsonValue/from "event"))
+                  (.build)))
+             [:type :data-id :organization-id :workspace-id])))]
+    (doseq [[type data]
+            [[:environment-created (-> (BetaWebhookEnvironmentCreatedEventData/builder)
+                                       (.id "env_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                                       (.type (com.anthropic.core.JsonValue/from "environment.created")) (.build))]
+             [:environment-updated (-> (BetaWebhookEnvironmentUpdatedEventData/builder)
+                                       (.id "env_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                                       (.type (com.anthropic.core.JsonValue/from "environment.updated")) (.build))]
+             [:environment-archived (-> (BetaWebhookEnvironmentArchivedEventData/builder)
+                                        (.id "env_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                                        (.type (com.anthropic.core.JsonValue/from "environment.archived")) (.build))]
+             [:environment-deleted (-> (BetaWebhookEnvironmentDeletedEventData/builder)
+                                       (.id "env_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                                       (.type (com.anthropic.core.JsonValue/from "environment.deleted")) (.build))]
+             [:memory-store-created (-> (BetaWebhookMemoryStoreCreatedEventData/builder)
+                                        (.id "ms_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                                        (.type (com.anthropic.core.JsonValue/from "memory_store.created")) (.build))]
+             [:memory-store-archived (-> (BetaWebhookMemoryStoreArchivedEventData/builder)
+                                         (.id "ms_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                                         (.type (com.anthropic.core.JsonValue/from "memory_store.archived")) (.build))]
+             [:memory-store-deleted (-> (BetaWebhookMemoryStoreDeletedEventData/builder)
+                                        (.id "ms_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                                        (.type (com.anthropic.core.JsonValue/from "memory_store.deleted")) (.build))]]]
+      (is (= {:type type
+              :data-id (if (clojure.string/starts-with? (name type) "environment") "env_1" "ms_1")
+              :organization-id "org_1"
+              :workspace-id "ws_1"}
+             (event-map type data))))))

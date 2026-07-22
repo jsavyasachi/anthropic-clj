@@ -1,7 +1,7 @@
 {:paths ["src"]
 
  :deps {org.clojure/clojure {:mvn/version "1.12.5"}
-        com.anthropic/anthropic-java {:mvn/version "2.49.1"}
+        com.anthropic/anthropic-java {:mvn/version "2.50.0"}
         metosin/jsonista {:mvn/version "1.0.0"}}
 
  :aliases
@@ -9,15 +9,15 @@
   {:extra-paths ["test"]
    :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}
                 org.slf4j/slf4j-nop {:mvn/version "2.0.18"}
-                com.anthropic/anthropic-java-bedrock {:mvn/version "2.49.1"}
-                com.anthropic/anthropic-java-vertex {:mvn/version "2.49.1"}}
+                com.anthropic/anthropic-java-bedrock {:mvn/version "2.50.0"}
+                com.anthropic/anthropic-java-vertex {:mvn/version "2.50.0"}}
    :main-opts ["-m" "kaocha.runner"]}
 
   :bedrock
-  {:extra-deps {com.anthropic/anthropic-java-bedrock {:mvn/version "2.49.1"}}}
+  {:extra-deps {com.anthropic/anthropic-java-bedrock {:mvn/version "2.50.0"}}}
 
   :vertex
-  {:extra-deps {com.anthropic/anthropic-java-vertex {:mvn/version "2.49.1"}}}
+  {:extra-deps {com.anthropic/anthropic-java-vertex {:mvn/version "2.50.0"}}}
 
   :1.10 {:override-deps {org.clojure/clojure {:mvn/version "1.10.3"}}}
   :1.11 {:override-deps {org.clojure/clojure {:mvn/version "1.11.4"}}}

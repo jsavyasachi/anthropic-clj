@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.15.0] - 2026-07-22
+
+### Added
+- Managed-agent model `:effort`, initial session events, and agent-update `:version` support.
+- Environment and memory-store webhook events: environment created, updated, archived, and deleted; memory store created, archived, and deleted.
+
+### Changed
+- Track `com.anthropic/anthropic-java` 2.50.0.
+- Environment deletion maps now include `:type`; self-hosted work maps now include `:secret`.
+
 ## [0.14.1] - 2026-07-21
 
 ### Changed
