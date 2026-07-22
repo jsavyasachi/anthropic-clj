@@ -33,10 +33,23 @@
                                                              MemoryListParams
                                                              MemoryRetrieveParams
                                                              MemoryUpdateParams)
+           (com.anthropic.models.beta.memorystores.memoryversions MemoryVersionListParams
+                                                                   MemoryVersionRetrieveParams)
            (com.anthropic.models.beta.environments BetaEnvironment
                                                    BetaEnvironmentDeleteResponse
                                                    EnvironmentCreateParams
                                                    EnvironmentUpdateParams)
+           (com.anthropic.models.beta.environments.work BetaSelfHostedWork
+                                                        BetaSelfHostedWorkHeartbeatResponse
+                                                        BetaSelfHostedWorkQueueStats
+                                                        WorkAckParams
+                                                        WorkHeartbeatParams
+                                                        WorkListParams
+                                                        WorkPollParams
+                                                        WorkRetrieveParams
+                                                        WorkStatsParams
+                                                        WorkStopParams
+                                                        WorkUpdateParams)
            (com.anthropic.models.beta.skills.versions VersionCreateParams
                                                        VersionCreateResponse
                                                        VersionDeleteParams
@@ -80,10 +93,20 @@
 (def ->memory-update-params #'beta/->memory-update-params)
 (def ->memory-list-params #'beta/->memory-list-params)
 (def ->memory-delete-params #'beta/->memory-delete-params)
+(def ->memory-version-list-params #'beta/->memory-version-list-params)
+(def ->memory-version-retrieve-params #'beta/->memory-version-retrieve-params)
 (def memory->map #'beta/memory->map)
 (def memory-delete->map #'beta/memory-delete->map)
 (def ->environment-create-params #'beta/->environment-create-params)
 (def ->environment-update-params #'beta/->environment-update-params)
+(def ->environment-work-retrieve-params #'beta/->environment-work-retrieve-params)
+(def ->environment-work-update-params #'beta/->environment-work-update-params)
+(def ->environment-work-list-params #'beta/->environment-work-list-params)
+(def ->environment-work-ack-params #'beta/->environment-work-ack-params)
+(def ->environment-work-heartbeat-params #'beta/->environment-work-heartbeat-params)
+(def ->environment-work-poll-params #'beta/->environment-work-poll-params)
+(def ->environment-work-stats-params #'beta/->environment-work-stats-params)
+(def ->environment-work-stop-params #'beta/->environment-work-stop-params)
 (def ->version-create-params #'beta/->version-create-params)
 (def ->version-retrieve-params #'beta/->version-retrieve-params)
 (def ->version-list-params #'beta/->version-list-params)
@@ -103,11 +126,23 @@
 (def deployment-run->map #'beta/deployment-run->map)
 (def environment->map #'beta/environment->map)
 (def environment-delete->map #'beta/environment-delete->map)
+(def environment-work->map #'beta/environment-work->map)
+(def environment-work-heartbeat->map #'beta/environment-work-heartbeat->map)
+(def environment-work-stats->map #'beta/environment-work-stats->map)
+(def environment-work-optional->map #'beta/environment-work-optional->map)
 (def vault->map #'beta/vault->map)
 (def vault-delete->map #'beta/vault-delete->map)
 (def user-profile->map #'beta/user-profile->map)
 (def enrollment-url->map #'beta/enrollment-url->map)
 (def webhook-event->map #'beta/webhook-event->map)
+(def ->tunnel-create-params #'beta/->tunnel-create-params)
+(def tunnel->map #'beta/tunnel->map)
+(def ->agent-version-list-params #'beta/->agent-version-list-params)
+(def ->tunnel-certificate-create-params #'beta/->tunnel-certificate-create-params)
+(def tunnel-certificate->map #'beta/tunnel-certificate->map)
+(def ->thread-event-list-params #'beta/->thread-event-list-params)
+(def ->session-resource-list-params #'beta/->session-resource-list-params)
+(def ->dream-create-params #'beta/->dream-create-params)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -120,6 +155,53 @@
       (.version 1)
       (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentReference$Type/of "agent"))
       (.build)))
+
+(deftest tunnel-params-and-response-mapping
+  (let [p (->tunnel-create-params {:display-name "Local"})]
+    (is (= "Local" (opt (.displayName p)))))
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        r (-> (com.anthropic.models.beta.tunnels.BetaTunnel/builder)
+              (.id "tun_1") (.archivedAt (java.util.Optional/empty))
+              (.createdAt ts) (.displayName "Local") (.domain "localhost")
+              (.type (com.anthropic.core.JsonValue/from "tunnel")) (.build))]
+    (is (= {:id "tun_1" :display-name "Local" :domain "localhost"
+            :created-at "2026-07-04T00:00Z"}
+           (tunnel->map r)))))
+
+(deftest agent-version-params
+  (let [p (->agent-version-list-params "agent_1" {:limit 10 :page "next"})]
+    (is (= "agent_1" (opt (.agentId p))))
+    (is (= 10 (opt (.limit p))))
+    (is (= "next" (opt (.page p))))))
+
+(deftest tunnel-certificate-params-and-response-mapping
+  (let [p (->tunnel-certificate-create-params "tun_1" {:ca-certificate-pem "pem"})]
+    (is (= "tun_1" (opt (.tunnelId p))))
+    (is (= "pem" (.caCertificatePem p))))
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        r (-> (com.anthropic.models.beta.tunnels.certificates.BetaTunnelCertificate/builder)
+              (.id "cert_1") (.archivedAt (java.util.Optional/empty)) (.createdAt ts)
+              (.expiresAt (java.util.Optional/empty)) (.fingerprint "fp") (.tunnelId "tun_1")
+              (.type (com.anthropic.core.JsonValue/from "tunnel_certificate")) (.build))]
+    (is (= {:id "cert_1" :tunnel-id "tun_1" :fingerprint "fp"
+            :created-at "2026-07-04T00:00Z"}
+           (tunnel-certificate->map r)))))
+
+(deftest thread-event-params
+  (let [p (->thread-event-list-params "sess_1" "thread_1" {:limit 10 :page "next"})]
+    (is (= "sess_1" (.sessionId p)))
+    (is (= "thread_1" (opt (.threadId p))))
+    (is (= 10 (opt (.limit p))))))
+
+(deftest session-resource-params
+  (let [p (->session-resource-list-params "sess_1" {:limit 10 :page "next"})]
+    (is (= "sess_1" (opt (.sessionId p))))
+    (is (= 10 (opt (.limit p))))))
+
+(deftest dream-params
+  (let [p (->dream-create-params {:inputs [] :model "claude-opus-4-8" :instructions "dream"})]
+    (is (= "claude-opus-4-8" (.asString (.model p))))
+    (is (= "dream" (opt (.instructions p))))))
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))
@@ -318,6 +400,29 @@
   (is (= {:anthropic/error :missing-key :key :name}
          (ex-data-for #(->environment-create-params {})))))
 
+(deftest environment-work-params
+  (let [^WorkRetrieveParams retrieve (->environment-work-retrieve-params "env_1" "work_1")
+        ^WorkUpdateParams update (->environment-work-update-params "env_1" "work_1" {:metadata {:team "x"}})
+        ^WorkListParams list (->environment-work-list-params "env_1" {:limit 10 :page "next"})
+        ^WorkAckParams ack (->environment-work-ack-params "env_1" "work_1")
+        ^WorkHeartbeatParams heartbeat (->environment-work-heartbeat-params "env_1" "work_1")
+        ^WorkPollParams poll (->environment-work-poll-params "env_1")
+        ^WorkStatsParams stats (->environment-work-stats-params "env_1")
+        ^WorkStopParams stop (->environment-work-stop-params "env_1" "work_1" {:force true})]
+    (is (= "env_1" (.environmentId retrieve)))
+    (is (= "work_1" (opt (.workId retrieve))))
+    (is (= "env_1" (.environmentId update)))
+    (is (= "x" (.convert (get (._additionalProperties (.metadata (.betaSelfHostedWorkUpdateRequest update))) "team") String)))
+    (is (= "env_1" (opt (.environmentId list))))
+    (is (= 10 (opt (.limit list))))
+    (is (= "next" (opt (.page list))))
+    (is (= "work_1" (opt (.workId ack))))
+    (is (= "work_1" (opt (.workId heartbeat))))
+    (is (= "env_1" (opt (.environmentId poll))))
+    (is (= "env_1" (opt (.environmentId stats))))
+    (is (= "work_1" (opt (.workId stop))))
+    (is (true? (opt (.force (.betaSelfHostedWorkStopRequest stop)))))))
+
 (deftest vault-params
   (let [^VaultCreateParams p (->vault-create-params
                               {:display-name "Main Vault" :metadata {:team "x"}})]
@@ -505,6 +610,17 @@
     (is (= "hello" (:content m)))
     (is (= {:id "mem_1" :deleted true} (memory-delete->map d)))))
 
+(deftest memory-version-params
+  (let [^MemoryVersionListParams lp
+        (->memory-version-list-params "ms_1" {:memory-id "mem_1" :limit 10 :view :full})
+        ^MemoryVersionRetrieveParams rp
+        (->memory-version-retrieve-params "ms_1" "mv_1" {:view :full})]
+    (is (= "ms_1" (opt (.memoryStoreId lp))))
+    (is (= "mem_1" (opt (.memoryId lp))))
+    (is (= 10 (opt (.limit lp))))
+    (is (= "ms_1" (.memoryStoreId rp)))
+    (is (= "mv_1" (opt (.memoryVersionId rp))))))
+
 (deftest skill-version-response-mapping
   (let [r (-> (VersionCreateResponse/builder)
               (.id "sv_1")
@@ -599,6 +715,62 @@
     (is (= "prod" (:name m)))
     (is (= "Production" (:description m)))
     (is (= {:id "env_1" :deleted true} (environment-delete->map d)))))
+
+(deftest environment-work-response-mapping
+  (let [work (-> (BetaSelfHostedWork/builder)
+                 (.id "work_1")
+                 (.acknowledgedAt "2026-07-04T00:01:00Z")
+                 (.createdAt "2026-07-04T00:00:00Z")
+                 (.data (-> (com.anthropic.models.beta.environments.work.BetaSessionWorkData/builder)
+                            (.id "sess_1")
+                            (.type (com.anthropic.core.JsonValue/from "session"))
+                            (.build)))
+                 (.environmentId "env_1")
+                 (.latestHeartbeatAt "2026-07-04T00:02:00Z")
+                 (.metadata (-> (com.anthropic.models.beta.environments.work.BetaSelfHostedWork$Metadata/builder)
+                                (.putAdditionalProperty "team" (com.anthropic.core.JsonValue/from "x"))
+                                (.build)))
+                 (.startedAt "2026-07-04T00:00:30Z")
+                 (.state (com.anthropic.models.beta.environments.work.BetaSelfHostedWork$State/of "running"))
+                 (.stopRequestedAt (java.util.Optional/empty))
+                 (.stoppedAt (java.util.Optional/empty))
+                 (.type (com.anthropic.core.JsonValue/from "self_hosted_work"))
+                 (.build))
+        heartbeat (-> (BetaSelfHostedWorkHeartbeatResponse/builder)
+                      (.lastHeartbeat "2026-07-04T00:02:00Z")
+                      (.leaseExtended true)
+                      (.state (com.anthropic.models.beta.environments.work.BetaSelfHostedWorkHeartbeatResponse$State/of "running"))
+                      (.ttlSeconds 30)
+                      (.type (com.anthropic.core.JsonValue/from "self_hosted_work_heartbeat"))
+                      (.build))
+        stats (-> (BetaSelfHostedWorkQueueStats/builder)
+                  (.depth 3)
+                  (.oldestQueuedAt "2026-07-04T00:00:00Z")
+                  (.pending 2)
+                  (.workersPolling 1)
+                  (.type (com.anthropic.core.JsonValue/from "self_hosted_work_queue_stats"))
+                  (.build))]
+    (is (= {:id "work_1"
+            :acknowledged-at "2026-07-04T00:01:00Z"
+            :created-at "2026-07-04T00:00:00Z"
+            :data {:id "sess_1"}
+            :environment-id "env_1"
+            :latest-heartbeat-at "2026-07-04T00:02:00Z"
+            :metadata {:team "x"}
+            :started-at "2026-07-04T00:00:30Z"
+            :state "running"}
+           (environment-work->map work)))
+    (is (= {:last-heartbeat "2026-07-04T00:02:00Z"
+            :lease-extended true
+            :state "running"
+            :ttl-seconds 30}
+           (environment-work-heartbeat->map heartbeat)))
+    (is (= {:depth 3
+            :oldest-queued-at "2026-07-04T00:00:00Z"
+            :pending 2
+            :workers-polling 1}
+           (environment-work-stats->map stats)))
+    (is (nil? (environment-work-optional->map (java.util.Optional/empty))))))
 
 (deftest vault-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")

@@ -3,9 +3,9 @@
   Anthropic Java SDK: skills, memory stores, agents, sessions, deployments,
   deployment runs, environments, vaults, user profiles, and webhooks.
 
-  These wrap beta endpoints that Anthropic may change; vault credentials,
-  environment work, memory versions, thread events, session event streaming,
-  session resources, agent versions, and detailed deployment-run trigger
+  These wrap beta endpoints that Anthropic may change; memory versions, thread
+  events, session event streaming, session resources, agent versions, and
+  detailed deployment-run trigger
   context/resources/schedules are not wrapped yet. Errors follow
   `anthropic.core`'s contract: API/IO failures are ex-info keyed
   `:anthropic/error` with the SDK exception as cause."
@@ -47,6 +47,11 @@
                                                             MemoryListParams
                                                             MemoryRetrieveParams
                                                             MemoryUpdateParams)
+           (com.anthropic.models.beta.memorystores.memoryversions BetaManagedAgentsMemoryVersion
+                                                                  BetaManagedAgentsMemoryVersionOperation
+                                                                  MemoryVersionListPage
+                                                                  MemoryVersionListParams
+                                                                  MemoryVersionRetrieveParams)
            (com.anthropic.models.beta.agents AgentCreateParams
                                              AgentCreateParams$Tool
                                              AgentCreateParams$Metadata
@@ -521,6 +526,60 @@
    (with-api-errors
      (memory-delete->map (-> (.beta client) (.memoryStores) (.memories)
                              (.delete (->memory-delete-params memory-store-id memory-id opts)))))))
+
+;; ---- Memory versions ------------------------------------------------------
+
+(defn- ->memory-version-list-params ^MemoryVersionListParams
+  [memory-store-id {:keys [memory-id limit page view operation]}]
+  (let [b (MemoryVersionListParams/builder)]
+    (.memoryStoreId b ^String memory-store-id)
+    (when memory-id (.memoryId b ^String memory-id))
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (when view (.view b (memory-view view)))
+    (when operation (.operation b (BetaManagedAgentsMemoryVersionOperation/of (name operation))))
+    (.build b)))
+
+(defn- ->memory-version-retrieve-params ^MemoryVersionRetrieveParams
+  [memory-store-id memory-version-id {:keys [view]}]
+  (let [b (MemoryVersionRetrieveParams/builder)]
+    (.memoryStoreId b ^String memory-store-id)
+    (.memoryVersionId b ^String memory-version-id)
+    (when view (.view b (memory-view view)))
+    (.build b)))
+
+(defn- memory-version->map [^BetaManagedAgentsMemoryVersion r]
+  (cond-> {:id (.id r)
+           :memory-store-id (.memoryStoreId r)
+           :memory-id (.memoryId r)
+           :operation (keyword (str (.operation r)))
+           :created-at (str (.createdAt r))}
+    (unopt (.content r)) (assoc :content (unopt (.content r)))
+    (unopt (.path r)) (assoc :path (unopt (.path r)))
+    (unopt (.contentSha256 r)) (assoc :content-sha256 (unopt (.contentSha256 r)))
+    (unopt (.contentSizeBytes r)) (assoc :content-size-bytes (unopt (.contentSizeBytes r)))
+    (unopt (.redactedAt r)) (assoc :redacted-at (str (unopt (.redactedAt r))))))
+
+(defn list-memory-versions
+  "List memory versions for a memory store. Optional filters include `:memory-id`,
+  `:operation`, `:view`, `:limit`, and `:page`."
+  ([^AnthropicClient client ^String memory-store-id]
+   (list-memory-versions client memory-store-id {}))
+  ([^AnthropicClient client ^String memory-store-id opts]
+   (with-api-errors
+     (let [^MemoryVersionListPage p (-> (.beta client) (.memoryStores) (.memoryVersions)
+                                        (.list (->memory-version-list-params memory-store-id opts)))]
+       (mapv memory-version->map (.autoPager p))))))
+
+(defn get-memory-version
+  "Retrieve one memory version. `opts` may include `:view`."
+  ([^AnthropicClient client ^String memory-store-id ^String memory-version-id]
+   (get-memory-version client memory-store-id memory-version-id {}))
+  ([^AnthropicClient client ^String memory-store-id ^String memory-version-id opts]
+   (with-api-errors
+     (memory-version->map (-> (.beta client) (.memoryStores) (.memoryVersions)
+                              (.retrieve (->memory-version-retrieve-params
+                                          memory-store-id memory-version-id opts)))))))
 
 ;; ---- Agents ----------------------------------------------------------------
 
@@ -1007,6 +1066,76 @@
     (session-thread->map (-> (.beta client) (.sessions) (.threads)
                              (.archive (->thread-archive-params session-id thread-id))))))
 
+;; ---- Thread events --------------------------------------------------------
+
+(defn- ->thread-event-list-params
+  ^com.anthropic.models.beta.sessions.threads.events.EventListParams
+  [session-id thread-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.sessions.threads.events.EventListParams/builder)]
+    (.sessionId b ^String session-id)
+    (.threadId b ^String thread-id)
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn list-thread-events
+  "List thread events (pages followed) as normalized event maps."
+  [^AnthropicClient client ^String session-id ^String thread-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.sessions.threads.events.EventListPage p
+          (-> (.beta client) (.sessions) (.threads) (.events)
+              (.list (->thread-event-list-params session-id thread-id opts)))]
+      (mapv session-event->map (.autoPager p)))))
+
+;; ---- Session resources ----------------------------------------------------
+
+(defn- ->session-resource-list-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceListParams
+  [session-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceListParams/builder)]
+    (.sessionId b ^String session-id)
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn- ->session-resource-retrieve-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveParams [session-id resource-id]
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceRetrieveParams/builder)]
+    (.sessionId b ^String session-id) (.resourceId b ^String resource-id) (.build b)))
+
+(defn- ->session-resource-update-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceUpdateParams [session-id resource-id {:keys [authorization-token]}]
+  (when-not authorization-token (missing-key! :authorization-token))
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceUpdateParams/builder)]
+    (.sessionId b ^String session-id) (.resourceId b ^String resource-id)
+    (.authorizationToken b ^String authorization-token) (.build b)))
+
+(defn- ->session-resource-delete-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceDeleteParams [session-id resource-id]
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceDeleteParams/builder)]
+    (.sessionId b ^String session-id) (.resourceId b ^String resource-id) (.build b)))
+
+(defn- session-resource->map [r]
+  (cond
+    (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
+      {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)})
+    (.isGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
+      {:type :github-repository :id (.id x) :url (.url x) :mount-path (.mountPath x)})
+    :else (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (.asMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
+            {:type :memory-store :memory-store-id (.memoryStoreId x)})))
+
+(defn list-session-resources [^AnthropicClient client ^String session-id opts]
+  (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.ResourceListPage p (-> (.beta client) (.sessions) (.resources) (.list (->session-resource-list-params session-id opts)))]
+                     (mapv session-resource->map (.autoPager p)))))
+(defn get-session-resource [^AnthropicClient client ^String session-id ^String resource-id]
+  (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources) (.retrieve (->session-resource-retrieve-params session-id resource-id))))))
+(defn update-session-resource [^AnthropicClient client ^String session-id ^String resource-id changes]
+  (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources) (.update (->session-resource-update-params session-id resource-id changes))))))
+(defn delete-session-resource [^AnthropicClient client ^String session-id ^String resource-id]
+  (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsDeleteSessionResource r (-> (.beta client) (.sessions) (.resources) (.delete (->session-resource-delete-params session-id resource-id)))] {:id (.id r) :deleted true})))
+
 ;; ---- Deployments -----------------------------------------------------------
 
 (defn- ->deployment-create-metadata ^DeploymentCreateParams$Metadata [m]
@@ -1234,6 +1363,164 @@
   (with-api-errors
     (environment-delete->map (-> (.beta client) (.environments) (.delete environment-id)))))
 
+;; ---- Environment work -----------------------------------------------------
+
+(defn- ->environment-work-update-metadata
+  ^com.anthropic.models.beta.environments.work.BetaSelfHostedWorkUpdateRequest$Metadata
+  [m]
+  (let [b (com.anthropic.models.beta.environments.work.BetaSelfHostedWorkUpdateRequest$Metadata/builder)]
+    (doseq [[k v] (walk/stringify-keys m)]
+      (.putAdditionalProperty b ^String k (JsonValue/from v)))
+    (.build b)))
+
+(defn- ->environment-work-retrieve-params
+  ^com.anthropic.models.beta.environments.work.WorkRetrieveParams
+  [environment-id work-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkRetrieveParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.build b)))
+
+(defn- ->environment-work-update-params
+  ^com.anthropic.models.beta.environments.work.WorkUpdateParams
+  [environment-id work-id {:keys [metadata]}]
+  (when-not metadata (missing-key! :metadata))
+  (let [b (com.anthropic.models.beta.environments.work.WorkUpdateParams/builder)
+        body (com.anthropic.models.beta.environments.work.BetaSelfHostedWorkUpdateRequest/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.metadata body (->environment-work-update-metadata metadata))
+    (.betaSelfHostedWorkUpdateRequest b (.build body))
+    (.build b)))
+
+(defn- ->environment-work-list-params
+  ^com.anthropic.models.beta.environments.work.WorkListParams
+  [environment-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.environments.work.WorkListParams/builder)]
+    (.environmentId b ^String environment-id)
+    (when limit (.limit b (long limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn- ->environment-work-ack-params
+  ^com.anthropic.models.beta.environments.work.WorkAckParams
+  [environment-id work-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkAckParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.build b)))
+
+(defn- ->environment-work-heartbeat-params
+  ^com.anthropic.models.beta.environments.work.WorkHeartbeatParams
+  [environment-id work-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkHeartbeatParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.build b)))
+
+(defn- ->environment-work-poll-params
+  ^com.anthropic.models.beta.environments.work.WorkPollParams
+  [environment-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkPollParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.build b)))
+
+(defn- ->environment-work-stats-params
+  ^com.anthropic.models.beta.environments.work.WorkStatsParams
+  [environment-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkStatsParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.build b)))
+
+(defn- ->environment-work-stop-params
+  ^com.anthropic.models.beta.environments.work.WorkStopParams
+  [environment-id work-id {:keys [force]}]
+  (let [b (com.anthropic.models.beta.environments.work.WorkStopParams/builder)
+        body (com.anthropic.models.beta.environments.work.BetaSelfHostedWorkStopRequest/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (when (some? force) (.force body (boolean force)))
+    (.betaSelfHostedWorkStopRequest b (.build body))
+    (.build b)))
+
+(defn- environment-work-metadata->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWork$Metadata m]
+  (walk/keywordize-keys
+   (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)]))
+         (._additionalProperties m))))
+
+(defn- environment-work->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWork r]
+  (cond-> {:id (.id r)
+           :created-at (.createdAt r)
+           :data {:id (.id (.data r))}
+           :environment-id (.environmentId r)
+           :metadata (environment-work-metadata->map (.metadata r))
+           :state (str (.state r))}
+    (unopt (.acknowledgedAt r)) (assoc :acknowledged-at (unopt (.acknowledgedAt r)))
+    (unopt (.latestHeartbeatAt r)) (assoc :latest-heartbeat-at (unopt (.latestHeartbeatAt r)))
+    (unopt (.startedAt r)) (assoc :started-at (unopt (.startedAt r)))
+    (unopt (.stopRequestedAt r)) (assoc :stop-requested-at (unopt (.stopRequestedAt r)))
+    (unopt (.stoppedAt r)) (assoc :stopped-at (unopt (.stoppedAt r)))))
+
+(defn- environment-work-heartbeat->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWorkHeartbeatResponse r]
+  {:last-heartbeat (.lastHeartbeat r)
+   :lease-extended (.leaseExtended r)
+   :state (str (.state r))
+   :ttl-seconds (.ttlSeconds r)})
+
+(defn- environment-work-stats->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWorkQueueStats r]
+  (cond-> {:depth (.depth r) :pending (.pending r)}
+    (unopt (.oldestQueuedAt r)) (assoc :oldest-queued-at (unopt (.oldestQueuedAt r)))
+    (unopt (.workersPolling r)) (assoc :workers-polling (unopt (.workersPolling r)))))
+
+(defn- environment-work-optional->map [^Optional r]
+  (when (.isPresent r) (environment-work->map (.get r))))
+
+(defn get-environment-work [^AnthropicClient client ^String environment-id ^String work-id]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.retrieve (->environment-work-retrieve-params environment-id work-id))))))
+
+(defn update-environment-work [^AnthropicClient client ^String environment-id ^String work-id changes]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.update (->environment-work-update-params environment-id work-id changes))))))
+
+(defn list-environment-work [^AnthropicClient client ^String environment-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.environments.work.WorkListPage p
+          (-> (.beta client) (.environments) (.work)
+              (.list (->environment-work-list-params environment-id opts)))]
+      (mapv environment-work->map (.autoPager p)))))
+
+(defn ack-environment-work [^AnthropicClient client ^String environment-id ^String work-id]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.ack (->environment-work-ack-params environment-id work-id))))))
+
+(defn heartbeat-environment-work [^AnthropicClient client ^String environment-id ^String work-id]
+  (with-api-errors
+    (environment-work-heartbeat->map (-> (.beta client) (.environments) (.work)
+                                       (.heartbeat (->environment-work-heartbeat-params environment-id work-id))))))
+
+(defn poll-environment-work [^AnthropicClient client ^String environment-id]
+  (with-api-errors
+    (environment-work-optional->map (-> (.beta client) (.environments) (.work)
+                                        (.poll (->environment-work-poll-params environment-id))))))
+
+(defn environment-work-stats [^AnthropicClient client ^String environment-id]
+  (with-api-errors
+    (environment-work-stats->map (-> (.beta client) (.environments) (.work)
+                                     (.stats (->environment-work-stats-params environment-id))))))
+
+(defn stop-environment-work [^AnthropicClient client ^String environment-id ^String work-id opts]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.stop (->environment-work-stop-params environment-id work-id opts))))))
+
 ;; ---- Vaults ---------------------------------------------------------------
 
 (defn- ->vault-create-metadata ^VaultCreateParams$Metadata [m]
@@ -1312,6 +1599,147 @@
   [^AnthropicClient client ^String vault-id]
   (with-api-errors
     (vault-delete->map (-> (.beta client) (.vaults) (.delete vault-id)))))
+
+;; ---- Tunnels --------------------------------------------------------------
+
+(defn- ->tunnel-create-params ^com.anthropic.models.beta.tunnels.TunnelCreateParams
+  [{:keys [display-name]}]
+  (let [b (com.anthropic.models.beta.tunnels.TunnelCreateParams/builder)]
+    (when display-name (.displayName b ^String display-name))
+    (.build b)))
+
+(defn- tunnel->map [^com.anthropic.models.beta.tunnels.BetaTunnel r]
+  (cond-> {:id (.id r) :domain (.domain r) :created-at (str (.createdAt r))}
+    (unopt (.displayName r)) (assoc :display-name (unopt (.displayName r)))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+
+(defn create-tunnel [^AnthropicClient client req]
+  (with-api-errors (tunnel->map (-> (.beta client) (.tunnels)
+                                    (.create (->tunnel-create-params req))))))
+
+(defn get-tunnel [^AnthropicClient client ^String tunnel-id]
+  (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.retrieve tunnel-id)))))
+
+(defn list-tunnels [^AnthropicClient client]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.tunnels.TunnelListPage p
+          (-> (.beta client) (.tunnels) (.list))]
+      (mapv tunnel->map (.autoPager p)))))
+
+(defn archive-tunnel [^AnthropicClient client ^String tunnel-id]
+  (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.archive tunnel-id)))))
+
+;; ---- Tunnel certificates --------------------------------------------------
+
+(defn- ->tunnel-certificate-create-params
+  ^com.anthropic.models.beta.tunnels.certificates.CertificateCreateParams
+  [tunnel-id {:keys [ca-certificate-pem]}]
+  (when-not ca-certificate-pem (missing-key! :ca-certificate-pem))
+  (let [b (com.anthropic.models.beta.tunnels.certificates.CertificateCreateParams/builder)]
+    (.tunnelId b ^String tunnel-id)
+    (.caCertificatePem b ^String ca-certificate-pem)
+    (.build b)))
+
+(defn- tunnel-certificate->map
+  [^com.anthropic.models.beta.tunnels.certificates.BetaTunnelCertificate r]
+  (cond-> {:id (.id r) :tunnel-id (.tunnelId r) :fingerprint (.fingerprint r)
+           :created-at (str (.createdAt r))}
+    (unopt (.expiresAt r)) (assoc :expires-at (str (unopt (.expiresAt r))))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+
+(defn create-tunnel-certificate [^AnthropicClient client ^String tunnel-id req]
+  (with-api-errors
+    (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
+                                 (.create (->tunnel-certificate-create-params tunnel-id req))))))
+
+(defn get-tunnel-certificate [^AnthropicClient client ^String tunnel-id ^String certificate-id]
+  (with-api-errors
+    (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
+                                 (.retrieve certificate-id)))) )
+
+(defn list-tunnel-certificates [^AnthropicClient client ^String tunnel-id]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.tunnels.certificates.CertificateListPage p
+          (-> (.beta client) (.tunnels) (.certificates) (.list tunnel-id))]
+      (mapv tunnel-certificate->map (.autoPager p)))))
+
+(defn archive-tunnel-certificate [^AnthropicClient client ^String tunnel-id ^String certificate-id]
+  (with-api-errors
+    (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
+                                 (.archive certificate-id)))))
+
+;; ---- Agent versions -------------------------------------------------------
+
+(defn- ->agent-version-list-params
+  ^com.anthropic.models.beta.agents.versions.VersionListParams
+  [agent-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.agents.versions.VersionListParams/builder)]
+    (.agentId b ^String agent-id)
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn list-agent-versions
+  "List an agent's versions (pages followed) as agent maps."
+  [^AnthropicClient client ^String agent-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.agents.versions.VersionListPage p
+          (-> (.beta client) (.agents) (.versions)
+              (.list (->agent-version-list-params agent-id opts)))]
+      (mapv agent->map (.autoPager p)))))
+
+;; ---- Dreams ---------------------------------------------------------------
+
+(defn- ->dream-create-params ^com.anthropic.models.beta.dreams.DreamCreateParams
+  [{:keys [inputs model instructions]}]
+  (when-not (contains? #{nil} inputs) (when-not (sequential? inputs) (missing-key! :inputs)))
+  (when-not model (missing-key! :model))
+  (let [b (com.anthropic.models.beta.dreams.DreamCreateParams/builder)
+        ^com.anthropic.models.beta.dreams.DreamCreateParams$Model model*
+        (if (string? model)
+          (com.anthropic.models.beta.dreams.DreamCreateParams$Model/ofString ^String model)
+          model)]
+    (.inputs b ^java.util.List (vec inputs))
+    (.model b model*)
+    (when instructions (.instructions b ^String instructions)) (.build b)))
+
+(defn- dream->map [^com.anthropic.models.beta.dreams.BetaDream r]
+  (cond-> {:id (.id r) :status (str (.status r)) :created-at (str (.createdAt r))
+           :inputs (vec (.inputs r)) :outputs (vec (.outputs r))}
+    (unopt (.instructions r)) (assoc :instructions (unopt (.instructions r)))
+    (unopt (.sessionId r)) (assoc :session-id (unopt (.sessionId r)))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+(defn create-dream [^AnthropicClient client req] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.create (->dream-create-params req))))))
+(defn get-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.retrieve dream-id)))))
+(defn list-dreams [^AnthropicClient client] (with-api-errors (let [^com.anthropic.models.beta.dreams.DreamListPage p (-> (.beta client) (.dreams) (.list))] (mapv dream->map (.autoPager p)))))
+(defn archive-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.archive dream-id)))))
+(defn cancel-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.cancel dream-id)))))
+
+;; ---- Vault credentials ----------------------------------------------------
+
+(defn- credential->map [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredential r]
+  (cond-> {:id (.id r) :vault-id (.vaultId r) :created-at (str (.createdAt r)) :updated-at (str (.updatedAt r))}
+    (unopt (.displayName r)) (assoc :display-name (unopt (.displayName r)))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+(defn- ->credential-create-params [vault-id {:keys [auth display-name]}]
+  (when-not auth (missing-key! :auth))
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialCreateParams/builder)
+        ^com.anthropic.models.beta.vaults.credentials.CredentialCreateParams$Auth auth auth]
+    (.vaultId b ^String vault-id) (.auth b auth) (when display-name (.displayName b ^String display-name)) (.build b)))
+(defn- ->credential-retrieve-params [vault-id credential-id]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialRetrieveParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- ->credential-archive-params [vault-id credential-id]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialArchiveParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- ->credential-delete-params [vault-id credential-id]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialDeleteParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- ->credential-update-params [vault-id credential-id {:keys [display-name]}]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialUpdateParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (when display-name (.displayName b ^String display-name)) (.build b)))
+(defn create-vault-credential [^AnthropicClient client ^String vault-id req] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.create (->credential-create-params vault-id req))))))
+(defn get-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.retrieve (->credential-retrieve-params vault-id credential-id))))))
+(defn list-vault-credentials [^AnthropicClient client ^String vault-id] (with-api-errors (let [^com.anthropic.models.beta.vaults.credentials.CredentialListPage p (-> (.beta client) (.vaults) (.credentials) (.list vault-id))] (mapv credential->map (.autoPager p)))))
+(defn update-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id changes] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.update (->credential-update-params vault-id credential-id changes))))))
+(defn archive-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.archive (->credential-archive-params vault-id credential-id))))))
+(defn delete-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (let [r (-> (.beta client) (.vaults) (.credentials) (.delete (->credential-delete-params vault-id credential-id)))] {:id (.id r) :deleted true})))
 
 ;; ---- User profiles ---------------------------------------------------------
 
