@@ -1401,6 +1401,26 @@
 (defn archive-tunnel [^AnthropicClient client ^String tunnel-id]
   (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.archive tunnel-id)))))
 
+;; ---- Agent versions -------------------------------------------------------
+
+(defn- ->agent-version-list-params
+  ^com.anthropic.models.beta.agents.versions.VersionListParams
+  [agent-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.agents.versions.VersionListParams/builder)]
+    (.agentId b ^String agent-id)
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn list-agent-versions
+  "List an agent's versions (pages followed) as agent maps."
+  [^AnthropicClient client ^String agent-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.agents.versions.VersionListPage p
+          (-> (.beta client) (.agents) (.versions)
+              (.list (->agent-version-list-params agent-id opts)))]
+      (mapv agent->map (.autoPager p)))))
+
 ;; ---- User profiles ---------------------------------------------------------
 
 (defn- ->user-profile-create-metadata ^UserProfileCreateParams$Metadata [m]

@@ -114,6 +114,7 @@
 (def webhook-event->map #'beta/webhook-event->map)
 (def ->tunnel-create-params #'beta/->tunnel-create-params)
 (def tunnel->map #'beta/tunnel->map)
+(def ->agent-version-list-params #'beta/->agent-version-list-params)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -138,6 +139,12 @@
     (is (= {:id "tun_1" :display-name "Local" :domain "localhost"
             :created-at "2026-07-04T00:00Z"}
            (tunnel->map r)))))
+
+(deftest agent-version-params
+  (let [p (->agent-version-list-params "agent_1" {:limit 10 :page "next"})]
+    (is (= "agent_1" (opt (.agentId p))))
+    (is (= 10 (opt (.limit p))))
+    (is (= "next" (opt (.page p))))))
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))
