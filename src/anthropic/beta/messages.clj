@@ -5,7 +5,7 @@
             [clojure.walk :as walk])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.core JsonValue RequestOptions)
-           (com.anthropic.core.http Headers HttpResponse HttpResponseFor)
+           (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
            (com.anthropic.errors AnthropicException)
            (com.anthropic.models.beta.messages BetaBase64ImageSource
                                                BetaBase64ImageSource$MediaType
@@ -45,7 +45,17 @@
                                                MessageCountTokensParams$Builder
                                                MessageCreateParams
                                                MessageCreateParams$Builder
-                                               MessageCreateParams$ServiceTier)))
+                                               MessageCreateParams$ServiceTier
+                                               BetaRawMessageStreamEvent)
+           (com.anthropic.models.beta.messages.batches BatchCreateParams
+                                                       BatchCreateParams$Request
+                                                       BatchCreateParams$Request$Params
+                                                       BatchCreateParams$Request$Params$Builder
+                                                       BatchCreateParams$Request$Params$ServiceTier
+                                                       BatchDeleteParams BatchListPage BatchListParams
+                                                       BetaDeletedMessageBatch BetaMessageBatch
+                                                       BetaMessageBatchIndividualResponse)
+           (com.anthropic.services.blocking.beta.messages BatchService)))
 
 (set! *warn-on-reflection* true)
 
@@ -351,3 +361,125 @@
          (with-open [^HttpResponseFor response (.countTokens (.withRawResponse (.messages (.beta client))) params request-options)]
            (assoc (beta-tokens-count->map (.parse response)) :response (response-metadata response)))
          (beta-tokens-count->map (.countTokens (.messages (.beta client)) params request-options)))))))
+
+(defn- ->batch-request-params ^BatchCreateParams$Request$Params [req]
+  (let [^MessageCreateParams p (->params req)
+        ^BatchCreateParams$Request$Params$Builder b
+        (doto (BatchCreateParams$Request$Params/builder)
+          (.maxTokens (.maxTokens p)) (.messages (.messages p)) (.model (.model p)))]
+    (doseq [[value setter]
+            [[(.cacheControl p) #(.cacheControl b ^BetaCacheControlEphemeral %)]
+             [(.inferenceGeo p) #(.inferenceGeo b ^String %)]
+             [(.mcpServers p) #(.mcpServers b ^java.util.List %)]
+             [(.metadata p) #(.metadata b ^BetaMetadata %)]
+             [(.outputConfig p) #(.outputConfig b ^BetaOutputConfig %)]
+             [(.stopSequences p) #(.stopSequences b ^java.util.List %)]
+             [(.temperature p) #(.temperature b (double %))]
+             [(.thinking p) #(.thinking b ^BetaThinkingConfigParam %)]
+             [(.toolChoice p) #(.toolChoice b ^BetaToolChoice %)]
+             [(.tools p) #(.tools b ^java.util.List %)]
+             [(.topK p) #(.topK b (long %))] [(.topP p) #(.topP b (double %))]]]
+      (when (.isPresent ^java.util.Optional value) (setter (.get ^java.util.Optional value))))
+    (when-let [container (:container req)] (.container b ^String container))
+    (when-let [system (:system req)]
+      (if (string? system) (.system b ^String system)
+          (.systemOfBetaTextBlockParams b ^java.util.List (mapv ->system-block system))))
+    (when-let [tier (:service-tier req)]
+      (.serviceTier b (BatchCreateParams$Request$Params$ServiceTier/of
+                       (-> tier name (str/replace "-" "_")))))
+    (.build b)))
+
+(defn- ->batch-request ^BatchCreateParams$Request [{:keys [custom-id params]}]
+  (-> (BatchCreateParams$Request/builder) (.customId ^String custom-id)
+      (.params (->batch-request-params params)) (.build)))
+
+(defn- ->batch-create-params ^BatchCreateParams [{:keys [requests]}]
+  (-> (BatchCreateParams/builder) (.requests ^java.util.List (mapv ->batch-request requests)) (.build)))
+
+(defn- batch->map [^BetaMessageBatch batch]
+  (let [m (json->clj (JsonValue/from batch))]
+    (cond-> m (string? (:type m)) (update :type ->keyword)
+      (string? (:processing-status m)) (update :processing-status ->keyword))))
+
+(defn- deleted-batch->map [^BetaDeletedMessageBatch batch]
+  (let [m (json->clj (JsonValue/from batch))]
+    (cond-> m (string? (:type m)) (update :type ->keyword))))
+
+(defn create-beta-batch [^AnthropicClient client req]
+  (with-api-errors
+    (let [^BatchService batches (-> (.beta client) (.messages) (.batches))]
+      (batch->map (.create batches (->batch-create-params req))))))
+
+(defn get-beta-batch [^AnthropicClient client ^String id]
+  (with-api-errors
+    (let [^BatchService batches (-> (.beta client) (.messages) (.batches))]
+      (batch->map (.retrieve batches id)))))
+
+(defn- ->batch-list-params ^BatchListParams [{:keys [after-id before-id limit betas]}]
+  (let [b (BatchListParams/builder)]
+    (when after-id (.afterId b ^String after-id))
+    (when before-id (.beforeId b ^String before-id))
+    (when limit (.limit b (long limit)))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (name beta) beta)]
+        (.addBeta b beta-name)))
+    (.build b)))
+
+(defn list-beta-batches
+  ([^AnthropicClient client] (list-beta-batches client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^BatchService batches (-> (.beta client) (.messages) (.batches))
+           ^BatchListPage page (.list batches (->batch-list-params opts))]
+       (mapv batch->map (.autoPager page))))))
+
+(defn cancel-beta-batch [^AnthropicClient client ^String id]
+  (with-api-errors
+    (let [^BatchService batches (-> (.beta client) (.messages) (.batches))]
+      (batch->map (.cancel batches id)))))
+
+(defn delete-beta-batch [^AnthropicClient client ^String id]
+  (with-api-errors
+    (let [^BatchService batches (-> (.beta client) (.messages) (.batches))
+          params (-> (BatchDeleteParams/builder) (.messageBatchId id) (.build))]
+      (deleted-batch->map (.delete batches params)))))
+
+(defn- batch-result->map [^BetaMessageBatchIndividualResponse response]
+  (json->clj (JsonValue/from response)))
+
+(defn- reduce-beta-batch-result-stream [^StreamResponse sr f init]
+  (with-open [^StreamResponse stream sr]
+    (reduce (fn [acc response] (f acc (batch-result->map response))) init
+            (iterator-seq (.iterator (.stream stream))))))
+
+(defn reduce-beta-batch-results [^AnthropicClient client ^String id f init]
+  (with-api-errors
+    (let [^BatchService batches (-> (.beta client) (.messages) (.batches))]
+      (reduce-beta-batch-result-stream (.resultsStreaming batches id) f init))))
+
+(defn beta-batch-results [^AnthropicClient client ^String id]
+  (reduce-beta-batch-results client id conj []))
+
+(defn- beta-stream-event->map [^BetaRawMessageStreamEvent event]
+  (let [m (json->clj (or (some-> (._json event) (.orElse nil))
+                         (JsonValue/from event)))]
+    (cond-> m (string? (:type m)) (update :type ->keyword))))
+
+(defn- consume-beta-stream ^String [^StreamResponse sr on-event]
+  (with-open [^StreamResponse stream sr]
+    (let [sb (StringBuilder.)]
+      (doseq [event (iterator-seq (.iterator (.stream stream)))]
+        (let [m (beta-stream-event->map event)]
+          (when-let [text (get-in m [:delta :text])] (.append sb ^String text))
+          (when on-event (on-event m))))
+      (str sb))))
+
+(defn stream-beta-message ^String [^AnthropicClient client req on-event]
+  (with-api-errors
+    (consume-beta-stream (.createStreaming (.messages (.beta client)) (->params req)) on-event)))
+
+(defn stream-beta-text ^String [^AnthropicClient client req on-text]
+  (stream-beta-message client req
+                       (fn [event]
+                         (when-let [text (get-in event [:delta :text])]
+                           (when on-text (on-text text))))))

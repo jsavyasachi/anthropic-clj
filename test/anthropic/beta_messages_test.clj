@@ -2,14 +2,27 @@
   (:require [clojure.test :refer [deftest is testing]]
             [anthropic.beta.messages :as messages])
   (:import (com.anthropic.core JsonValue)
+           (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.beta.messages BetaMessage BetaTextBlock BetaUsage
                                                BetaMessageTokensCount MessageCountTokensParams
-                                               MessageCreateParams)))
+                                               MessageCreateParams BetaRawContentBlockDeltaEvent
+                                               BetaRawMessageStreamEvent)
+           (com.anthropic.models.beta.messages.batches BatchCreateParams
+                                                       BetaDeletedMessageBatch
+                                                       BetaMessageBatch
+                                                       BetaMessageBatchIndividualResponse
+                                                       BetaMessageBatchCanceledResult)))
 
 (def ->params #'messages/->params)
 (def ->count-params #'messages/->count-params)
 (def beta-message->map #'messages/beta-message->map)
 (def beta-tokens-count->map #'messages/beta-tokens-count->map)
+(def ->batch-create-params #'messages/->batch-create-params)
+(def ->batch-list-params #'messages/->batch-list-params)
+(def batch->map #'messages/batch->map)
+(def deleted-batch->map #'messages/deleted-batch->map)
+(def reduce-beta-batch-result-stream #'messages/reduce-beta-batch-result-stream)
+(def consume-beta-stream #'messages/consume-beta-stream)
 
 (defn- opt [o] (when (.isPresent o) (.get o)))
 
@@ -97,3 +110,66 @@
     (is (= 1 (count (opt (.tools p)))))
     (is (= ["token-efficient-tools-2025-02-19"] (mapv str (opt (.betas p)))))
     (is (= {:input-tokens 37} (beta-tokens-count->map tokens-count)))))
+
+(deftest beta-batch-params-and-mapping
+  (let [^BatchCreateParams p
+        (->batch-create-params
+         {:requests [{:custom-id "request_1"
+                      :params {:model "claude-sonnet-4-6"
+                               :max-tokens 32
+                               :messages [{:role :user :content "hi"}]}}]})
+        batch (-> (BetaMessageBatch/builder)
+                  (.id "msgbatch_1")
+                  (.archivedAt (java.util.Optional/empty))
+                  (.cancelInitiatedAt (java.util.Optional/empty))
+                  (.endedAt (java.util.Optional/empty))
+                  (.resultsUrl (java.util.Optional/empty))
+                  (.createdAt (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z"))
+                  (.expiresAt (java.time.OffsetDateTime/parse "2026-07-23T00:00:00Z"))
+                  (.processingStatus (com.anthropic.models.beta.messages.batches.BetaMessageBatch$ProcessingStatus/of "in_progress"))
+                  (.requestCounts (-> (com.anthropic.models.beta.messages.batches.BetaMessageBatchRequestCounts/builder)
+                                      (.processing 1) (.succeeded 0) (.errored 0) (.canceled 0) (.expired 0) (.build)))
+                  (.type (JsonValue/from "message_batch"))
+                  (.build))]
+    (is (= 1 (count (.requests p))))
+    (is (= "request_1" (.customId (first (.requests p)))))
+    (is (= :message-batch (:type (batch->map batch))))
+    (is (= :in-progress (:processing-status (batch->map batch))))))
+
+(deftest beta-batch-delete-and-stream-reduction
+  (let [deleted (-> (BetaDeletedMessageBatch/builder)
+                    (.id "msgbatch_1") (.type (JsonValue/from "message_batch_deleted")) (.build))
+        closed? (atom false)
+        response (-> (BetaMessageBatchIndividualResponse/builder)
+                     (.customId "request_1")
+                     (.result (.build (BetaMessageBatchCanceledResult/builder)))
+                     (.build))
+        sr (reify StreamResponse
+             (stream [_] (.stream (java.util.ArrayList. [response])))
+             (close [_] (reset! closed? true)))]
+    (is (= {:id "msgbatch_1" :type :message-batch-deleted} (deleted-batch->map deleted)))
+    (is (= ["request_1"]
+           (reduce-beta-batch-result-stream sr (fn [acc result] (conj acc (:custom-id result))) [])))
+    (is @closed?)))
+
+(deftest beta-batch-list-params
+  (let [params (->batch-list-params {:after-id "msgbatch_1" :limit 10})]
+    (is (fn? messages/list-beta-batches))
+    (is (= "msgbatch_1" (opt (.afterId params))))
+    (is (= 10 (opt (.limit params))))))
+
+(deftest beta-message-stream-consumption
+  (let [closed? (atom false)
+        seen (atom [])
+        delta (-> (BetaRawContentBlockDeltaEvent/builder)
+                  (.textDelta "hello") (.index 0) (.type (JsonValue/from "content_block_delta")) (.build))
+        events [(BetaRawMessageStreamEvent/ofContentBlockDelta delta)
+                (BetaRawMessageStreamEvent/ofContentBlockDelta
+                 (-> (BetaRawContentBlockDeltaEvent/builder)
+                     (.textDelta " world") (.index 0) (.type (JsonValue/from "content_block_delta")) (.build)))]
+        sr (reify StreamResponse
+             (stream [_] (.stream (java.util.ArrayList. events)))
+             (close [_] (reset! closed? true)))]
+    (is (= "hello world" (consume-beta-stream sr #(swap! seen conj %))))
+    (is (= [:content-block-delta :content-block-delta] (mapv :type @seen)))
+    (is @closed?)))
