@@ -193,7 +193,7 @@
   (java->clj (.convert jv java.lang.Object)))
 
 (defn- ->keyword [x]
-  (-> x str str/lower-case (str/replace "_" "-") keyword))
+  (-> x str str/lower-case (str/replace #"[._]" "-") keyword))
 
 ;; ---- Skills ---------------------------------------------------------------
 

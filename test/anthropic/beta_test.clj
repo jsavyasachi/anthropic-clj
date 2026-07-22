@@ -203,21 +203,23 @@
     (with-redefs-fn {stream-event-json
                       (fn [event]
                         (JsonValue/from (java.util.Map/of
-                                         "type" "agent_message"
+                                         "type" (if (= event session-event)
+                                                  "agent.message"
+                                                  "session.status_running")
                                          "id" (if (= event session-event) "event_1" "event_2"))))}
       (fn []
       (is (= {:type :agent-message :id "event_1"}
              (select-keys (stream-event->map session-event) [:type :id])))
-      (is (= {:type :agent-message :id "event_2"}
+      (is (= {:type :session-status-running :id "event_2"}
              (select-keys (stream-event->map thread-event) [:type :id])))
       (let [closed? (atom false)
             seen (atom [])
             sr (reify StreamResponse
                  (stream [_] (.stream (java.util.ArrayList. [session-event thread-event])))
                  (close [_] (reset! closed? true)))]
-        (is (= [:agent-message :agent-message]
+        (is (= [:agent-message :session-status-running]
                (mapv :type (consume-event-stream sr #(swap! seen conj %)))))
-        (is (= [:agent-message :agent-message] (mapv :type @seen)))
+        (is (= [:agent-message :session-status-running] (mapv :type @seen)))
         (is @closed?))))))
 
 (deftest tunnel-params-and-response-mapping
