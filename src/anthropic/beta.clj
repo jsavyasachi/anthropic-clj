@@ -605,6 +605,19 @@
                               (.retrieve (->memory-version-retrieve-params
                                           memory-store-id memory-version-id opts)))))))
 
+(defn- ->memory-version-redact-params
+  ^com.anthropic.models.beta.memorystores.memoryversions.MemoryVersionRedactParams
+  [memory-store-id memory-version-id]
+  (let [b (com.anthropic.models.beta.memorystores.memoryversions.MemoryVersionRedactParams/builder)]
+    (.memoryStoreId b ^String memory-store-id)
+    (.memoryVersionId b ^String memory-version-id)
+    (.build b)))
+
+(defn redact-memory-version [^AnthropicClient client ^String memory-store-id ^String memory-version-id]
+  (with-api-errors
+    (memory-version->map (-> (.beta client) (.memoryStores) (.memoryVersions)
+                             (.redact (->memory-version-redact-params memory-store-id memory-version-id))))))
+
 ;; ---- Agents ----------------------------------------------------------------
 
 (defn- ->agent-create-metadata ^AgentCreateParams$Metadata [m]
@@ -1233,6 +1246,19 @@
 
 ;; ---- Session resources ----------------------------------------------------
 
+(defn- ->session-resource-add-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceAddParams
+  [session-id {:keys [file-id mount-path]}]
+  (when-not file-id (missing-key! :file-id))
+  (let [resource (com.anthropic.models.beta.sessions.BetaManagedAgentsFileResourceParams/builder)
+        b (com.anthropic.models.beta.sessions.resources.ResourceAddParams/builder)]
+    (.fileId resource ^String file-id)
+    (.type resource (com.anthropic.models.beta.sessions.BetaManagedAgentsFileResourceParams$Type/of "file"))
+    (when mount-path (.mountPath resource ^String mount-path))
+    (.sessionId b ^String session-id)
+    (.betaManagedAgentsFileResourceParams b (.build resource))
+    (.build b)))
+
 (defn- ->session-resource-list-params
   ^com.anthropic.models.beta.sessions.resources.ResourceListParams
   [session-id {:keys [limit page]}]
@@ -1261,6 +1287,9 @@
 
 (defn- session-resource->map [r]
   (cond
+    (instance? com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x r]
+      {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)})
     (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)
     (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
       {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)})
@@ -1269,6 +1298,10 @@
       {:type :github-repository :id (.id x) :url (.url x) :mount-path (.mountPath x)})
     :else (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (.asMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
             {:type :memory-store :memory-store-id (.memoryStoreId x)})))
+
+(defn add-session-resource [^AnthropicClient client ^String session-id req]
+  (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources)
+                                               (.add (->session-resource-add-params session-id req))))))
 
 (defn list-session-resources [^AnthropicClient client ^String session-id opts]
   (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.ResourceListPage p (-> (.beta client) (.sessions) (.resources) (.list (->session-resource-list-params session-id opts)))]
@@ -1774,6 +1807,33 @@
 (defn archive-tunnel [^AnthropicClient client ^String tunnel-id]
   (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.archive tunnel-id)))))
 
+(defn- ->tunnel-reveal-token-params ^com.anthropic.models.beta.tunnels.TunnelRevealTokenParams
+  [tunnel-id]
+  (let [b (com.anthropic.models.beta.tunnels.TunnelRevealTokenParams/builder)]
+    (.tunnelId b ^String tunnel-id)
+    (.build b)))
+
+(defn- ->tunnel-rotate-token-params ^com.anthropic.models.beta.tunnels.TunnelRotateTokenParams
+  [tunnel-id {:keys [reason]}]
+  (let [b (com.anthropic.models.beta.tunnels.TunnelRotateTokenParams/builder)]
+    (.tunnelId b ^String tunnel-id)
+    (when reason (.reason b ^String reason))
+    (.build b)))
+
+(defn- tunnel-token->map [^com.anthropic.models.beta.tunnels.BetaTunnelToken r]
+  {:id (.id r) :tunnel-token (.tunnelToken r)})
+
+(defn reveal-tunnel-token [^AnthropicClient client ^String tunnel-id]
+  (with-api-errors (tunnel-token->map (-> (.beta client) (.tunnels)
+                                           (.revealToken (->tunnel-reveal-token-params tunnel-id))))))
+
+(defn rotate-tunnel-token
+  ([^AnthropicClient client ^String tunnel-id]
+   (rotate-tunnel-token client tunnel-id {}))
+  ([^AnthropicClient client ^String tunnel-id opts]
+   (with-api-errors (tunnel-token->map (-> (.beta client) (.tunnels)
+                                            (.rotateToken (->tunnel-rotate-token-params tunnel-id opts)))))))
+
 ;; ---- Tunnel certificates --------------------------------------------------
 
 (defn- ->tunnel-certificate-create-params
@@ -1879,12 +1939,26 @@
   (let [b (com.anthropic.models.beta.vaults.credentials.CredentialDeleteParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
 (defn- ->credential-update-params [vault-id credential-id {:keys [display-name]}]
   (let [b (com.anthropic.models.beta.vaults.credentials.CredentialUpdateParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (when display-name (.displayName b ^String display-name)) (.build b)))
+(defn- ->credential-mcp-oauth-validate-params [vault-id credential-id]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialMcpOAuthValidateParams/builder)]
+    (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- credential-validation->map [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidation r]
+  (let [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsMcpProbe probe (unopt (.mcpProbe r))
+        ^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsRefreshObject refresh (unopt (.refresh r))]
+    (cond-> {:credential-id (.credentialId r) :vault-id (.vaultId r)
+             :has-refresh-token (.hasRefreshToken r) :status (keyword (str (.status r)))
+             :validated-at (str (.validatedAt r))}
+      probe (assoc :mcp-probe {:method (.method probe)})
+      refresh (assoc :refresh {:status (keyword (str (.status refresh)))}))))
 (defn create-vault-credential [^AnthropicClient client ^String vault-id req] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.create (->credential-create-params vault-id req))))))
 (defn get-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.retrieve (->credential-retrieve-params vault-id credential-id))))))
 (defn list-vault-credentials [^AnthropicClient client ^String vault-id] (with-api-errors (let [^com.anthropic.models.beta.vaults.credentials.CredentialListPage p (-> (.beta client) (.vaults) (.credentials) (.list vault-id))] (mapv credential->map (.autoPager p)))))
 (defn update-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id changes] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.update (->credential-update-params vault-id credential-id changes))))))
 (defn archive-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.archive (->credential-archive-params vault-id credential-id))))))
 (defn delete-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (let [r (-> (.beta client) (.vaults) (.credentials) (.delete (->credential-delete-params vault-id credential-id)))] {:id (.id r) :deleted true})))
+(defn mcp-oauth-validate-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id]
+  (with-api-errors (credential-validation->map (-> (.beta client) (.vaults) (.credentials)
+                                                     (.mcpOAuthValidate (->credential-mcp-oauth-validate-params vault-id credential-id))))))
 
 ;; ---- User profiles ---------------------------------------------------------
 

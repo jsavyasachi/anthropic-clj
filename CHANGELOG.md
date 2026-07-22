@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.17.0] - 2026-07-22
+
+### Added
+- Beta agents-platform parity: `add-session-resource`, `redact-memory-version`, `reveal-tunnel-token`, `rotate-tunnel-token`, and `mcp-oauth-validate-vault-credential`.
+
 ## [0.16.0] - 2026-07-22
 
 ### Added

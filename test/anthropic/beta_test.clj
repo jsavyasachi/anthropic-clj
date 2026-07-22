@@ -111,6 +111,7 @@
 (def ->memory-delete-params #'beta/->memory-delete-params)
 (def ->memory-version-list-params #'beta/->memory-version-list-params)
 (def ->memory-version-retrieve-params #'beta/->memory-version-retrieve-params)
+(def memory-version->map #'beta/memory-version->map)
 (def memory->map #'beta/memory->map)
 (def memory-delete->map #'beta/memory-delete->map)
 (def ->environment-create-params #'beta/->environment-create-params)
@@ -700,6 +701,86 @@
     (is (= 10 (opt (.limit lp))))
     (is (= "ms_1" (.memoryStoreId rp)))
     (is (= "mv_1" (opt (.memoryVersionId rp))))))
+
+(deftest memory-version-redact-params-and-response-mapping
+  (let [f (ns-resolve 'anthropic.beta '->memory-version-redact-params)]
+    (is (ifn? f))
+    (when f
+      (let [p (f "ms_1" "mv_1")]
+        (is (= "ms_1" (.memoryStoreId p)))
+        (is (= "mv_1" (opt (.memoryVersionId p)))))))
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z")
+        r (-> (com.anthropic.models.beta.memorystores.memoryversions.BetaManagedAgentsMemoryVersion/builder)
+              (.id "mv_1") (.memoryStoreId "ms_1") (.memoryId "mem_1")
+              (.operation (com.anthropic.models.beta.memorystores.memoryversions.BetaManagedAgentsMemoryVersionOperation/of "redact"))
+              (.createdAt ts) (.type (com.anthropic.models.beta.memorystores.memoryversions.BetaManagedAgentsMemoryVersion$Type/of "memory_version"))
+              (.redactedAt ts) (.build))]
+    (is (= {:id "mv_1" :memory-store-id "ms_1" :memory-id "mem_1"
+            :operation :redact :created-at "2026-07-22T00:00Z" :redacted-at "2026-07-22T00:00Z"}
+           (memory-version->map r)))))
+
+(deftest reveal-tunnel-token-params-and-response-mapping
+  (let [f (ns-resolve 'anthropic.beta '->tunnel-reveal-token-params)]
+    (is (ifn? f))
+    (when f (is (= "tun_1" (opt (.tunnelId (f "tun_1")))))))
+  (let [r (-> (com.anthropic.models.beta.tunnels.BetaTunnelToken/builder)
+              (.id "tt_1") (.tunnelToken "secret")
+              (.type (JsonValue/from "tunnel_token")) (.build))
+        f (ns-resolve 'anthropic.beta 'tunnel-token->map)]
+    (is (ifn? f))
+    (when f (is (= {:id "tt_1" :tunnel-token "secret"} (f r))))))
+
+(deftest rotate-tunnel-token-params-and-response-mapping
+  (let [f (ns-resolve 'anthropic.beta '->tunnel-rotate-token-params)]
+    (is (ifn? f))
+    (when f
+      (let [p (f "tun_1" {:reason "rotate"})]
+        (is (= "tun_1" (opt (.tunnelId p))))
+        (is (= "rotate" (opt (.reason p)))))))
+  (let [r (-> (com.anthropic.models.beta.tunnels.BetaTunnelToken/builder)
+              (.id "tt_1") (.tunnelToken "secret")
+              (.type (JsonValue/from "tunnel_token")) (.build))
+        f (ns-resolve 'anthropic.beta 'tunnel-token->map)]
+    (is (ifn? f))
+    (when f (is (= {:id "tt_1" :tunnel-token "secret"} (f r))))))
+
+(deftest session-resource-add-params-and-response-mapping
+  (let [f (ns-resolve 'anthropic.beta '->session-resource-add-params)]
+    (is (ifn? f))
+    (when f
+      (let [p (f "sess_1" {:file-id "file_1" :mount-path "/tmp/input"})]
+        (is (= "sess_1" (opt (.sessionId p))))
+        (is (= "file_1" (.fileId (.betaManagedAgentsFileResourceParams p))))
+        (is (= "/tmp/input" (opt (.mountPath (.betaManagedAgentsFileResourceParams p))))))))
+  (let [r (-> (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource/builder)
+              (.id "res_1") (.fileId "file_1") (.mountPath "/tmp/input")
+              (.createdAt (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z"))
+              (.updatedAt (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z"))
+              (.type (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource$Type/of "file"))
+              (.build))]
+    (is (= {:type :file :id "res_1" :file-id "file_1" :mount-path "/tmp/input"}
+           ((ns-resolve 'anthropic.beta 'session-resource->map) r)))))
+
+(deftest vault-credential-mcp-oauth-validate-params-and-response-mapping
+  (let [f (ns-resolve 'anthropic.beta '->credential-mcp-oauth-validate-params)]
+    (is (ifn? f))
+    (when f
+      (let [p (f "vault_1" "cred_1")]
+        (is (= "vault_1" (.vaultId p)))
+        (is (= "cred_1" (opt (.credentialId p)))))))
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z")
+        r (-> (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidation/builder)
+              (.credentialId "cred_1") (.vaultId "vault_1") (.hasRefreshToken true)
+              (.mcpProbe (java.util.Optional/empty)) (.refresh (java.util.Optional/empty))
+              (.status (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidationStatus/of "valid"))
+              (.type (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidation$Type/of "vault_credential_validation"))
+              (.validatedAt ts) (.build))
+        f (ns-resolve 'anthropic.beta 'credential-validation->map)]
+    (is (ifn? f))
+    (when f
+      (is (= {:credential-id "cred_1" :vault-id "vault_1" :has-refresh-token true
+              :status :valid :validated-at "2026-07-22T00:00Z"}
+             (f r))))))
 
 (deftest skill-version-response-mapping
   (let [r (-> (VersionCreateResponse/builder)
