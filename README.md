@@ -505,13 +505,21 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 
 (beta/unwrap-webhook client payload) ;; parse a webhook payload string
 (beta/unwrap-webhook client payload {:headers headers :secret secret}) ;; verify
+
+;; SSE event streams: on-event fires per event; returns the vector of event maps.
+(beta/stream-session-events client (:id session) {}
+                            (fn [ev] (println (:type ev))))
+(beta/stream-thread-events client (:id session) "thread_123"
+                           {:event-deltas [:agent-message :agent-thinking]}
+                           (fn [ev] (println (:type ev))))
 ```
 
 Webhook parsing covers agent, deployment, session, environment, and memory-store
-events.
+events. `stream-session-events` and `stream-thread-events` open SSE streams over
+the blocking client (event maps keyed by `:type`, e.g. `:agent-message`,
+`:session-status-running`), matching `anthropic.core`'s `stream`.
 
-Beta endpoints may still change. Streaming of session and thread events is not
-wrapped; the blocking endpoints cover everything else.
+Beta endpoints may still change.
 
 ## Bedrock and Vertex
 
