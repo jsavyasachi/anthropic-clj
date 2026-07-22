@@ -47,6 +47,11 @@
                                                             MemoryListParams
                                                             MemoryRetrieveParams
                                                             MemoryUpdateParams)
+           (com.anthropic.models.beta.memorystores.memoryversions BetaManagedAgentsMemoryVersion
+                                                                  BetaManagedAgentsMemoryVersionOperation
+                                                                  MemoryVersionListPage
+                                                                  MemoryVersionListParams
+                                                                  MemoryVersionRetrieveParams)
            (com.anthropic.models.beta.agents AgentCreateParams
                                              AgentCreateParams$Tool
                                              AgentCreateParams$Metadata
@@ -521,6 +526,60 @@
    (with-api-errors
      (memory-delete->map (-> (.beta client) (.memoryStores) (.memories)
                              (.delete (->memory-delete-params memory-store-id memory-id opts)))))))
+
+;; ---- Memory versions ------------------------------------------------------
+
+(defn- ->memory-version-list-params ^MemoryVersionListParams
+  [memory-store-id {:keys [memory-id limit page view operation]}]
+  (let [b (MemoryVersionListParams/builder)]
+    (.memoryStoreId b ^String memory-store-id)
+    (when memory-id (.memoryId b ^String memory-id))
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (when view (.view b (memory-view view)))
+    (when operation (.operation b (BetaManagedAgentsMemoryVersionOperation/of (name operation))))
+    (.build b)))
+
+(defn- ->memory-version-retrieve-params ^MemoryVersionRetrieveParams
+  [memory-store-id memory-version-id {:keys [view]}]
+  (let [b (MemoryVersionRetrieveParams/builder)]
+    (.memoryStoreId b ^String memory-store-id)
+    (.memoryVersionId b ^String memory-version-id)
+    (when view (.view b (memory-view view)))
+    (.build b)))
+
+(defn- memory-version->map [^BetaManagedAgentsMemoryVersion r]
+  (cond-> {:id (.id r)
+           :memory-store-id (.memoryStoreId r)
+           :memory-id (.memoryId r)
+           :operation (keyword (str (.operation r)))
+           :created-at (str (.createdAt r))}
+    (unopt (.content r)) (assoc :content (unopt (.content r)))
+    (unopt (.path r)) (assoc :path (unopt (.path r)))
+    (unopt (.contentSha256 r)) (assoc :content-sha256 (unopt (.contentSha256 r)))
+    (unopt (.contentSizeBytes r)) (assoc :content-size-bytes (unopt (.contentSizeBytes r)))
+    (unopt (.redactedAt r)) (assoc :redacted-at (str (unopt (.redactedAt r))))))
+
+(defn list-memory-versions
+  "List memory versions for a memory store. Optional filters include `:memory-id`,
+  `:operation`, `:view`, `:limit`, and `:page`."
+  ([^AnthropicClient client ^String memory-store-id]
+   (list-memory-versions client memory-store-id {}))
+  ([^AnthropicClient client ^String memory-store-id opts]
+   (with-api-errors
+     (let [^MemoryVersionListPage p (-> (.beta client) (.memoryStores) (.memoryVersions)
+                                        (.list (->memory-version-list-params memory-store-id opts)))]
+       (mapv memory-version->map (.autoPager p))))))
+
+(defn get-memory-version
+  "Retrieve one memory version. `opts` may include `:view`."
+  ([^AnthropicClient client ^String memory-store-id ^String memory-version-id]
+   (get-memory-version client memory-store-id memory-version-id {}))
+  ([^AnthropicClient client ^String memory-store-id ^String memory-version-id opts]
+   (with-api-errors
+     (memory-version->map (-> (.beta client) (.memoryStores) (.memoryVersions)
+                              (.retrieve (->memory-version-retrieve-params
+                                          memory-store-id memory-version-id opts)))))))
 
 ;; ---- Agents ----------------------------------------------------------------
 

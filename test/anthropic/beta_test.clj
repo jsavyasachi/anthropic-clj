@@ -33,6 +33,8 @@
                                                              MemoryListParams
                                                              MemoryRetrieveParams
                                                              MemoryUpdateParams)
+           (com.anthropic.models.beta.memorystores.memoryversions MemoryVersionListParams
+                                                                   MemoryVersionRetrieveParams)
            (com.anthropic.models.beta.environments BetaEnvironment
                                                    BetaEnvironmentDeleteResponse
                                                    EnvironmentCreateParams
@@ -80,6 +82,8 @@
 (def ->memory-update-params #'beta/->memory-update-params)
 (def ->memory-list-params #'beta/->memory-list-params)
 (def ->memory-delete-params #'beta/->memory-delete-params)
+(def ->memory-version-list-params #'beta/->memory-version-list-params)
+(def ->memory-version-retrieve-params #'beta/->memory-version-retrieve-params)
 (def memory->map #'beta/memory->map)
 (def memory-delete->map #'beta/memory-delete->map)
 (def ->environment-create-params #'beta/->environment-create-params)
@@ -504,6 +508,17 @@
     (is (= "ms_1" (:memory-store-id m)))
     (is (= "hello" (:content m)))
     (is (= {:id "mem_1" :deleted true} (memory-delete->map d)))))
+
+(deftest memory-version-params
+  (let [^MemoryVersionListParams lp
+        (->memory-version-list-params "ms_1" {:memory-id "mem_1" :limit 10 :view :full})
+        ^MemoryVersionRetrieveParams rp
+        (->memory-version-retrieve-params "ms_1" "mv_1" {:view :full})]
+    (is (= "ms_1" (opt (.memoryStoreId lp))))
+    (is (= "mem_1" (opt (.memoryId lp))))
+    (is (= 10 (opt (.limit lp))))
+    (is (= "ms_1" (.memoryStoreId rp)))
+    (is (= "mv_1" (opt (.memoryVersionId rp))))))
 
 (deftest skill-version-response-mapping
   (let [r (-> (VersionCreateResponse/builder)
