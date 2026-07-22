@@ -3,17 +3,16 @@
   Anthropic Java SDK: skills, memory stores, agents, sessions, deployments,
   deployment runs, environments, vaults, user profiles, and webhooks.
 
-  These wrap beta endpoints that Anthropic may change; memory versions, thread
-  events, session event streaming, session resources, agent versions, and
-  detailed deployment-run trigger
+  These wrap beta endpoints that Anthropic may change; detailed deployment-run trigger
   context/resources/schedules are not wrapped yet. Errors follow
   `anthropic.core`'s contract: API/IO failures are ex-info keyed
   `:anthropic/error` with the SDK exception as cause."
   (:require [anthropic.core]
+            [clojure.string :as str]
             [clojure.walk :as walk])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.core JsonValue MultipartField UnwrapWebhookParams)
-           (com.anthropic.core.http Headers HttpResponse)
+           (com.anthropic.core.http Headers HttpResponse StreamResponse)
            (com.anthropic.errors AnthropicException)
            (com.anthropic.models.beta.skills SkillCreateParams
                                              SkillCreateResponse
@@ -180,6 +179,21 @@
 
 (defn- json-string [^JsonValue v]
   (.convert v String))
+
+(defn- java->clj [x]
+  (cond
+    (instance? java.util.Map x) (persistent!
+                                 (reduce-kv (fn [acc k v]
+                                              (assoc! acc (keyword (str k)) (java->clj v)))
+                                            (transient {}) (into {} x)))
+    (instance? java.util.List x) (mapv java->clj x)
+    :else x))
+
+(defn- json->clj [^JsonValue jv]
+  (java->clj (.convert jv java.lang.Object)))
+
+(defn- ->keyword [x]
+  (-> x str str/lower-case (str/replace "_" "-") keyword))
 
 ;; ---- Skills ---------------------------------------------------------------
 
@@ -1063,6 +1077,87 @@
   (with-api-errors
     (let [^EventListPage p (-> (.beta client) (.sessions) (.events) (.list session-id))]
       (mapv session-event->map (.autoPager p)))))
+
+;; ---- Event streams --------------------------------------------------------
+
+(defprotocol ^:private StreamEventJson
+  (stream-event-json [event]))
+
+(extend-protocol StreamEventJson
+  com.anthropic.models.beta.sessions.events.BetaManagedAgentsStreamSessionEvents
+  (stream-event-json [event] (unopt (._json event)))
+  com.anthropic.models.beta.sessions.threads.BetaManagedAgentsStreamSessionThreadEvents
+  (stream-event-json [event] (unopt (._json event))))
+
+(defn- stream-event->map [event]
+  (let [m (json->clj (stream-event-json event))]
+    (update m :type ->keyword)))
+
+(defn- consume-event-stream [^StreamResponse sr on-event]
+  (with-open [^StreamResponse s sr]
+    (mapv (fn [event]
+            (let [m (stream-event->map event)]
+              (when on-event (on-event m))
+              m))
+          (iterator-seq (.iterator (.stream s))))))
+
+(defn- enum-name [x]
+  (str/replace (name x) "-" "."))
+
+(defn- ->event-deltas [event-deltas]
+  (mapv #(com.anthropic.models.beta.sessions.BetaManagedAgentsDeltaType/of
+          (enum-name %))
+        event-deltas))
+
+(defn- ->session-event-stream-params
+  ^com.anthropic.models.beta.sessions.events.EventStreamParams
+  [session-id {:keys [event-deltas]}]
+  (let [b (com.anthropic.models.beta.sessions.events.EventStreamParams/builder)]
+    (.sessionId b ^String session-id)
+    (when event-deltas (.eventDeltas b ^java.util.List (->event-deltas event-deltas)))
+    (.build b)))
+
+(defn- ->thread-event-stream-params
+  ^com.anthropic.models.beta.sessions.threads.events.EventStreamParams
+  [session-id thread-id {:keys [event-deltas]}]
+  (let [b (com.anthropic.models.beta.sessions.threads.events.EventStreamParams/builder)]
+    (.sessionId b ^String session-id)
+    (.threadId b ^String thread-id)
+    (when event-deltas (.eventDeltas b ^java.util.List (->event-deltas event-deltas)))
+    (.build b)))
+
+(defn stream-session-events
+  "Open an SSE stream of beta session events. Calls `on-event` with a normalized
+  event map for each event, returns a vector of all event maps, and closes the
+  HTTP stream automatically. Event maps retain raw event fields and use `:type`
+  keywords such as `:agent-message`, `:agent-thinking`, `:session-status-running`,
+  and `:event-delta`. `:event-deltas` may contain `:agent-message` and
+  `:agent-thinking` to narrow the delta stream."
+  ([client session-id] (stream-session-events client session-id {} nil))
+  ([client session-id opts] (stream-session-events client session-id opts nil))
+  ([^AnthropicClient client ^String session-id opts on-event]
+   (with-api-errors
+     (let [^StreamResponse sr (-> (.beta client) (.sessions) (.events)
+                                  (.streamStreaming
+                                   (->session-event-stream-params session-id opts)))]
+       (consume-event-stream sr on-event)))))
+
+(defn stream-thread-events
+  "Open an SSE stream of beta session-thread events. Calls `on-event` with a
+  normalized event map for each event, returns a vector of all event maps, and
+  closes the HTTP stream automatically. Event maps retain raw event fields and
+  use `:type` keywords such as `:agent-message`, `:agent-thinking`,
+  `:session-status-running`, and `:event-delta`. `:event-deltas` may contain
+  `:agent-message` and `:agent-thinking` to narrow the delta stream."
+  ([client session-id thread-id] (stream-thread-events client session-id thread-id {} nil))
+  ([client session-id thread-id opts]
+   (stream-thread-events client session-id thread-id opts nil))
+  ([^AnthropicClient client ^String session-id ^String thread-id opts on-event]
+   (with-api-errors
+     (let [^StreamResponse sr (-> (.beta client) (.sessions) (.threads) (.events)
+                                  (.streamStreaming
+                                   (->thread-event-stream-params session-id thread-id opts)))]
+       (consume-event-stream sr on-event)))))
 
 ;; ---- Session threads ------------------------------------------------------
 

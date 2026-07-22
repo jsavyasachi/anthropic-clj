@@ -12,17 +12,24 @@
                                              BetaManagedAgentsAgent
                                              BetaManagedAgentsAgentReference
                                              BetaManagedAgentsModelConfig)
-           (com.anthropic.models.beta.sessions SessionCreateParams
+           (com.anthropic.models.beta.sessions BetaManagedAgentsDeltaType
+                                               SessionCreateParams
                                                SessionUpdateParams)
            (com.anthropic.models.beta.sessions.events BetaManagedAgentsEventParams
+                                                       BetaManagedAgentsAgentMessageEvent
+                                                       BetaManagedAgentsAgentMessageEvent$Type
                                                        BetaManagedAgentsSendSessionEvents
                                                        BetaManagedAgentsSessionEvent
+                                                       BetaManagedAgentsStreamSessionEvents
                                                        BetaManagedAgentsUserMessageEvent
                                                        EventSendParams)
            (com.anthropic.models.beta.sessions.threads BetaManagedAgentsSessionThread
+                                                        BetaManagedAgentsStreamSessionThreadEvents
                                                         ThreadArchiveParams
                                                         ThreadListParams
                                                         ThreadRetrieveParams)
+           (com.anthropic.core JsonValue)
+           (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.beta.deployments BetaManagedAgentsDeployment
                                                   DeploymentCreateParams
                                                   DeploymentRunParams
@@ -152,6 +159,11 @@
 (def ->thread-event-list-params #'beta/->thread-event-list-params)
 (def ->session-resource-list-params #'beta/->session-resource-list-params)
 (def ->dream-create-params #'beta/->dream-create-params)
+(def ->session-event-stream-params #'beta/->session-event-stream-params)
+(def ->thread-event-stream-params #'beta/->thread-event-stream-params)
+(def stream-event->map #'beta/stream-event->map)
+(def consume-event-stream #'beta/consume-event-stream)
+(def stream-event-json #'beta/stream-event-json)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -164,6 +176,49 @@
       (.version 1)
       (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentReference$Type/of "agent"))
       (.build)))
+
+(defn- agent-message-event [id]
+  (-> (BetaManagedAgentsAgentMessageEvent/builder)
+      (.id id)
+      (.content [])
+      (.processedAt (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z"))
+      (.type (BetaManagedAgentsAgentMessageEvent$Type/of "agent_message"))
+      (.build)))
+
+(deftest event-stream-params
+  (let [p (->session-event-stream-params "sess_1" {:event-deltas [:agent-message]})]
+    (is (= "sess_1" (opt (.sessionId p))))
+    (is (= [BetaManagedAgentsDeltaType/AGENT_MESSAGE] (opt (.eventDeltas p)))))
+  (let [p (->thread-event-stream-params "sess_1" "thread_1"
+                                        {:event-deltas [:agent-message]})]
+    (is (= "sess_1" (.sessionId p)))
+    (is (= "thread_1" (opt (.threadId p))))
+    (is (= [BetaManagedAgentsDeltaType/AGENT_MESSAGE] (opt (.eventDeltas p))))))
+
+(deftest event-stream-conversion-and-consumption
+  (let [session-event (BetaManagedAgentsStreamSessionEvents/ofAgentMessage
+                       (agent-message-event "event_1"))
+        thread-event (BetaManagedAgentsStreamSessionThreadEvents/ofAgentMessage
+                      (agent-message-event "event_2"))]
+    (with-redefs-fn {stream-event-json
+                      (fn [event]
+                        (JsonValue/from (java.util.Map/of
+                                         "type" "agent_message"
+                                         "id" (if (= event session-event) "event_1" "event_2"))))}
+      (fn []
+      (is (= {:type :agent-message :id "event_1"}
+             (select-keys (stream-event->map session-event) [:type :id])))
+      (is (= {:type :agent-message :id "event_2"}
+             (select-keys (stream-event->map thread-event) [:type :id])))
+      (let [closed? (atom false)
+            seen (atom [])
+            sr (reify StreamResponse
+                 (stream [_] (.stream (java.util.ArrayList. [session-event thread-event])))
+                 (close [_] (reset! closed? true)))]
+        (is (= [:agent-message :agent-message]
+               (mapv :type (consume-event-stream sr #(swap! seen conj %)))))
+        (is (= [:agent-message :agent-message] (mapv :type @seen)))
+        (is @closed?))))))
 
 (deftest tunnel-params-and-response-mapping
   (let [p (->tunnel-create-params {:display-name "Local"})]

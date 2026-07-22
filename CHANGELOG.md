@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.16.0] - 2026-07-22
+
+### Added
+- `stream-session-events` and `stream-thread-events`: SSE streaming of beta session and thread events (blocking client, `on-event` callback, returns the event vector), with the `:event-deltas` filter.
+
 ## [0.15.0] - 2026-07-22
 
 ### Added
