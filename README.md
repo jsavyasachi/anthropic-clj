@@ -55,7 +55,7 @@ Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
 - `:configure` - receives the raw SDK builder last, for anything not wrapped
   here (interceptors, a custom `jsonMapper`, or a Bedrock/Vertex `backend`)
 
-Tracks [`com.anthropic/anthropic-java` 2.49.1](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.49.1) - see `CHANGELOG.md` for the bump history.
+Tracks [`com.anthropic/anthropic-java` 2.50.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.50.0) - see `CHANGELOG.md` for the bump history.
 
 ## Usage
 
@@ -474,13 +474,17 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
             client
             {:name "helper"
              :model "claude-opus-4-8"
+             :effort :high ;; managed-agent model effort: :low :medium :high :xhigh :max
              :system "be helpful"
              :skills [{:type :anthropic :skill-id "skill_123" :version "2"}]
              :mcp-servers [{:name "github" :url "https://mcp.example.test"}]
              :tools [{:type :mcp-toolset :mcp-server-name "github"}]}))
 (beta/update-agent client (:id agent) {:version (:version agent) :system "new"})
 
-(def session (beta/create-session client {:agent (:id agent) :title "run 1"}))
+(def session (beta/create-session
+              client
+              {:agent (:id agent) :title "run 1"
+               :initial-events [{:type :user-message :content "hello"}]}))
 (beta/send-session-events client (:id session)
                           [{:type :user-message :content "hello"}])
 (beta/list-session-events client (:id session))
@@ -503,8 +507,11 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 (beta/unwrap-webhook client payload {:headers headers :secret secret}) ;; verify
 ```
 
-Beta endpoints may still change. Session event streaming is not wrapped because
-the SDK does not expose it.
+Webhook parsing covers agent, deployment, session, environment, and memory-store
+events.
+
+Beta endpoints may still change. Streaming of session and thread events is not
+wrapped; the blocking endpoints cover everything else.
 
 ## Bedrock and Vertex
 
