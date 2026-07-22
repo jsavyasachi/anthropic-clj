@@ -26,8 +26,10 @@ Every other Clojure Anthropic library hand-rolls HTTP against the REST API, whic
 means each one is perpetually chasing Anthropic's surface and tends to fall
 behind. This one wraps Anthropic's own actively-maintained Java SDK instead, so
 streaming, tool use, retries, and new model ids stay close to Anthropic's Java
-surface. The wrapper intentionally exposes a Clojure-shaped subset: maps in,
-maps out, keywords for roles and block types.
+surface. The wrapper commits to idiomatic parity with the SDK: every
+non-deprecated operation gets a Clojure-shaped fn (maps in, maps out, keywords
+for roles and block types), with a few Clojure-native conveniences (a native
+`run-tools` loop, model-id keyword aliases) layered on top and marked as such.
 
 ## Installation
 
@@ -417,7 +419,13 @@ API call.
 
 Wrapped surfaces: Messages, streaming, tool use including server tools, Message
 Batches, Files beta, Models, and count-tokens - plus the beta agents platform
-in `anthropic.beta` (see below). For anything not wrapped, reach for the
+in `anthropic.beta` (see below). Async clients, raw-response accessors, and
+per-call `RequestOptions` are transport and accessor variants rather than
+endpoints; they are reached through the client's `:configure` seam and the
+`opts`/`:include-response` args, not duplicated as separate fns. The beta
+Messages API (`beta().messages()`, including its tool-runner) is the one
+endpoint surface not yet at parity and is being wrapped. For anything else not
+wrapped, reach for the
 [Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly.
 
 ## Errors
