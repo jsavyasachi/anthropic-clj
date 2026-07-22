@@ -1066,6 +1066,27 @@
     (session-thread->map (-> (.beta client) (.sessions) (.threads)
                              (.archive (->thread-archive-params session-id thread-id))))))
 
+;; ---- Thread events --------------------------------------------------------
+
+(defn- ->thread-event-list-params
+  ^com.anthropic.models.beta.sessions.threads.events.EventListParams
+  [session-id thread-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.sessions.threads.events.EventListParams/builder)]
+    (.sessionId b ^String session-id)
+    (.threadId b ^String thread-id)
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn list-thread-events
+  "List thread events (pages followed) as normalized event maps."
+  [^AnthropicClient client ^String session-id ^String thread-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.sessions.threads.events.EventListPage p
+          (-> (.beta client) (.sessions) (.threads) (.events)
+              (.list (->thread-event-list-params session-id thread-id opts)))]
+      (mapv session-event->map (.autoPager p)))))
+
 ;; ---- Deployments -----------------------------------------------------------
 
 (defn- ->deployment-create-metadata ^DeploymentCreateParams$Metadata [m]

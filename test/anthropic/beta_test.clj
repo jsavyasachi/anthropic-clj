@@ -117,6 +117,7 @@
 (def ->agent-version-list-params #'beta/->agent-version-list-params)
 (def ->tunnel-certificate-create-params #'beta/->tunnel-certificate-create-params)
 (def tunnel-certificate->map #'beta/tunnel-certificate->map)
+(def ->thread-event-list-params #'beta/->thread-event-list-params)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -160,6 +161,12 @@
     (is (= {:id "cert_1" :tunnel-id "tun_1" :fingerprint "fp"
             :created-at "2026-07-04T00:00Z"}
            (tunnel-certificate->map r)))))
+
+(deftest thread-event-params
+  (let [p (->thread-event-list-params "sess_1" "thread_1" {:limit 10 :page "next"})]
+    (is (= "sess_1" (.sessionId p)))
+    (is (= "thread_1" (opt (.threadId p))))
+    (is (= 10 (opt (.limit p))))))
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))
