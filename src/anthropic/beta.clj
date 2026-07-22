@@ -1557,6 +1557,32 @@
 (defn archive-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.archive dream-id)))))
 (defn cancel-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.cancel dream-id)))))
 
+;; ---- Vault credentials ----------------------------------------------------
+
+(defn- credential->map [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredential r]
+  (cond-> {:id (.id r) :vault-id (.vaultId r) :created-at (str (.createdAt r)) :updated-at (str (.updatedAt r))}
+    (unopt (.displayName r)) (assoc :display-name (unopt (.displayName r)))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+(defn- ->credential-create-params [vault-id {:keys [auth display-name]}]
+  (when-not auth (missing-key! :auth))
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialCreateParams/builder)
+        ^com.anthropic.models.beta.vaults.credentials.CredentialCreateParams$Auth auth auth]
+    (.vaultId b ^String vault-id) (.auth b auth) (when display-name (.displayName b ^String display-name)) (.build b)))
+(defn- ->credential-retrieve-params [vault-id credential-id]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialRetrieveParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- ->credential-archive-params [vault-id credential-id]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialArchiveParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- ->credential-delete-params [vault-id credential-id]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialDeleteParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- ->credential-update-params [vault-id credential-id {:keys [display-name]}]
+  (let [b (com.anthropic.models.beta.vaults.credentials.CredentialUpdateParams/builder)] (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (when display-name (.displayName b ^String display-name)) (.build b)))
+(defn create-vault-credential [^AnthropicClient client ^String vault-id req] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.create (->credential-create-params vault-id req))))))
+(defn get-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.retrieve (->credential-retrieve-params vault-id credential-id))))))
+(defn list-vault-credentials [^AnthropicClient client ^String vault-id] (with-api-errors (let [^com.anthropic.models.beta.vaults.credentials.CredentialListPage p (-> (.beta client) (.vaults) (.credentials) (.list vault-id))] (mapv credential->map (.autoPager p)))))
+(defn update-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id changes] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.update (->credential-update-params vault-id credential-id changes))))))
+(defn archive-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.archive (->credential-archive-params vault-id credential-id))))))
+(defn delete-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (let [r (-> (.beta client) (.vaults) (.credentials) (.delete (->credential-delete-params vault-id credential-id)))] {:id (.id r) :deleted true})))
+
 ;; ---- User profiles ---------------------------------------------------------
 
 (defn- ->user-profile-create-metadata ^UserProfileCreateParams$Metadata [m]
