@@ -33,7 +33,7 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 - `bedrock-client` and `vertex-client` constructors backed by optional `:bedrock` / `:vertex` deps.edn aliases (not pulled by base users).
 
 ### Changed
-- Track `com.anthropic/anthropic-java` 2.49.0. (2.49.0's own additions — the dreams and MCP tunnels beta services — remain unwrapped.)
+- Track `com.anthropic/anthropic-java` 2.49.0. (2.49.0's own additions (the dreams and MCP tunnels beta services) remain unwrapped.)
 
 ## [0.12.2] - 2026-07-12
 
