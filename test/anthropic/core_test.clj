@@ -833,7 +833,7 @@
 (deftest stream-message-api
   (is (fn? (some-> (ns-resolve 'anthropic.core 'stream-message) deref))))
 
-;; Live round-trip — only runs when ANTHROPIC_API_KEY is set (network + billed).
+;; Live round-trip - only runs when ANTHROPIC_API_KEY is set (network + billed).
 (deftest ^:integration create-message-roundtrip
   (when (System/getenv "ANTHROPIC_API_KEY")
     (let [resp (a/create-message (a/client)
