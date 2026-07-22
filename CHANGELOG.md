@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.14.0] - 2026-07-21
+
+### Added
+- Named model keyword aliases in `anthropic.core/models`: `:model` now accepts
+  a keyword or a string.
+- Beta agents-platform closure: dreams, tunnels and certificates, vault
+  credentials, environment self-hosted work (retrieve/update/list,
+  ack/heartbeat/poll/stats/stop), session resources, thread events, agent
+  versions, and memory versions.
+
+### Changed
+- Track `com.anthropic/anthropic-java` 2.49.1. Its only stable-surface change,
+  the `general_harms` refusal category, already flows through the refusal
+  stop-details map.
+- Document the concurrency stance: blocking client, Clojure-native concurrency,
+  and no async namespace.
+
 ## [0.13.0] - 2026-07-16
 
 ### Added

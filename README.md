@@ -185,6 +185,14 @@ without sending the message (`:max-tokens` and sampling params are ignored).
 
 ### Models
 
+`:model` accepts a raw model-id string or a convenience keyword from
+`anthropic.core/models`, such as `:claude-opus-4-8`. An unknown keyword throws
+`ex-info` with `{:anthropic/error :unknown-model}`.
+
+```clojure
+(anthropic/create-message client {:model :claude-opus-4-8 :max-tokens 64 :messages [{:role :user :content "Hello"}]})
+```
+
 ```clojure
 (anthropic/list-models client)
 ;; => [{:id "claude-opus-4-8" :display-name "Claude Opus 4.8"
@@ -285,6 +293,42 @@ streamed tool calls for you, so there's no accumulating `:input-json-delta`
   (fn [ev] (when (= :text-delta (:type ev)) (print (:text ev)))))
 ;; => {:id ... :content [{:type :tool-use :input {...}} ...] :usage {...}}
 ```
+
+## Concurrency
+
+This wrapper uses the SDK's blocking client. Every function takes the client
+first, so it composes with Clojure concurrency. There is deliberately no async
+namespace: the SDK async client returns `CompletableFuture`s, which are awkward
+to thread through Clojure and unnecessary on a modern JVM.
+
+- A few concurrent calls: `future` + `deref`.
+
+```clojure
+(let [requests [(future (anthropic/create-message client {:model :claude-opus-4-8 :max-tokens 64 :messages [{:role :user :content "Summarize Clojure in one sentence."}]}))
+                (future (anthropic/create-message client {:model :claude-opus-4-8 :max-tokens 64 :messages [{:role :user :content "Name three colors."}]}))]]
+  (mapv deref requests))
+```
+
+- Bounded batch fan-out: `pmap` or `pcalls`.
+- High concurrency on JDK 21+: a virtual-thread executor. A blocking call
+  parked on a virtual thread pins no OS thread, so tens of thousands of
+  in-flight requests cost little and return plain maps. This matches the async
+  client's non-blocking I/O without the `CompletableFuture` model.
+
+```clojure
+(with-open [executor (java.util.concurrent.Executors/newVirtualThreadPerTaskExecutor)]
+  (let [tasks (mapv (fn [prompt]
+                      (.submit executor ^java.util.concurrent.Callable
+                               #(anthropic/create-message client {:model :claude-opus-4-8 :max-tokens 64 :messages [{:role :user :content prompt}]})))
+                    prompts)]
+    (mapv #(.get %) tasks)))
+```
+
+- Do not put blocking calls inside a core.async `go` block: they park the fixed
+  dispatch pool. Use `thread` when working in core.async.
+
+On JDK < 21, if you need thousands of concurrent in-flight requests, use the
+SDK async client (`.async()`) through the `:configure` seam on `client`.
 
 ### Tool use
 
@@ -402,9 +446,17 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 - skills (and skill versions)
 - memory stores (and memories)
 - agents
-- sessions (events and threads)
+- agent versions
+- sessions (events, threads, and resources)
+- thread events
 - deployments (and runs)
-- environments, vaults, user profiles
+- environments and the self-hosted work queue (retrieve/update/list,
+  ack/heartbeat/poll/stats/stop)
+- vaults and vault credentials
+- dreams
+- tunnels and tunnel certificates
+- memory versions
+- user profiles
 - webhook payload parsing
 
 ```clojure
@@ -451,15 +503,8 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 (beta/unwrap-webhook client payload {:headers headers :secret secret}) ;; verify
 ```
 
-Each service also has `get-*`, `list-*`, and `archive-*`/`delete-*` variants.
-Not wrapped yet (beta endpoints Anthropic may still change):
-
-- vault credentials
-- environment work
-- memory versions
-- thread events, session event streaming
-- session resources
-- agent versions
+Beta endpoints may still change. Session event streaming is not wrapped because
+the SDK does not expose it.
 
 ## Bedrock and Vertex
 
