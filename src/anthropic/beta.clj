@@ -1401,6 +1401,45 @@
 (defn archive-tunnel [^AnthropicClient client ^String tunnel-id]
   (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.archive tunnel-id)))))
 
+;; ---- Tunnel certificates --------------------------------------------------
+
+(defn- ->tunnel-certificate-create-params
+  ^com.anthropic.models.beta.tunnels.certificates.CertificateCreateParams
+  [tunnel-id {:keys [ca-certificate-pem]}]
+  (when-not ca-certificate-pem (missing-key! :ca-certificate-pem))
+  (let [b (com.anthropic.models.beta.tunnels.certificates.CertificateCreateParams/builder)]
+    (.tunnelId b ^String tunnel-id)
+    (.caCertificatePem b ^String ca-certificate-pem)
+    (.build b)))
+
+(defn- tunnel-certificate->map
+  [^com.anthropic.models.beta.tunnels.certificates.BetaTunnelCertificate r]
+  (cond-> {:id (.id r) :tunnel-id (.tunnelId r) :fingerprint (.fingerprint r)
+           :created-at (str (.createdAt r))}
+    (unopt (.expiresAt r)) (assoc :expires-at (str (unopt (.expiresAt r))))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+
+(defn create-tunnel-certificate [^AnthropicClient client ^String tunnel-id req]
+  (with-api-errors
+    (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
+                                 (.create (->tunnel-certificate-create-params tunnel-id req))))))
+
+(defn get-tunnel-certificate [^AnthropicClient client ^String tunnel-id ^String certificate-id]
+  (with-api-errors
+    (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
+                                 (.retrieve certificate-id)))) )
+
+(defn list-tunnel-certificates [^AnthropicClient client ^String tunnel-id]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.tunnels.certificates.CertificateListPage p
+          (-> (.beta client) (.tunnels) (.certificates) (.list tunnel-id))]
+      (mapv tunnel-certificate->map (.autoPager p)))))
+
+(defn archive-tunnel-certificate [^AnthropicClient client ^String tunnel-id ^String certificate-id]
+  (with-api-errors
+    (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
+                                 (.archive certificate-id)))))
+
 ;; ---- Agent versions -------------------------------------------------------
 
 (defn- ->agent-version-list-params

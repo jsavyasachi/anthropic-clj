@@ -115,6 +115,8 @@
 (def ->tunnel-create-params #'beta/->tunnel-create-params)
 (def tunnel->map #'beta/tunnel->map)
 (def ->agent-version-list-params #'beta/->agent-version-list-params)
+(def ->tunnel-certificate-create-params #'beta/->tunnel-certificate-create-params)
+(def tunnel-certificate->map #'beta/tunnel-certificate->map)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -145,6 +147,19 @@
     (is (= "agent_1" (opt (.agentId p))))
     (is (= 10 (opt (.limit p))))
     (is (= "next" (opt (.page p))))))
+
+(deftest tunnel-certificate-params-and-response-mapping
+  (let [p (->tunnel-certificate-create-params "tun_1" {:ca-certificate-pem "pem"})]
+    (is (= "tun_1" (opt (.tunnelId p))))
+    (is (= "pem" (.caCertificatePem p))))
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        r (-> (com.anthropic.models.beta.tunnels.certificates.BetaTunnelCertificate/builder)
+              (.id "cert_1") (.archivedAt (java.util.Optional/empty)) (.createdAt ts)
+              (.expiresAt (java.util.Optional/empty)) (.fingerprint "fp") (.tunnelId "tun_1")
+              (.type (com.anthropic.core.JsonValue/from "tunnel_certificate")) (.build))]
+    (is (= {:id "cert_1" :tunnel-id "tun_1" :fingerprint "fp"
+            :created-at "2026-07-04T00:00Z"}
+           (tunnel-certificate->map r)))))
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))
