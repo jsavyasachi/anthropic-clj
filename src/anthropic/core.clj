@@ -181,6 +181,7 @@
      (when configure (configure b))
      (.build b))))
 
+;; These helpers deliberately use reflection so bedrock/vertex remain optional dependencies.
 (defn- optional-class [class-name alias]
   (try
     (Class/forName class-name)
@@ -377,13 +378,13 @@
               ContentBlockParam))
 
 (defn- configure-tool-builder
-  [b {:keys [allowed-callers cache-control defer-loading strict]} caller-of]
+  [{:keys [allowed-callers cache-control defer-loading strict]}
+   {:keys [add-allowed-caller cache-control! defer-loading! strict!]}]
   (doseq [c allowed-callers]
-    (.addAllowedCaller b (caller-of (name c))))
-  (when cache-control (.cacheControl b (->cache-control cache-control)))
-  (when (some? defer-loading) (.deferLoading b (boolean defer-loading)))
-  (when (some? strict) (.strict b (boolean strict)))
-  b)
+    (add-allowed-caller c))
+  (when cache-control (cache-control! (->cache-control cache-control)))
+  (when (some? defer-loading) (defer-loading! defer-loading))
+  (when (some? strict) (strict! strict)))
 
 (defn- ->custom-tool ^Tool [{:keys [name description input-schema] :as t}]
   (let [required (:required input-schema)
@@ -394,7 +395,13 @@
     (.name tb ^String name)
     (.inputSchema tb (.build isb))
     (when description (.description tb ^String description))
-    (configure-tool-builder tb t #(Tool$AllowedCaller/of %))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.Tool$Builder tb
+                                               (Tool$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.Tool$Builder tb ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.Tool$Builder tb (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.Tool$Builder tb (boolean %))})
     (.build tb)))
 
 (defn- ->user-location ^UserLocation [{:keys [city region country timezone]}]
@@ -416,7 +423,13 @@
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
     (when user-location (.userLocation b (->user-location user-location)))
-    (configure-tool-builder b t #(WebSearchTool20260318$AllowedCaller/of %))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.WebSearchTool20260318$Builder b
+                                               (WebSearchTool20260318$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.WebSearchTool20260318$Builder b ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.WebSearchTool20260318$Builder b (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.WebSearchTool20260318$Builder b (boolean %))})
     (.build b)))
 
 (defn- ->web-fetch-tool ^WebFetchTool20260318
@@ -426,30 +439,60 @@
     (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
-    (configure-tool-builder b t #(WebFetchTool20260318$AllowedCaller/of %))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.WebFetchTool20260318$Builder b
+                                               (WebFetchTool20260318$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.WebFetchTool20260318$Builder b ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.WebFetchTool20260318$Builder b (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.WebFetchTool20260318$Builder b (boolean %))})
     (.build b)))
 
 (defn- ->code-execution-tool ^CodeExecutionTool20260521
   [t]
   (let [b (CodeExecutionTool20260521/builder)]
-    (configure-tool-builder b t #(CodeExecutionTool20260521$AllowedCaller/of %))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.CodeExecutionTool20260521$Builder b
+                                               (CodeExecutionTool20260521$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.CodeExecutionTool20260521$Builder b ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.CodeExecutionTool20260521$Builder b (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.CodeExecutionTool20260521$Builder b (boolean %))})
     (.build b)))
 
 (defn- ->bash-tool ^ToolBash20250124 [t]
   (let [b (ToolBash20250124/builder)]
-    (configure-tool-builder b t #(ToolBash20250124$AllowedCaller/of %))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.ToolBash20250124$Builder b
+                                               (ToolBash20250124$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.ToolBash20250124$Builder b ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.ToolBash20250124$Builder b (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.ToolBash20250124$Builder b (boolean %))})
     (.build b)))
 
 (defn- ->text-editor-tool ^ToolTextEditor20250728
   [{:keys [max-characters] :as t}]
   (let [b (ToolTextEditor20250728/builder)]
     (when max-characters (.maxCharacters b (long max-characters)))
-    (configure-tool-builder b t #(ToolTextEditor20250728$AllowedCaller/of %))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.ToolTextEditor20250728$Builder b
+                                               (ToolTextEditor20250728$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.ToolTextEditor20250728$Builder b ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.ToolTextEditor20250728$Builder b (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.ToolTextEditor20250728$Builder b (boolean %))})
     (.build b)))
 
 (defn- ->memory-tool ^MemoryTool20250818 [t]
   (let [b (MemoryTool20250818/builder)]
-    (configure-tool-builder b t #(MemoryTool20250818$AllowedCaller/of %))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.MemoryTool20250818$Builder b
+                                               (MemoryTool20250818$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.MemoryTool20250818$Builder b ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.MemoryTool20250818$Builder b (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.MemoryTool20250818$Builder b (boolean %))})
     (.build b)))
 
 (defn- ->tool-search-bm25 ^ToolSearchToolBm25_20251119
@@ -1178,20 +1221,20 @@
   ^BatchCreateParams$Request$Params
   [req]
   (let [^MessageCreateParams p (->params req)
-        b (doto (BatchCreateParams$Request$Params/builder)
+        ^BatchCreateParams$Request$Params$Builder b (doto (BatchCreateParams$Request$Params/builder)
             (.maxTokens (.maxTokens p))
             (.messages (.messages p))
             (.model (.model p)))]
     (doseq [[value setter]
-            [[(.cacheControl p) #(.cacheControl b %)]
+            [[(.cacheControl p) #(.cacheControl b ^CacheControlEphemeral %)]
              [(.container p) #(.container b ^String %)]
              [(.inferenceGeo p) #(.inferenceGeo b ^String %)]
-             [(.metadata p) #(.metadata b %)]
-             [(.outputConfig p) #(.outputConfig b %)]
+             [(.metadata p) #(.metadata b ^Metadata %)]
+             [(.outputConfig p) #(.outputConfig b ^OutputConfig %)]
              [(.stopSequences p) #(.stopSequences b ^java.util.List %)]
              [(.temperature p) #(.temperature b (double %))]
-             [(.thinking p) #(.thinking b %)]
-             [(.toolChoice p) #(.toolChoice b %)]
+             [(.thinking p) #(.thinking b ^ThinkingConfigParam %)]
+             [(.toolChoice p) #(.toolChoice b ^ToolChoice %)]
              [(.tools p) #(.tools b ^java.util.List %)]
              [(.topK p) #(.topK b (long %))]
              [(.topP p) #(.topP b (double %))]]]
