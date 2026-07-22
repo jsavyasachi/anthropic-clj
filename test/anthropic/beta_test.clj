@@ -112,6 +112,8 @@
 (def user-profile->map #'beta/user-profile->map)
 (def enrollment-url->map #'beta/enrollment-url->map)
 (def webhook-event->map #'beta/webhook-event->map)
+(def ->tunnel-create-params #'beta/->tunnel-create-params)
+(def tunnel->map #'beta/tunnel->map)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -124,6 +126,18 @@
       (.version 1)
       (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentReference$Type/of "agent"))
       (.build)))
+
+(deftest tunnel-params-and-response-mapping
+  (let [p (->tunnel-create-params {:display-name "Local"})]
+    (is (= "Local" (opt (.displayName p)))))
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        r (-> (com.anthropic.models.beta.tunnels.BetaTunnel/builder)
+              (.id "tun_1") (.archivedAt (java.util.Optional/empty))
+              (.createdAt ts) (.displayName "Local") (.domain "localhost")
+              (.type (com.anthropic.core.JsonValue/from "tunnel")) (.build))]
+    (is (= {:id "tun_1" :display-name "Local" :domain "localhost"
+            :created-at "2026-07-04T00:00Z"}
+           (tunnel->map r)))))
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))

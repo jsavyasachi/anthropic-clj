@@ -1372,6 +1372,35 @@
   (with-api-errors
     (vault-delete->map (-> (.beta client) (.vaults) (.delete vault-id)))))
 
+;; ---- Tunnels --------------------------------------------------------------
+
+(defn- ->tunnel-create-params ^com.anthropic.models.beta.tunnels.TunnelCreateParams
+  [{:keys [display-name]}]
+  (let [b (com.anthropic.models.beta.tunnels.TunnelCreateParams/builder)]
+    (when display-name (.displayName b ^String display-name))
+    (.build b)))
+
+(defn- tunnel->map [^com.anthropic.models.beta.tunnels.BetaTunnel r]
+  (cond-> {:id (.id r) :domain (.domain r) :created-at (str (.createdAt r))}
+    (unopt (.displayName r)) (assoc :display-name (unopt (.displayName r)))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+
+(defn create-tunnel [^AnthropicClient client req]
+  (with-api-errors (tunnel->map (-> (.beta client) (.tunnels)
+                                    (.create (->tunnel-create-params req))))))
+
+(defn get-tunnel [^AnthropicClient client ^String tunnel-id]
+  (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.retrieve tunnel-id)))))
+
+(defn list-tunnels [^AnthropicClient client]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.tunnels.TunnelListPage p
+          (-> (.beta client) (.tunnels) (.list))]
+      (mapv tunnel->map (.autoPager p)))))
+
+(defn archive-tunnel [^AnthropicClient client ^String tunnel-id]
+  (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.archive tunnel-id)))))
+
 ;; ---- User profiles ---------------------------------------------------------
 
 (defn- ->user-profile-create-metadata ^UserProfileCreateParams$Metadata [m]
