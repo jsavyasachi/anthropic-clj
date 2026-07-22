@@ -3,9 +3,9 @@
   Anthropic Java SDK: skills, memory stores, agents, sessions, deployments,
   deployment runs, environments, vaults, user profiles, and webhooks.
 
-  These wrap beta endpoints that Anthropic may change; vault credentials,
-  environment work, memory versions, thread events, session event streaming,
-  session resources, agent versions, and detailed deployment-run trigger
+  These wrap beta endpoints that Anthropic may change; memory versions, thread
+  events, session event streaming, session resources, agent versions, and
+  detailed deployment-run trigger
   context/resources/schedules are not wrapped yet. Errors follow
   `anthropic.core`'s contract: API/IO failures are ex-info keyed
   `:anthropic/error` with the SDK exception as cause."
@@ -1362,6 +1362,164 @@
   [^AnthropicClient client ^String environment-id]
   (with-api-errors
     (environment-delete->map (-> (.beta client) (.environments) (.delete environment-id)))))
+
+;; ---- Environment work -----------------------------------------------------
+
+(defn- ->environment-work-update-metadata
+  ^com.anthropic.models.beta.environments.work.BetaSelfHostedWorkUpdateRequest$Metadata
+  [m]
+  (let [b (com.anthropic.models.beta.environments.work.BetaSelfHostedWorkUpdateRequest$Metadata/builder)]
+    (doseq [[k v] (walk/stringify-keys m)]
+      (.putAdditionalProperty b ^String k (JsonValue/from v)))
+    (.build b)))
+
+(defn- ->environment-work-retrieve-params
+  ^com.anthropic.models.beta.environments.work.WorkRetrieveParams
+  [environment-id work-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkRetrieveParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.build b)))
+
+(defn- ->environment-work-update-params
+  ^com.anthropic.models.beta.environments.work.WorkUpdateParams
+  [environment-id work-id {:keys [metadata]}]
+  (when-not metadata (missing-key! :metadata))
+  (let [b (com.anthropic.models.beta.environments.work.WorkUpdateParams/builder)
+        body (com.anthropic.models.beta.environments.work.BetaSelfHostedWorkUpdateRequest/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.metadata body (->environment-work-update-metadata metadata))
+    (.betaSelfHostedWorkUpdateRequest b (.build body))
+    (.build b)))
+
+(defn- ->environment-work-list-params
+  ^com.anthropic.models.beta.environments.work.WorkListParams
+  [environment-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.environments.work.WorkListParams/builder)]
+    (.environmentId b ^String environment-id)
+    (when limit (.limit b (long limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn- ->environment-work-ack-params
+  ^com.anthropic.models.beta.environments.work.WorkAckParams
+  [environment-id work-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkAckParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.build b)))
+
+(defn- ->environment-work-heartbeat-params
+  ^com.anthropic.models.beta.environments.work.WorkHeartbeatParams
+  [environment-id work-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkHeartbeatParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (.build b)))
+
+(defn- ->environment-work-poll-params
+  ^com.anthropic.models.beta.environments.work.WorkPollParams
+  [environment-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkPollParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.build b)))
+
+(defn- ->environment-work-stats-params
+  ^com.anthropic.models.beta.environments.work.WorkStatsParams
+  [environment-id]
+  (let [b (com.anthropic.models.beta.environments.work.WorkStatsParams/builder)]
+    (.environmentId b ^String environment-id)
+    (.build b)))
+
+(defn- ->environment-work-stop-params
+  ^com.anthropic.models.beta.environments.work.WorkStopParams
+  [environment-id work-id {:keys [force]}]
+  (let [b (com.anthropic.models.beta.environments.work.WorkStopParams/builder)
+        body (com.anthropic.models.beta.environments.work.BetaSelfHostedWorkStopRequest/builder)]
+    (.environmentId b ^String environment-id)
+    (.workId b ^String work-id)
+    (when (some? force) (.force body (boolean force)))
+    (.betaSelfHostedWorkStopRequest b (.build body))
+    (.build b)))
+
+(defn- environment-work-metadata->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWork$Metadata m]
+  (walk/keywordize-keys
+   (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)]))
+         (._additionalProperties m))))
+
+(defn- environment-work->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWork r]
+  (cond-> {:id (.id r)
+           :created-at (.createdAt r)
+           :data {:id (.id (.data r))}
+           :environment-id (.environmentId r)
+           :metadata (environment-work-metadata->map (.metadata r))
+           :state (str (.state r))}
+    (unopt (.acknowledgedAt r)) (assoc :acknowledged-at (unopt (.acknowledgedAt r)))
+    (unopt (.latestHeartbeatAt r)) (assoc :latest-heartbeat-at (unopt (.latestHeartbeatAt r)))
+    (unopt (.startedAt r)) (assoc :started-at (unopt (.startedAt r)))
+    (unopt (.stopRequestedAt r)) (assoc :stop-requested-at (unopt (.stopRequestedAt r)))
+    (unopt (.stoppedAt r)) (assoc :stopped-at (unopt (.stoppedAt r)))))
+
+(defn- environment-work-heartbeat->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWorkHeartbeatResponse r]
+  {:last-heartbeat (.lastHeartbeat r)
+   :lease-extended (.leaseExtended r)
+   :state (str (.state r))
+   :ttl-seconds (.ttlSeconds r)})
+
+(defn- environment-work-stats->map
+  [^com.anthropic.models.beta.environments.work.BetaSelfHostedWorkQueueStats r]
+  (cond-> {:depth (.depth r) :pending (.pending r)}
+    (unopt (.oldestQueuedAt r)) (assoc :oldest-queued-at (unopt (.oldestQueuedAt r)))
+    (unopt (.workersPolling r)) (assoc :workers-polling (unopt (.workersPolling r)))))
+
+(defn- environment-work-optional->map [^Optional r]
+  (when (.isPresent r) (environment-work->map (.get r))))
+
+(defn get-environment-work [^AnthropicClient client ^String environment-id ^String work-id]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.retrieve (->environment-work-retrieve-params environment-id work-id))))))
+
+(defn update-environment-work [^AnthropicClient client ^String environment-id ^String work-id changes]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.update (->environment-work-update-params environment-id work-id changes))))))
+
+(defn list-environment-work [^AnthropicClient client ^String environment-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.environments.work.WorkListPage p
+          (-> (.beta client) (.environments) (.work)
+              (.list (->environment-work-list-params environment-id opts)))]
+      (mapv environment-work->map (.autoPager p)))))
+
+(defn ack-environment-work [^AnthropicClient client ^String environment-id ^String work-id]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.ack (->environment-work-ack-params environment-id work-id))))))
+
+(defn heartbeat-environment-work [^AnthropicClient client ^String environment-id ^String work-id]
+  (with-api-errors
+    (environment-work-heartbeat->map (-> (.beta client) (.environments) (.work)
+                                       (.heartbeat (->environment-work-heartbeat-params environment-id work-id))))))
+
+(defn poll-environment-work [^AnthropicClient client ^String environment-id]
+  (with-api-errors
+    (environment-work-optional->map (-> (.beta client) (.environments) (.work)
+                                        (.poll (->environment-work-poll-params environment-id))))))
+
+(defn environment-work-stats [^AnthropicClient client ^String environment-id]
+  (with-api-errors
+    (environment-work-stats->map (-> (.beta client) (.environments) (.work)
+                                     (.stats (->environment-work-stats-params environment-id))))))
+
+(defn stop-environment-work [^AnthropicClient client ^String environment-id ^String work-id opts]
+  (with-api-errors
+    (environment-work->map (-> (.beta client) (.environments) (.work)
+                             (.stop (->environment-work-stop-params environment-id work-id opts))))))
 
 ;; ---- Vaults ---------------------------------------------------------------
 
