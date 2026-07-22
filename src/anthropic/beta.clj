@@ -1087,6 +1087,55 @@
               (.list (->thread-event-list-params session-id thread-id opts)))]
       (mapv session-event->map (.autoPager p)))))
 
+;; ---- Session resources ----------------------------------------------------
+
+(defn- ->session-resource-list-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceListParams
+  [session-id {:keys [limit page]}]
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceListParams/builder)]
+    (.sessionId b ^String session-id)
+    (when limit (.limit b (int limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn- ->session-resource-retrieve-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveParams [session-id resource-id]
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceRetrieveParams/builder)]
+    (.sessionId b ^String session-id) (.resourceId b ^String resource-id) (.build b)))
+
+(defn- ->session-resource-update-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceUpdateParams [session-id resource-id {:keys [authorization-token]}]
+  (when-not authorization-token (missing-key! :authorization-token))
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceUpdateParams/builder)]
+    (.sessionId b ^String session-id) (.resourceId b ^String resource-id)
+    (.authorizationToken b ^String authorization-token) (.build b)))
+
+(defn- ->session-resource-delete-params
+  ^com.anthropic.models.beta.sessions.resources.ResourceDeleteParams [session-id resource-id]
+  (let [b (com.anthropic.models.beta.sessions.resources.ResourceDeleteParams/builder)]
+    (.sessionId b ^String session-id) (.resourceId b ^String resource-id) (.build b)))
+
+(defn- session-resource->map [r]
+  (cond
+    (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
+      {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)})
+    (.isGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
+      {:type :github-repository :id (.id x) :url (.url x) :mount-path (.mountPath x)})
+    :else (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (.asMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
+            {:type :memory-store :memory-store-id (.memoryStoreId x)})))
+
+(defn list-session-resources [^AnthropicClient client ^String session-id opts]
+  (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.ResourceListPage p (-> (.beta client) (.sessions) (.resources) (.list (->session-resource-list-params session-id opts)))]
+                     (mapv session-resource->map (.autoPager p)))))
+(defn get-session-resource [^AnthropicClient client ^String session-id ^String resource-id]
+  (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources) (.retrieve (->session-resource-retrieve-params session-id resource-id))))))
+(defn update-session-resource [^AnthropicClient client ^String session-id ^String resource-id changes]
+  (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources) (.update (->session-resource-update-params session-id resource-id changes))))))
+(defn delete-session-resource [^AnthropicClient client ^String session-id ^String resource-id]
+  (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsDeleteSessionResource r (-> (.beta client) (.sessions) (.resources) (.delete (->session-resource-delete-params session-id resource-id)))] {:id (.id r) :deleted true})))
+
 ;; ---- Deployments -----------------------------------------------------------
 
 (defn- ->deployment-create-metadata ^DeploymentCreateParams$Metadata [m]

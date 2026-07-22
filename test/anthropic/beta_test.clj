@@ -118,6 +118,7 @@
 (def ->tunnel-certificate-create-params #'beta/->tunnel-certificate-create-params)
 (def tunnel-certificate->map #'beta/tunnel-certificate->map)
 (def ->thread-event-list-params #'beta/->thread-event-list-params)
+(def ->session-resource-list-params #'beta/->session-resource-list-params)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -166,6 +167,11 @@
   (let [p (->thread-event-list-params "sess_1" "thread_1" {:limit 10 :page "next"})]
     (is (= "sess_1" (.sessionId p)))
     (is (= "thread_1" (opt (.threadId p))))
+    (is (= 10 (opt (.limit p))))))
+
+(deftest session-resource-params
+  (let [p (->session-resource-list-params "sess_1" {:limit 10 :page "next"})]
+    (is (= "sess_1" (opt (.sessionId p))))
     (is (= 10 (opt (.limit p))))))
 
 (deftest skill-params
