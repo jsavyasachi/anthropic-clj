@@ -118,6 +118,34 @@
 
 (declare headers->map json->clj ->keyword)
 
+(def models
+  "Convenience keyword aliases for the SDK's named models. Any raw model-id string is still accepted."
+  {:claude-sonnet-5 "claude-sonnet-5"
+   :claude-fable-5 "claude-fable-5"
+   :claude-mythos-5 "claude-mythos-5"
+   :claude-opus-4-8 "claude-opus-4-8"
+   :claude-opus-4-7 "claude-opus-4-7"
+   :claude-mythos-preview "claude-mythos-preview"
+   :claude-opus-4-6 "claude-opus-4-6"
+   :claude-sonnet-4-6 "claude-sonnet-4-6"
+   :claude-haiku-4-5 "claude-haiku-4-5"
+   :claude-haiku-4-5-20251001 "claude-haiku-4-5-20251001"
+   :claude-opus-4-5 "claude-opus-4-5"
+   :claude-opus-4-5-20251101 "claude-opus-4-5-20251101"
+   :claude-sonnet-4-5 "claude-sonnet-4-5"
+   :claude-sonnet-4-5-20250929 "claude-sonnet-4-5-20250929"
+   :claude-opus-4-1 "claude-opus-4-1"
+   :claude-opus-4-1-20250805 "claude-opus-4-1-20250805"})
+
+(defn- ->model-string [model]
+  (if (keyword? model)
+    (or (get models model)
+        (throw (ex-info "Unknown model keyword"
+                        {:anthropic/error :unknown-model
+                         :model model
+                         :known (sort (keys models))})))
+    model))
+
 (defn client
   "An Anthropic client. With no args, resolves credentials from the environment
   (`ANTHROPIC_API_KEY`). With a map, accepts optional `:api-key`, `:auth-token`,
@@ -669,7 +697,7 @@
                                 extra-query extra-body]
                          :or {model "claude-opus-4-8" max-tokens 1024}}]
   (let [b (doto (MessageCreateParams/builder)
-            (.model (Model/of model))
+            (.model (Model/of (->model-string model)))
             (.maxTokens (long max-tokens)))]
     (when system
       (if (string? system)
@@ -722,7 +750,7 @@
                                      extra-body]
                               :or {model "claude-opus-4-8"}}]
   (let [b (doto (MessageCountTokensParams/builder)
-            (.model (Model/of model)))]
+            (.model (Model/of (->model-string model))))]
     (when system
       (if (string? system)
         (.system b ^String system)

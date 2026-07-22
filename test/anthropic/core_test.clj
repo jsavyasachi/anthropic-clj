@@ -67,6 +67,23 @@
       (is (= "claude-opus-4-8" (str (.model p))))
       (is (= 1024 (.maxTokens p))))))
 
+(deftest named-model-keywords
+  (testing "public model aliases expose the verified SDK model ids"
+    (is (= 16 (count a/models)))
+    (is (= "claude-opus-4-8" (:claude-opus-4-8 a/models))))
+  (testing "a keyword model builds the same message params as its string id"
+    (let [req {:max-tokens 512 :messages [{:role :user :content "hi"}]}
+          ^MessageCreateParams keyword-params (->params (assoc req :model :claude-opus-4-8))
+          ^MessageCreateParams string-params (->params (assoc req :model "claude-opus-4-8"))]
+      (is (= (str (.model string-params)) (str (.model keyword-params))))))
+  (testing "unknown model keywords provide structured error data"
+    (let [error (try
+                  (->params {:model :nope :messages [{:role :user :content "hi"}]})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo error))
+      (is (= :unknown-model (:anthropic/error (ex-data error)))))))
+
 (deftest sampling-and-control-params
   (testing "temperature, top-p, top-k, stop-sequences all flow through"
     (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
