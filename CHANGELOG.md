@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.18.0] - 2026-07-22
+
+### Added
+- `anthropic.beta.messages`: the beta Messages API, completing idiomatic parity with the SDK. `create-beta-message`, `count-beta-tokens`, `run-beta-tools` (a native agentic tool loop), the beta message batches (`create-beta-batch`, `get-beta-batch`, `list-beta-batches`, `cancel-beta-batch`, `delete-beta-batch`, `beta-batch-results`, `reduce-beta-batch-results`), and streaming (`stream-beta-message`, `stream-beta-text`). Request maps mirror `create-message` plus `:betas` and `:mcp-servers`; responses are converted generically. Structured output (`:response-format` -> `:parsed`) is supported.
+
 ## [0.17.0] - 2026-07-22
 
 ### Added

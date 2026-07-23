@@ -418,13 +418,14 @@ API call.
 - Files (beta) - `upload-file`, `get-file`, `list-files`, `download-file`, `delete-file`
 
 Wrapped surfaces: Messages, streaming, tool use including server tools, Message
-Batches, Files beta, Models, and count-tokens - plus the beta agents platform
-in `anthropic.beta` (see below). Async clients, raw-response accessors, and
-per-call `RequestOptions` are transport and accessor variants rather than
-endpoints; they are reached through the client's `:configure` seam and the
-`opts`/`:include-response` args, not duplicated as separate fns. The beta
-Messages API (`beta().messages()`, including its tool-runner) is the one
-endpoint surface not yet at parity and is being wrapped. For anything else not
+Batches, Files beta, Models, and count-tokens - plus the beta agents platform in
+`anthropic.beta` and the beta Messages API in `anthropic.beta.messages` (create,
+count-tokens, batches, streaming, and a native `run-beta-tools` loop; request
+maps mirror `create-message` plus `:betas`/`:mcp-servers`, responses are
+converted generically). Async clients, raw-response accessors, and per-call
+`RequestOptions` are transport and accessor variants rather than endpoints; they
+are reached through the client's `:configure` seam and the `opts`/
+`:include-response` args, not duplicated as separate fns. For anything not
 wrapped, reach for the
 [Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly.
 
