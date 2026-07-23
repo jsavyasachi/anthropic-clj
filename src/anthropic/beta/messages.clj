@@ -2,7 +2,8 @@
   "Idiomatic Clojure wrapper for the beta Messages API."
   (:require [anthropic.core]
             [clojure.string :as str]
-            [clojure.walk :as walk])
+            [clojure.walk :as walk]
+            [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.core JsonValue RequestOptions)
            (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
@@ -60,6 +61,7 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private throw-normalized! @#'anthropic.core/throw-normalized!)
+(def ^:private json-mapper (json/object-mapper {:decode-key-fn true}))
 
 (defmacro ^:private with-api-errors [& body]
   `(try ~@body
@@ -338,17 +340,88 @@
      :request-id (when (.isPresent request-id) (.get request-id))
      :headers (headers->map (.headers response))}))
 
+(defn- parse-beta-text
+  "Decode the first text block of a beta response map as JSON, or nil."
+  [response]
+  (when-let [text (->> (:content response)
+                       (filter #(= :text (:type %)))
+                       first
+                       :text)]
+    (json/read-value text json-mapper)))
+
 (defn create-beta-message
   "Send a beta Messages request and return a generic Clojure map response."
   ([^AnthropicClient client req] (create-beta-message client req {}))
   ([^AnthropicClient client req opts]
    (with-api-errors
      (let [params (->params req)
-           request-options (->request-options opts)]
-       (if (:include-response opts)
-         (with-open [^HttpResponseFor response (.create (.withRawResponse (.messages (.beta client))) params request-options)]
-           (assoc (beta-message->map (.parse response)) :response (response-metadata response)))
-         (beta-message->map (.create (.messages (.beta client)) params request-options)))))))
+           request-options (->request-options opts)
+           response (if (:include-response opts)
+                      (with-open [^HttpResponseFor raw-response (.create (.withRawResponse (.messages (.beta client))) params request-options)]
+                        (assoc (beta-message->map (.parse raw-response))
+                               :response (response-metadata raw-response)))
+                      (beta-message->map (.create (.messages (.beta client)) params request-options)))]
+       (cond-> response
+         (:response-format req) (assoc :parsed (parse-beta-text response)))))))
+
+(defn- strip-tool-fns [params]
+  (if (contains? params :tools)
+    (update params :tools #(mapv (fn [tool] (dissoc tool :fn)) %))
+    params))
+
+(defn- beta-tool-fns [tools]
+  (into {}
+        (keep (fn [{:keys [name fn]}]
+                (when fn [name fn])))
+        tools))
+
+(defn- beta-tool-result [block f]
+  (try
+    {:type :tool-result
+     :tool-use-id (:id block)
+     :content (f (:input block))}
+    (catch Throwable e
+      {:type :tool-result
+       :tool-use-id (:id block)
+       :content (or (.getMessage e) (str e))
+       :is-error true})))
+
+(defn- run-beta-tools*
+  [call-fn params {:keys [max-iterations on-message]
+                   :or {max-iterations 10}}]
+  (let [fns (beta-tool-fns (:tools params))]
+    (loop [iterations 0
+           messages (cond
+                      (nil? (:messages params)) []
+                      (string? (:messages params)) [{:role :user :content (:messages params)}]
+                      :else (vec (:messages params)))]
+      (when (>= iterations max-iterations)
+        (throw (ex-info "Beta tool loop exceeded max iterations"
+                        {:anthropic/error :max-iterations-exceeded
+                         :iterations iterations
+                         :messages messages})))
+      (let [response (call-fn (-> params strip-tool-fns (assoc :messages messages)))
+            tool-uses (filterv #(= :tool-use (:type %)) (:content response))]
+        (when on-message (on-message response))
+        (if (or (= :tool-use (:stop-reason response)) (seq tool-uses))
+          (let [results (mapv (fn [{:keys [name] :as block}]
+                                (if-let [f (get fns name)]
+                                  (beta-tool-result block f)
+                                  (throw (ex-info "Tool call has no matching :fn"
+                                                  {:anthropic/error :no-tool-fn :name name}))))
+                              tool-uses)]
+            (recur (inc iterations)
+                   (conj messages
+                         {:role :assistant :content (:content response)}
+                         {:role :user :content results})))
+          (assoc response :messages (conj messages {:role :assistant :content (:content response)})))))))
+
+(defn run-beta-tools
+  "Run a beta Messages request with local tool functions until no tool is requested."
+  ([^AnthropicClient client params]
+   (run-beta-tools client params {}))
+  ([^AnthropicClient client params opts]
+   (run-beta-tools* (partial create-beta-message client) params opts)))
 
 (defn count-beta-tokens
   "Count beta Messages input tokens without creating a message."

@@ -23,6 +23,7 @@
 (def deleted-batch->map #'messages/deleted-batch->map)
 (def reduce-beta-batch-result-stream #'messages/reduce-beta-batch-result-stream)
 (def consume-beta-stream #'messages/consume-beta-stream)
+(def parse-beta-text #'messages/parse-beta-text)
 
 (defn- opt [o] (when (.isPresent o) (.get o)))
 
@@ -173,3 +174,49 @@
     (is (= "hello world" (consume-beta-stream sr #(swap! seen conj %))))
     (is (= [:content-block-delta :content-block-delta] (mapv :type @seen)))
     (is @closed?)))
+
+(deftest run-beta-tools-loop
+  (let [calls (atom [])
+        tool-inputs (atom [])
+        seen-responses (atom [])
+        tool-input {:city "San Francisco"}
+        tool-fn (fn [input]
+                  (swap! tool-inputs conj input)
+                  {:forecast (str "sunny in " (:city input))})
+        responses [{:id "msg_tool"
+                    :stop-reason :tool-use
+                    :content [{:type :tool-use :id "toolu_123" :name "weather"
+                               :input tool-input}]}
+                   {:id "msg_final" :stop-reason :end-turn
+                    :content [{:type :text :text "It is sunny."}]}]
+        params {:model "claude-sonnet-4-6"
+                :messages [{:role :user :content "What's the weather?"}]
+                :tools [{:name "weather" :input-schema {:type "object"}
+                         :fn tool-fn}]}]
+    (with-redefs [messages/create-beta-message
+                  (fn [_ req]
+                    (swap! calls conj req)
+                    (nth responses (dec (count @calls))))]
+      (let [result (messages/run-beta-tools nil params {:on-message #(swap! seen-responses conj %)})]
+        (is (= "msg_final" (:id result)))
+        (is (= [tool-input] @tool-inputs))
+        (is (= {:forecast "sunny in San Francisco"}
+               (get-in result [:messages 2 :content 0 :content])))
+        (is (= tool-input
+               (get-in result [:messages 1 :content 0 :input])))
+        (is (= 2 (count @calls)))
+        (is (= responses @seen-responses))
+        (is (nil? (get-in @calls [0 :tools 0 :fn])))))
+    (reset! calls [])
+    (with-redefs [messages/create-beta-message
+                  (fn [_ req]
+                    (swap! calls conj req)
+                    (first responses))]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (messages/run-beta-tools nil params {:max-iterations 1})))
+      (is (= 1 (count @calls))))))
+
+(deftest beta-structured-output-parsing
+  (is (= {:capital "Sacramento"}
+         (parse-beta-text {:content [{:type :text
+                                      :text "{\"capital\":\"Sacramento\"}"}]}))))
