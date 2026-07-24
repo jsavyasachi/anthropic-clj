@@ -83,6 +83,7 @@
                                 (.serverToolUse (java.util.Optional/empty))
                                 (.serviceTier (java.util.Optional/empty))
                                 (.speed (java.util.Optional/empty))
+                                (.fallbackCredit (java.util.Optional/empty))
                                 (.build)))
                     (.build))
         result (beta-message->map message)]
