@@ -120,7 +120,8 @@
 
 (def models
   "Convenience keyword aliases for the SDK's named models. Any raw model-id string is still accepted."
-  {:claude-sonnet-5 "claude-sonnet-5"
+  {:claude-opus-5 "claude-opus-5"
+   :claude-sonnet-5 "claude-sonnet-5"
    :claude-fable-5 "claude-fable-5"
    :claude-mythos-5 "claude-mythos-5"
    :claude-opus-4-8 "claude-opus-4-8"

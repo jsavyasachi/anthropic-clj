@@ -69,13 +69,19 @@
 
 (deftest named-model-keywords
   (testing "public model aliases expose the verified SDK model ids"
-    (is (= 16 (count a/models)))
+    (is (= 17 (count a/models)))
+    (is (= "claude-opus-5" (:claude-opus-5 a/models)))
     (is (= "claude-opus-4-8" (:claude-opus-4-8 a/models))))
   (testing "a keyword model builds the same message params as its string id"
     (let [req {:max-tokens 512 :messages [{:role :user :content "hi"}]}
           ^MessageCreateParams keyword-params (->params (assoc req :model :claude-opus-4-8))
           ^MessageCreateParams string-params (->params (assoc req :model "claude-opus-4-8"))]
       (is (= (str (.model string-params)) (str (.model keyword-params))))))
+  (testing "raw model ids remain accepted"
+    (is (= "claude-opus-5"
+           (str (.model ^MessageCreateParams
+                        (->params {:model "claude-opus-5"
+                                   :messages [{:role :user :content "hi"}]}))))))
   (testing "unknown model keywords provide structured error data"
     (let [error (try
                   (->params {:model :nope :messages [{:role :user :content "hi"}]})
