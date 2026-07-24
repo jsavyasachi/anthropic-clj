@@ -36,13 +36,13 @@ for roles and block types), with a few Clojure-native conveniences (a native
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.18.1"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.19.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.18.1"]
+[net.clojars.savya/anthropic-clj "0.19.0"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -57,7 +57,7 @@ Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
 - `:configure` - receives the raw SDK builder last, for anything not wrapped
   here (interceptors, a custom `jsonMapper`, or a Bedrock/Vertex `backend`)
 
-Tracks [`com.anthropic/anthropic-java` 2.51.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.51.0) - see `CHANGELOG.md` for the bump history.
+Tracks [`com.anthropic/anthropic-java` 2.52.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.52.0) - see `CHANGELOG.md` for the bump history.
 
 ## Usage
 
@@ -428,6 +428,16 @@ are reached through the client's `:configure` seam and the `opts`/
 `:include-response` args, not duplicated as separate fns. For anything not
 wrapped, reach for the
 [Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly.
+
+### Beta Messages
+
+`anthropic.beta.messages` supports fallback request params and dynamic tool
+changes. Use `:fallbacks :default` or a vector of fallback maps with
+`:model`/`:max-tokens`, and pass `:fallback-credit-token` when applicable.
+Content blocks accept `:tool-addition` and `:tool-removal` with `:reference`,
+`:mcp-tool-reference`, or `:mcp-toolset-reference` tools. `run-beta-tools`
+accepts `:on-turn`, called with `(response params)` after each assistant turn;
+its returned params control the next iteration.
 
 ## Errors
 

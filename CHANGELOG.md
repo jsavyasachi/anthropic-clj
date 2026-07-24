@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.19.0] - 2026-07-24
+
+### Added
+- Track `com.anthropic/anthropic-java` 2.52.0, including the `:claude-opus-5` alias.
+- Beta fallback request params: `:fallbacks` and `:fallback-credit-token`.
+- Beta `:tool-addition` and `:tool-removal` request blocks.
+- Dynamic tool changes in `run-beta-tools` via `:on-turn`.
+
 ## [0.18.1] - 2026-07-23
 
 ### Changed
