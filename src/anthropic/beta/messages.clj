@@ -469,8 +469,7 @@
                        :messages messages})))
     (let [fns (beta-tool-fns (:tools params))
           response (call-fn (-> params strip-tool-fns (assoc :messages messages)))
-          tool-uses (filterv #(= :tool-use (:type %)) (:content response))
-          next-params (on-turn response params)]
+          tool-uses (filterv #(= :tool-use (:type %)) (:content response))]
       (when on-message (on-message response))
       (if (or (= :tool-use (:stop-reason response)) (seq tool-uses))
         (let [results (mapv (fn [{:keys [name] :as block}]
@@ -478,13 +477,18 @@
                                 (beta-tool-result block f)
                                 (throw (ex-info "Tool call has no matching :fn"
                                                 {:anthropic/error :no-tool-fn :name name}))))
-                            tool-uses)]
+                            tool-uses)
+              next-messages (conj messages
+                                  {:role :assistant :content (:content response)}
+                                  {:role :user :content results})
+              next-params (on-turn response (assoc params :messages next-messages))]
           (recur (inc iterations)
                  next-params
-                 (conj messages
-                       {:role :assistant :content (:content response)}
-                       {:role :user :content results})))
-        (assoc response :messages (conj messages {:role :assistant :content (:content response)}))))))
+                 (or (:messages next-params) next-messages)))
+        (do
+          (on-turn response (assoc params :messages
+                                   (conj messages {:role :assistant :content (:content response)})))
+          (assoc response :messages (conj messages {:role :assistant :content (:content response)})))))))
 
 (defn run-beta-tools
   "Run beta Messages with local tool functions until no tool is requested.

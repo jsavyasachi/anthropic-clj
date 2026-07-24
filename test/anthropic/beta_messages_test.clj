@@ -302,6 +302,27 @@
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (= "Tool call has no matching :fn" (.getMessage error))))))
 
+(deftest run-beta-tools-uses-messages-returned-by-on-turn
+  (let [seen (atom [])
+        calls (atom 0)
+        params {:messages "start"
+                :tools [{:name "weather" :input-schema {} :fn identity}]}
+        call-fn (fn [request]
+                  (swap! seen conj (:messages request))
+                  (if (= 1 (swap! calls inc))
+                    {:stop-reason :tool-use
+                     :content [{:type :tool-use :id "id-weather"
+                                :name "weather" :input {}}]}
+                    {:stop-reason :end-turn :content []}))]
+    (run-beta-tools* call-fn params
+                     {:on-turn (fn [_ p]
+                                 (assoc p :messages [{:role :user :content
+                                                      [{:type :tool-addition
+                                                        :tool {:reference "new-tool"}}]}]))})
+    (is (= [{:role :user :content
+            [{:type :tool-addition :tool {:reference "new-tool"}}]}]
+           (second @seen)))))
+
 (deftest beta-structured-output-parsing
   (is (= {:capital "Sacramento"}
          (parse-beta-text {:content [{:type :text
