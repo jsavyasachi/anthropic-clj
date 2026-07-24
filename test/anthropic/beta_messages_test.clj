@@ -1,5 +1,6 @@
 (ns anthropic.beta-messages-test
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
             [anthropic.beta.messages :as messages])
   (:import (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
@@ -24,6 +25,19 @@
 (def reduce-beta-batch-result-stream #'messages/reduce-beta-batch-result-stream)
 (def consume-beta-stream #'messages/consume-beta-stream)
 (def parse-beta-text #'messages/parse-beta-text)
+(def ->content-block #'messages/->content-block)
+(def run-beta-tools* #'messages/run-beta-tools*)
+
+(defn- json-value->clj [value]
+  (cond
+    (instance? java.util.Map value)
+    (into {} (map (fn [[k v]] [(-> k str (str/replace "_" "-") keyword)
+                               (json-value->clj v)])) value)
+    (instance? java.util.List value) (mapv json-value->clj value)
+    :else value))
+
+(defn- json-roundtrip [value]
+  (json-value->clj (.convert (JsonValue/from value) Object)))
 
 (defn- opt [o] (when (.isPresent o) (.get o)))
 
@@ -57,6 +71,36 @@
                                           :tool-use-id "toolu_123"
                                           :content "sunny"}]}]})]
     (is (= 3 (count (.asBetaContentBlockParams (.content (first (.messages p)))))))))
+
+(deftest beta-tool-change-content-blocks
+  (doseq [[type tool expected-type expected-name]
+          [[:tool-addition {:reference "get_weather"} "tool_addition" "get_weather"]
+           [:tool-addition {:mcp-tool-reference {:name "lookup" :server-name "weather"}}
+            "tool_addition" "lookup"]
+           [:tool-addition {:mcp-toolset-reference {:server-name "weather"}}
+            "tool_addition" nil]
+           [:tool-removal {:reference "get_weather"} "tool_removal" "get_weather"]
+           [:tool-removal {:mcp-tool-reference {:name "lookup" :server-name "weather"}}
+            "tool_removal" "lookup"]
+           [:tool-removal {:mcp-toolset-reference {:server-name "weather"}}
+            "tool_removal" nil]]]
+    (let [result (json-roundtrip (->content-block {:type type :tool tool
+                                                   :cache-control {:ttl :1h}}))]
+      (is (= expected-type (:type result)))
+      (is (= expected-name (get-in result [:tool :name]))))))
+
+(deftest beta-fallback-request-params
+  (let [explicit (->params {:messages [{:role :user :content "hi"}]
+                            :fallbacks [{:model "claude-sonnet-4-6" :max-tokens 256}]
+                            :fallback-credit-token "credit-token"})
+        default (->params {:messages [{:role :user :content "hi"}]
+                           :fallbacks :default})
+        explicit-json (json-roundtrip (._body explicit))
+        default-json (json-roundtrip (._body default))]
+    (is (= "claude-sonnet-4-6" (get-in explicit-json [:fallbacks 0 :model])))
+    (is (= 256 (get-in explicit-json [:fallbacks 0 :max-tokens])))
+    (is (= "credit-token" (:fallback-credit-token explicit-json)))
+    (is (= "default" (:fallbacks default-json)))))
 
 (deftest beta-message-json-conversion
   (let [message (-> (BetaMessage/builder)
@@ -216,6 +260,47 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (messages/run-beta-tools nil params {:max-iterations 1})))
       (is (= 1 (count @calls))))))
+
+(deftest run-beta-tools-refreshes-tool-functions-after-on-turn
+  (let [calls (atom 0)
+        used (atom [])
+        response (fn [stop name]
+                   {:stop-reason stop
+                    :content (if name [{:type :tool-use :id (str "id-" name)
+                                        :name name :input {}}]
+                                 [{:type :text :text "done"}])})
+        first-fn (fn [_] (swap! used conj :first))
+        second-fn (fn [_] (swap! used conj :second))
+        params {:messages "start"
+                :tools [{:name "first" :input-schema {}
+                         :fn first-fn}]}
+        call-fn (fn [_]
+                  (case (swap! calls inc)
+                    1 (response :tool-use "first")
+                    2 (response :tool-use "second")
+                    3 (response :end-turn nil)))]
+    (is (= :end-turn (:stop-reason
+                      (run-beta-tools* call-fn params
+                                       {:on-turn (fn [_ p]
+                                                   (update p :tools conj
+                                                           {:name "second" :input-schema {}
+                                                            :fn second-fn}))}))))
+    (is (= [:first :second] @used))))
+
+(deftest run-beta-tools-honors-tools-removed-by-on-turn
+  (let [params {:messages "start"
+                :tools [{:name "weather" :input-schema {} :fn identity}]}
+        call-fn (fn [_]
+                  {:stop-reason :tool-use
+                   :content [{:type :tool-use :id "id-weather"
+                              :name "weather" :input {}}]})]
+    (let [error (try
+                  (run-beta-tools* call-fn params
+                                   {:on-turn (fn [_ p] (assoc p :tools []))
+                                    :max-iterations 2})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= "Tool call has no matching :fn" (.getMessage error))))))
 
 (deftest beta-structured-output-parsing
   (is (= {:capital "Sacramento"}

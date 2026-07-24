@@ -21,10 +21,16 @@
                                                BetaMessage BetaMessageTokensCount
                                                BetaMetadata BetaOutputConfig
                                                BetaOutputConfig$Effort
+                                               BetaFallbackParam
+                                               BetaFallbackParam$Speed
                                                BetaPlainTextSource
                                                BetaRedactedThinkingBlockParam
                                                BetaRequestDocumentBlock
                                                BetaRequestDocumentBlock$Source
+                                               BetaRequestToolAdditionBlock
+                                               BetaRequestToolAdditionBlock$Builder
+                                               BetaRequestToolRemovalBlock
+                                               BetaRequestToolRemovalBlock$Builder
                                                BetaRequestMcpServerToolConfiguration
                                                BetaRequestMcpServerUrlDefinition
                                                BetaTextBlockParam
@@ -35,6 +41,8 @@
                                                BetaThinkingConfigParam
                                                BetaTool BetaTool$InputSchema
                                                BetaTool$InputSchema$Properties
+                                               BetaToolChangeMcpToolReference
+                                               BetaToolChangeMcpToolsetReference
                                                BetaToolChoice BetaToolChoiceAny
                                                BetaToolChoiceAuto BetaToolChoiceNone
                                                BetaToolChoiceTool
@@ -110,6 +118,34 @@
       (.putAdditionalProperty b ^String (name k) (->json v)))
     (.build b)))
 
+(defn- add-tool-change
+  [^BetaRequestToolAdditionBlock$Builder b {:keys [reference mcp-tool-reference mcp-toolset-reference]}]
+  (cond
+    reference (.referenceTool b ^String reference)
+    mcp-tool-reference
+    (.tool b ^BetaToolChangeMcpToolReference
+           (-> (BetaToolChangeMcpToolReference/builder)
+               (.name ^String (:name mcp-tool-reference))
+               (.serverName ^String (:server-name mcp-tool-reference))
+               (.build)))
+    mcp-toolset-reference (.mcpToolsetReferenceTool b ^String (:server-name mcp-toolset-reference))
+    :else (throw (ex-info "Unsupported beta tool change reference"
+                          {:anthropic/error :unsupported-tool-change-reference}))))
+
+(defn- remove-tool-change
+  [^BetaRequestToolRemovalBlock$Builder b {:keys [reference mcp-tool-reference mcp-toolset-reference]}]
+  (cond
+    reference (.referenceTool b ^String reference)
+    mcp-tool-reference
+    (.tool b ^BetaToolChangeMcpToolReference
+           (-> (BetaToolChangeMcpToolReference/builder)
+               (.name ^String (:name mcp-tool-reference))
+               (.serverName ^String (:server-name mcp-tool-reference))
+               (.build)))
+    mcp-toolset-reference (.mcpToolsetReferenceTool b ^String (:server-name mcp-toolset-reference))
+    :else (throw (ex-info "Unsupported beta tool change reference"
+                          {:anthropic/error :unsupported-tool-change-reference}))))
+
 (defn- ->content-block ^BetaContentBlockParam [{:keys [type cache-control] :as blk}]
   (case (keyword type)
     :text (let [b (-> (BetaTextBlockParam/builder) (.text ^String (:text blk)))]
@@ -148,6 +184,16 @@
                    (when (contains? blk :is-error) (.isError b (boolean (:is-error blk))))
                    (when cache-control (.cacheControl b (->cache-control cache-control)))
                    (BetaContentBlockParam/ofToolResult (.build b)))
+    :tool-addition (let [^BetaRequestToolAdditionBlock$Builder b
+                         (add-tool-change (BetaRequestToolAdditionBlock/builder)
+                                          (:tool blk))]
+                     (when cache-control (.cacheControl b (->cache-control cache-control)))
+                     (BetaContentBlockParam/ofToolAddition (.build b)))
+    :tool-removal (let [^BetaRequestToolRemovalBlock$Builder b
+                        (remove-tool-change (BetaRequestToolRemovalBlock/builder)
+                                            (:tool blk))]
+                    (when cache-control (.cacheControl b (->cache-control cache-control)))
+                    (BetaContentBlockParam/ofToolRemoval (.build b)))
     (throw (ex-info "Unsupported beta content block type"
                     {:anthropic/error :unsupported-content-block :type type}))))
 
@@ -200,6 +246,21 @@
     (when effort (.effort b (BetaOutputConfig$Effort/of (name effort))))
     (.build b)))
 
+(defn- ->fallback-param ^BetaFallbackParam
+  [{:keys [model max-tokens output-config speed thinking]}]
+  (let [b (doto (BetaFallbackParam/builder)
+            (.model ^String model))]
+    (when max-tokens (.maxTokens b (long max-tokens)))
+    (when output-config
+      (.outputConfig b (->output-config (:schema output-config) (:effort output-config))))
+    (when speed (.speed b (BetaFallbackParam$Speed/of (name speed))))
+    (when thinking
+      (case (keyword (:type thinking))
+        :enabled (.enabledThinking b (long (:budget-tokens thinking)))
+        :disabled (.thinking b (.build (BetaThinkingConfigDisabled/builder)))
+        :adaptive (.thinking b (.build (BetaThinkingConfigAdaptive/builder)))))
+    (.build b)))
+
 (defn- ->mcp-server ^BetaRequestMcpServerUrlDefinition
   [{:keys [name url authorization-token tool-configuration]}]
   (let [b (-> (BetaRequestMcpServerUrlDefinition/builder)
@@ -240,7 +301,8 @@
 (defn- ->params ^MessageCreateParams
   [{:keys [model max-tokens system messages tools temperature top-p top-k stop-sequences
            tool-choice thinking metadata service-tier response-format effort container inference-geo
-           user-profile-id cache-control betas mcp-servers extra-headers extra-query extra-body]
+           user-profile-id cache-control betas mcp-servers fallbacks fallback-credit-token
+           extra-headers extra-query extra-body]
     :or {model "claude-opus-4-8" max-tokens 1024}}]
   (let [^String model-name (if (keyword? model) (name model) model)
         b (doto (MessageCreateParams/builder)
@@ -263,6 +325,11 @@
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
     (when (or response-format effort) (.outputConfig b (->output-config response-format effort)))
+    (when fallbacks
+      (if (= :default (keyword fallbacks))
+        (.fallbacksDefault b)
+        (.fallbacksOfFallbackParams b (mapv ->fallback-param fallbacks))))
+    (when fallback-credit-token (.fallbackCreditToken b ^String fallback-credit-token))
     (doseq [beta betas]
       (let [^String beta-name (if (keyword? beta) (name beta) beta)]
         (.addBeta b beta-name)))
@@ -387,37 +454,44 @@
        :is-error true})))
 
 (defn- run-beta-tools*
-  [call-fn params {:keys [max-iterations on-message]
-                   :or {max-iterations 10}}]
-  (let [fns (beta-tool-fns (:tools params))]
-    (loop [iterations 0
-           messages (cond
-                      (nil? (:messages params)) []
-                      (string? (:messages params)) [{:role :user :content (:messages params)}]
-                      :else (vec (:messages params)))]
-      (when (>= iterations max-iterations)
-        (throw (ex-info "Beta tool loop exceeded max iterations"
-                        {:anthropic/error :max-iterations-exceeded
-                         :iterations iterations
-                         :messages messages})))
-      (let [response (call-fn (-> params strip-tool-fns (assoc :messages messages)))
-            tool-uses (filterv #(= :tool-use (:type %)) (:content response))]
-        (when on-message (on-message response))
-        (if (or (= :tool-use (:stop-reason response)) (seq tool-uses))
-          (let [results (mapv (fn [{:keys [name] :as block}]
-                                (if-let [f (get fns name)]
-                                  (beta-tool-result block f)
-                                  (throw (ex-info "Tool call has no matching :fn"
-                                                  {:anthropic/error :no-tool-fn :name name}))))
-                              tool-uses)]
-            (recur (inc iterations)
-                   (conj messages
-                         {:role :assistant :content (:content response)}
-                         {:role :user :content results})))
-          (assoc response :messages (conj messages {:role :assistant :content (:content response)})))))))
+  [call-fn params {:keys [max-iterations on-message on-turn]
+                   :or {max-iterations 10 on-turn (fn [_ params] params)}}]
+  (loop [iterations 0
+         params params
+         messages (cond
+                    (nil? (:messages params)) []
+                    (string? (:messages params)) [{:role :user :content (:messages params)}]
+                    :else (vec (:messages params)))]
+    (when (>= iterations max-iterations)
+      (throw (ex-info "Beta tool loop exceeded max iterations"
+                      {:anthropic/error :max-iterations-exceeded
+                       :iterations iterations
+                       :messages messages})))
+    (let [fns (beta-tool-fns (:tools params))
+          response (call-fn (-> params strip-tool-fns (assoc :messages messages)))
+          tool-uses (filterv #(= :tool-use (:type %)) (:content response))
+          next-params (on-turn response params)]
+      (when on-message (on-message response))
+      (if (or (= :tool-use (:stop-reason response)) (seq tool-uses))
+        (let [results (mapv (fn [{:keys [name] :as block}]
+                              (if-let [f (get fns name)]
+                                (beta-tool-result block f)
+                                (throw (ex-info "Tool call has no matching :fn"
+                                                {:anthropic/error :no-tool-fn :name name}))))
+                            tool-uses)]
+          (recur (inc iterations)
+                 next-params
+                 (conj messages
+                       {:role :assistant :content (:content response)}
+                       {:role :user :content results})))
+        (assoc response :messages (conj messages {:role :assistant :content (:content response)}))))))
 
 (defn run-beta-tools
-  "Run a beta Messages request with local tool functions until no tool is requested."
+  "Run beta Messages with local tool functions until no tool is requested.
+
+  Options include `:max-iterations`, `:on-message`, and `:on-turn`. `:on-turn`
+  receives each assistant response and the current params, and returns params
+  for the next iteration, allowing tools and request settings to change."
   ([^AnthropicClient client params]
    (run-beta-tools client params {}))
   ([^AnthropicClient client params opts]
