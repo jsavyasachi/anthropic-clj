@@ -599,6 +599,24 @@
     (is (= "END" (:stop-sequence mm)))
     (is (= {:category :cyber :explanation "blocked"} (:stop-details mm)))))
 
+(deftest model-context-window-exceeded-stop-reason-round-trips
+  (let [m (-> (Message/builder)
+              (.id "msg_1")
+              (.model "claude-haiku-4-5")
+              (.role (com.anthropic.core.JsonValue/from "assistant"))
+              (.type (com.anthropic.core.JsonValue/from "message"))
+              (.content [])
+              (.usage (usage 1 2 nil nil))
+              (.stopDetails (-> (RefusalStopDetails/builder)
+                                (.category RefusalStopDetails$Category/CYBER)
+                                (.explanation "blocked")
+                                (.build)))
+              (.stopReason StopReason/MODEL_CONTEXT_WINDOW_EXCEEDED)
+              (.stopSequence "END")
+              (.build))]
+    (is (= :model-context-window-exceeded
+           (:stop-reason (message->map m))))))
+
 (deftest thinking-block-round-trips-with-signature
   ;; extended-thinking responses must re-enter :messages intact: the API
   ;; requires the signature on replayed thinking blocks, and the input

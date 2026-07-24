@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.18.1] - 2026-07-23
+
+### Changed
+- Track `com.anthropic/anthropic-java` 2.51.0, which adds the
+  `model_context_window_exceeded` stop reason surfaced as
+  `:model-context-window-exceeded`.
+
 ## [0.18.0] - 2026-07-22
 
 ### Added

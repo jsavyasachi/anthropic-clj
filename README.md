@@ -36,13 +36,13 @@ for roles and block types), with a few Clojure-native conveniences (a native
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.18.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.18.1"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.18.0"]
+[net.clojars.savya/anthropic-clj "0.18.1"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -57,7 +57,7 @@ Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
 - `:configure` - receives the raw SDK builder last, for anything not wrapped
   here (interceptors, a custom `jsonMapper`, or a Bedrock/Vertex `backend`)
 
-Tracks [`com.anthropic/anthropic-java` 2.50.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.50.0) - see `CHANGELOG.md` for the bump history.
+Tracks [`com.anthropic/anthropic-java` 2.51.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.51.0) - see `CHANGELOG.md` for the bump history.
 
 ## Usage
 
