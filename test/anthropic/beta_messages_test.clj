@@ -200,6 +200,75 @@
     (is (= 1 (count (opt (.tools p)))))
     (is (.isPresent (.thinking p)))))
 
+(deftest beta-message-context-management-request-translation
+  (let [^MessageCreateParams p
+        (->params {:messages [{:role :user :content "hi"}]
+                   :context-management {:edits [{:type :clear-tool-uses-20250919
+                                                 :clear-tool-inputs true}
+                                                {:type :clear-thinking-20251015
+                                                 :keep :all}
+                                                {:type :compact-20260112
+                                                 :instructions "summarize"}]}})
+        context-management (opt (.contextManagement p))]
+    (is (some? context-management))
+    (when-let [edits (and context-management (opt (.edits context-management)))]
+      (is (= 3 (count edits)))
+      (when (= 3 (count edits))
+        (is (.isClearToolUses20250919 (first edits)))
+        (is (.isClearThinking20251015 (second edits)))
+        (is (.isCompact20260112 (nth edits 2)))))))
+
+(deftest beta-message-diagnostics-request-translation
+  (let [^MessageCreateParams p
+        (->params {:messages [{:role :user :content "hi"}]
+                   :diagnostics {:previous-message-id "msg_previous"}})]
+    (is (some? (opt (.diagnostics p))))
+    (when-let [diagnostics (opt (.diagnostics p))]
+      (is (= "msg_previous" (opt (.previousMessageId diagnostics)))))))
+
+(deftest beta-message-speed-request-translation
+  (doseq [[speed expected] [[:standard "standard"] [:fast "fast"]]]
+    (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                            :speed speed})]
+      (is (= expected (str (opt (.speed p)))))))
+  (let [error (try
+                (->params {:messages [{:role :user :content "hi"}]
+                           :speed :turbo})
+                nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :unsupported-speed (:anthropic/error (ex-data error))))))
+
+(deftest beta-message-output-format-request-translation
+  (let [^MessageCreateParams p
+        (->params {:messages [{:role :user :content "hi"}]
+                   :output-format {:type "object" :properties {}}})
+        body (json-roundtrip (._body p))]
+    (is (some? (opt (.outputFormat p))))
+    (is (= {:type "object" :properties {}}
+           (get-in body [:output-format :schema])))))
+
+(deftest beta-message-tool-choice-disable-parallel-tool-use
+  (doseq [[choice expected]
+          [[{:type :auto :disable-parallel-tool-use true} true]
+           [{:type :any :disable-parallel-tool-use false} false]
+           [{:name "weather" :disable-parallel-tool-use true} true]]]
+    (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                            :tool-choice choice})
+          body (json-roundtrip (._body p))]
+      (is (= expected (get-in body [:tool-choice :disable-parallel-tool-use])))))
+  (doseq [choice [:auto :any :none]]
+    (is (some? (->params {:messages [{:role :user :content "hi"}]
+                          :tool-choice choice}))))
+  (is (some? (->params {:messages [{:role :user :content "hi"}]
+                        :tool-choice {:name "weather"}})))
+  (let [error (try
+                (->params {:messages [{:role :user :content "hi"}]
+                           :tool-choice {:type :none :disable-parallel-tool-use true}})
+                nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :unsupported-disable-parallel-tool-use
+           (:anthropic/error (ex-data error))))))
+
 (deftest rich-content-request-translation
   (let [^MessageCreateParams p
         (->params {:messages [{:role :user
