@@ -238,7 +238,7 @@
               (.createdAt ts) (.displayName "Local") (.domain "localhost")
               (.type (com.anthropic.core.JsonValue/from "tunnel")) (.build))]
     (is (= {:id "tun_1" :display-name "Local" :domain "localhost"
-            :created-at "2026-07-04T00:00Z"}
+            :created-at "2026-07-04T00:00Z" :type :tunnel}
            (tunnel->map r)))))
 
 (deftest agent-version-params
@@ -508,6 +508,9 @@
                     (.vaultIds []) (.deploymentId (java.util.Optional/empty)) (.build))
         mapped (session->map session)
         round-trip (->session-update-params "sess_1" {:budget (:budget mapped)})]
+    (is (every? #(contains? mapped %) [:id :agent :status :created-at :updated-at :stats :type
+                                       :metadata :outcome-evaluations :resources :vault-ids
+                                       :environment-id :budget :usage]))
     (is (= {:max-list-cost {:amount "1.25" :currency :usd} :type :limit} (:budget mapped)))
     (is (= "1.25" (.amount (.maxListCost (opt (.budget round-trip)))))))
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
@@ -825,6 +828,7 @@
         m (skill-create->map r)]
     (is (= "skill_1" (:id m)))
     (is (= "My Skill" (:display-title m)))
+    (is (= :skill (:type m)))
     (is (= "2026-07-04T00:00:00Z" (:created-at m)))))
 
 (deftest memory-store-response-mapping
@@ -840,6 +844,7 @@
         m (memory-store->map r)]
     (is (= "ms_1" (:id m)))
     (is (= "notes" (:name m)))
+    (is (= :memory-store (:type m)))
     (is (= "d" (:description m)))))
 
 (deftest agent-response-mapping
@@ -900,6 +905,7 @@
               (.version 7)
               (.build))
         m (agent->map r)]
+    (is (= :agent (:type m)))
     (is (= [{:type :custom :skill-id "skill_1" :version "2"}] (:skills m)))
     (is (= [{:name "github" :url "https://mcp.example.test"}] (:mcp-servers m)))
     (is (= [{:type :mcp-toolset :mcp-server-name "github"}] (:tools m)))
@@ -1028,8 +1034,9 @@
         m (memory->map r)]
     (is (= "mem_1" (:id m)))
     (is (= "ms_1" (:memory-store-id m)))
+    (is (= :memory (:type m)))
     (is (= "hello" (:content m)))
-    (is (= {:id "mem_1" :deleted true} (memory-delete->map d)))))
+    (is (= {:id "mem_1" :deleted true :type :memory-deleted} (memory-delete->map d)))))
 
 (deftest memory-version-params
   (let [^MemoryVersionListParams lp
@@ -1142,7 +1149,7 @@
     (is (= "sv_1" (:id m)))
     (is (= "skill_1" (:skill-id m)))
     (is (= "2" (:version m)))
-    (is (= {:id "sv_1" :deleted true} (skill-version-delete->map d)))))
+    (is (= {:id "sv_1" :deleted true :type :skill_version_deleted} (skill-version-delete->map d)))))
 
 (deftest deployment-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
@@ -1317,7 +1324,7 @@
     (is (= {:team "platform"} (:metadata m)))
     (is (= :vault (:type m)))
     (is (= "platform" (.convert ^JsonValue (get (._additionalProperties (opt (.metadata u))) "team") String)))
-    (is (= {:id "vault_1" :deleted true} (vault-delete->map d)))))
+    (is (= {:id "vault_1" :deleted true :type :vault_deleted} (vault-delete->map d)))))
 
 (deftest user-profile-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
@@ -1431,3 +1438,44 @@
               :organization-id "org_1"
               :workspace-id "ws_1"}
              (event-map type data))))))
+
+(defn- union-variant-predicates
+  "Every `isX` predicate an SDK union exposes, as the variant names it can hold."
+  [^Class c]
+  (->> (.getMethods c)
+       (map #(.getName ^java.lang.reflect.Method %))
+       (filter #(re-matches #"is[A-Z].*" %))
+       (remove #{"isValid"})
+       set))
+
+(defn- mapper-source
+  "The text of `src/anthropic/beta.clj`, for checking union branch coverage."
+  []
+  (slurp "src/anthropic/beta.clj"))
+
+(deftest every-session-event-variant-is-mapped
+  ;; A variant the SDK can send but the mapper has no branch for falls through to
+  ;; {:type :unknown}, silently dropping the event. This guards the whole union,
+  ;; including variants a future SDK release adds.
+  (let [src (mapper-source)
+        missing (remove #(clojure.string/includes? src (str "." %))
+                        (union-variant-predicates
+                         com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionEvent))]
+    (is (empty? missing)
+        (str "session event variants with no mapper branch: " (sort missing)))))
+
+(deftest every-webhook-event-variant-is-mapped
+  (let [src (mapper-source)
+        missing (remove #(clojure.string/includes? src (str "." %))
+                        (union-variant-predicates
+                         com.anthropic.models.beta.webhooks.BetaWebhookEventData))]
+    (is (empty? missing)
+        (str "webhook variants with no mapper branch: " (sort missing)))))
+
+(deftest every-user-message-content-variant-is-mapped
+  (let [src (mapper-source)
+        missing (remove #(clojure.string/includes? src (str "." %))
+                        (union-variant-predicates
+                         com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent$Content))]
+    (is (empty? missing)
+        (str "user message content variants with no mapper branch: " (sort missing)))))

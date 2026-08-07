@@ -194,6 +194,8 @@
 (defn- unopt [^Optional o]
   (when (.isPresent o) (.get o)))
 
+(declare ^:private additional-properties->map)
+
 (defn- monetary-amount->map [^com.anthropic.models.beta.BetaMonetaryAmount a]
   {:amount (.amount a) :currency (keyword (str/lower-case (.asString (.currency a))))})
 
@@ -307,25 +309,26 @@
     (doseq [f files] (.addFile b (->skill-file f)))
     (.build b)))
 
-(defn- skill-map [id display-title latest-version source created-at updated-at]
+(defn- skill-map [id display-title latest-version source created-at updated-at type]
   (cond-> {:id id
            :source (str source)
            :created-at (str created-at)
-           :updated-at (str updated-at)}
+           :updated-at (str updated-at)
+           :type (keyword type)}
     display-title (assoc :display-title display-title)
     latest-version (assoc :latest-version latest-version)))
 
 (defn- skill-create->map [^SkillCreateResponse r]
   (skill-map (.id r) (unopt (.displayTitle r)) (unopt (.latestVersion r))
-             (.source r) (.createdAt r) (.updatedAt r)))
+             (.source r) (.createdAt r) (.updatedAt r) (.type r)))
 
 (defn- skill-retrieve->map [^SkillRetrieveResponse r]
   (skill-map (.id r) (unopt (.displayTitle r)) (unopt (.latestVersion r))
-             (.source r) (.createdAt r) (.updatedAt r)))
+             (.source r) (.createdAt r) (.updatedAt r) (.type r)))
 
 (defn- skill-list->map [^SkillListResponse r]
   (skill-map (.id r) (unopt (.displayTitle r)) (unopt (.latestVersion r))
-             (.source r) (.createdAt r) (.updatedAt r)))
+             (.source r) (.createdAt r) (.updatedAt r) (.type r)))
 
 (defn create-skill
   "Create a skill from `:files` (paths or `java.io.File`s; typically a
@@ -350,11 +353,11 @@
       (mapv skill-list->map (.autoPager p)))))
 
 (defn delete-skill
-  "Delete a skill by id. Returns `{:id ... :deleted true}`."
+  "Delete a skill by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String skill-id]
   (with-api-errors
     (let [^SkillDeleteResponse r (-> (.beta client) (.skills) (.delete skill-id))]
-      {:id (.id r) :deleted true})))
+      {:id (.id r) :deleted true :type (keyword (.type r))})))
 
 ;; ---- Skill versions -------------------------------------------------------
 
@@ -389,14 +392,15 @@
     (.version b ^String version)
     (.build b)))
 
-(defn- skill-version-map [id skill-id version name description directory created-at]
+(defn- skill-version-map [id skill-id version name description directory created-at type]
   (cond-> {:id id
            :skill-id skill-id
            :version version
            :name name
            :description description
            :directory directory
-           :created-at (str created-at)}
+           :created-at (str created-at)
+           :type (keyword type)}
     true identity))
 
 (defn- skill-version->map [r]
@@ -404,18 +408,18 @@
     (instance? VersionCreateResponse r)
     (let [^VersionCreateResponse r r]
       (skill-version-map (.id r) (.skillId r) (.version r) (.name r)
-                         (.description r) (.directory r) (.createdAt r)))
+                         (.description r) (.directory r) (.createdAt r) (.type r)))
     (instance? VersionRetrieveResponse r)
     (let [^VersionRetrieveResponse r r]
       (skill-version-map (.id r) (.skillId r) (.version r) (.name r)
-                         (.description r) (.directory r) (.createdAt r)))
+                         (.description r) (.directory r) (.createdAt r) (.type r)))
     :else
     (let [^VersionListResponse r r]
       (skill-version-map (.id r) (.skillId r) (.version r) (.name r)
-                         (.description r) (.directory r) (.createdAt r)))))
+                         (.description r) (.directory r) (.createdAt r) (.type r)))))
 
 (defn- skill-version-delete->map [^VersionDeleteResponse r]
-  {:id (.id r) :deleted true})
+  {:id (.id r) :deleted true :type (keyword (.type r))})
 
 (defn create-skill-version
   "Create a new skill version for `skill-id` from `:files` (paths or
@@ -441,7 +445,7 @@
       (mapv skill-version->map (.autoPager p)))))
 
 (defn delete-skill-version
-  "Delete a skill version. Returns `{:id ... :deleted true}`."
+  "Delete a skill version. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
     (skill-version-delete->map (-> (.beta client) (.skills) (.versions)
@@ -492,7 +496,12 @@
   (cond-> {:id (.id r)
            :name (.name r)
            :created-at (str (.createdAt r))
-           :updated-at (str (.updatedAt r))}
+           :updated-at (str (.updatedAt r))
+           :type (->keyword (unopt (.asString (._type r))))}
+    (unopt (.metadata r))
+    (assoc :metadata (additional-properties->map
+                      (._additionalProperties ^com.anthropic.models.beta.memorystores.BetaManagedAgentsMemoryStore$Metadata
+                                               (unopt (.metadata r)))))
     (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 
@@ -533,12 +542,12 @@
     (memory-store->map (-> (.beta client) (.memoryStores) (.archive memory-store-id)))))
 
 (defn delete-memory-store
-  "Delete a memory store by id. Returns `{:id ... :deleted true}`."
+  "Delete a memory store by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String memory-store-id]
   (with-api-errors
     (let [^BetaManagedAgentsDeletedMemoryStore d
           (-> (.beta client) (.memoryStores) (.delete memory-store-id))]
-      {:id (.id d) :deleted true})))
+      {:id (.id d) :deleted true :type (keyword (.type d))})))
 
 ;; ---- Memories -------------------------------------------------------------
 
@@ -600,17 +609,19 @@
            :content-sha256 (.contentSha256 r)
            :content-size-bytes (.contentSizeBytes r)
            :created-at (str (.createdAt r))
-           :updated-at (str (.updatedAt r))}
+           :updated-at (str (.updatedAt r))
+           :type (->keyword (.asString (.type r)))}
     (unopt (.content r)) (assoc :content (unopt (.content r)))))
 
 (defn- memory-delete->map [^BetaManagedAgentsDeletedMemory r]
-  {:id (.id r) :deleted true})
+  {:id (.id r) :deleted true :type (->keyword (.asString (.type r)))})
 
 (defn- memory-list-item->map
   [^com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsMemoryListItem r]
   (cond-> {:type (if (.isMemory r) :memory :memory-prefix)
            :path (.path r)}
     (.isMemory r) (merge (memory->map (.asMemory r)))
+    (.isMemoryPrefix r) (assoc :type (->keyword (.asString (.type (.asMemoryPrefix r)))))
     ))
 
 (defn create-memory
@@ -947,7 +958,9 @@
            :model (.id ^BetaManagedAgentsModelConfig (.model r))
            :version (.version r)
            :created-at (str (.createdAt r))
-           :updated-at (str (.updatedAt r))}
+           :updated-at (str (.updatedAt r))
+           :type (keyword (.asString (.type r)))
+           :metadata (additional-properties->map (._additionalProperties (.metadata r)))}
     (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))
     (assoc :effort (model-effort->keyword
                     (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))))
@@ -1079,16 +1092,63 @@
         (.addBeta b beta-name)))
     (.build b)))
 
+(declare ^:private agent-ref->map session-resource->map)
+
+(defn- session-agent->map
+  [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent r]
+  (cond-> {:id (.id r)
+           :name (.name r)
+           :model (.id ^BetaManagedAgentsModelConfig (.model r))
+           :version (.version r)
+           :type (keyword (.asString (.type r)))
+           :mcp-servers (mapv mcp-server->map (.mcpServers r))
+           :skills (mapv (fn [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent$Skill s]
+                           (cond-> {:type (if (.isAnthropic s) :anthropic :custom)
+                                    :skill-id (.skillId s)
+                                    :version (.version s)}))
+                         (.skills r))
+           :tools (mapv (fn [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent$Tool t]
+                          (cond
+                            (.isCustom t) {:type :custom :name (.name (.asCustom t))}
+                            (.isMcpToolset t) {:type :mcp-toolset :mcp-server-name (.mcpServerName (.asMcpToolset t))}
+                            :else {:type :agent-toolset-20260401}))
+                        (.tools r))}
+    (unopt (.description r)) (assoc :description (unopt (.description r)))
+    (unopt (.system r)) (assoc :system (unopt (.system r)))
+    (unopt (.multiagent r)) (assoc :multiagent
+                                   (let [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionMultiagentCoordinator m
+                                         (unopt (.multiagent r))]
+                                     {:type (->keyword (.asString (.type m)))
+                                      :agents (mapv agent-ref->map (.agents m))}))))
+
+(defn- outcome-evaluation->map [^com.anthropic.models.beta.sessions.BetaManagedAgentsOutcomeEvaluationResource r]
+  (cond-> {:type (keyword (.asString (.type r)))
+           :description (.description r)
+           :iteration (.iteration r)
+           :outcome-id (.outcomeId r)
+           :result (.result r)}
+    (unopt (.completedAt r)) (assoc :completed-at (str (unopt (.completedAt r))))
+    (unopt (.explanation r)) (assoc :explanation (unopt (.explanation r)))))
+
 (defn- session->map [^BetaManagedAgentsSession r]
   (cond-> {:id (.id r)
+           :agent (session-agent->map (.agent r))
            :status (str (.status r))
+           :stats (let [s (.stats r)] {:active-seconds (unopt (.activeSeconds s))
+                                       :duration-seconds (unopt (.durationSeconds s))})
+           :type (keyword (.asString (.type r)))
+           :metadata (additional-properties->map (._additionalProperties (.metadata r)))
+           :outcome-evaluations (mapv outcome-evaluation->map (.outcomeEvaluations r))
+           :resources (mapv session-resource->map (.resources r))
+           :vault-ids (vec (.vaultIds r))
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))}
     (unopt (.title r)) (assoc :title (unopt (.title r)))
     (.environmentId r) (assoc :environment-id (.environmentId r))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
     (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))
-    (.usage r) (assoc :usage (usage->map (.usage r)))))
+    (.usage r) (assoc :usage (usage->map (.usage r)))
+    (unopt (.deploymentId r)) (assoc :deployment-id (unopt (.deploymentId r)))))
 
 (defn- advisor->map [^BetaManagedAgentsAdvisor a]
   {:type :advisor :model (.model a)})
@@ -1162,12 +1222,12 @@
     (session->map (-> (.beta client) (.sessions) (.archive session-id)))))
 
 (defn delete-session
-  "Delete a session by id. Returns `{:id ... :deleted true}`."
+  "Delete a session by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String session-id]
   (with-api-errors
     (let [^BetaManagedAgentsDeletedSession d
           (-> (.beta client) (.sessions) (.delete session-id))]
-      {:id (.id d) :deleted true})))
+      {:id (.id d) :deleted true :type (keyword (.type d))})))
 
 ;; ---- Session events -------------------------------------------------------
 
@@ -1259,6 +1319,20 @@
 (defn- user-content->map [^BetaManagedAgentsUserMessageEvent$Content c]
   (cond
     (.isText c) (.text ^BetaManagedAgentsTextBlock (.asText c))
+    (.isImage c) {:type :image
+                  :source (cond
+                            (.isBase64 (.source (.asImage c))) {:type :base64}
+                            (.isUrl (.source (.asImage c))) {:type :url}
+                            :else {:type :file})}
+    (.isDocument c) (let [d (.asDocument c)]
+                      (cond-> {:type :document
+                               :source (cond
+                                         (.isBase64 (.source d)) {:type :base64}
+                                         (.isText (.source d)) {:type :text}
+                                         (.isUrl (.source d)) {:type :url}
+                                         :else {:type :file})}
+                        (unopt (.context d)) (assoc :context (unopt (.context d)))
+                        (unopt (.title d)) (assoc :title (unopt (.title d)))))
     (.isRedacted c) {:type :redacted}
     :else {:type :unknown}))
 
@@ -1270,36 +1344,77 @@
            :usage (usage->map (.usage r))}
     (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))))
 
+(defn- session-event-common->map [^BetaManagedAgentsSessionEvent e type]
+  (cond-> {:type type :id (.id e)}
+    (unopt (.processedAt e)) (assoc :processed-at (str (unopt (.processedAt e))))
+    (unopt (.sessionThreadId e)) (assoc :session-thread-id (unopt (.sessionThreadId e)))
+    (unopt (.toolUseId e)) (assoc :tool-use-id (unopt (.toolUseId e)))
+    (unopt (.name e)) (assoc :name (unopt (.name e)))
+    (unopt (.agentName e)) (assoc :agent-name (unopt (.agentName e)))
+    (unopt (.iteration e)) (assoc :iteration (unopt (.iteration e)))
+    (unopt (.outcomeId e)) (assoc :outcome-id (unopt (.outcomeId e)))
+    (unopt (.isError e)) (assoc :is-error (unopt (.isError e)))))
+
 (defn- session-event->map [^BetaManagedAgentsSessionEvent e]
   (cond
     (.isUserMessage e)
     (let [^BetaManagedAgentsUserMessageEvent r (.asUserMessage e)]
-      (cond-> {:type :user-message
-               :id (.id r)
-               :content (mapv user-content->map (.content r))}
-        (unopt (.processedAt r)) (assoc :processed-at (str (unopt (.processedAt r))))))
+      (merge (session-event-common->map e :user-message)
+             {:content (mapv user-content->map (.content r))}))
     (.isSystemMessage e)
     (let [^BetaManagedAgentsSystemMessageEvent r (.asSystemMessage e)]
-      (cond-> {:type :system-message
-               :id (.id r)
-               :content (mapv (fn [^BetaManagedAgentsSystemContentBlock b] (.text b))
-                              (.content r))}
-        (unopt (.processedAt r)) (assoc :processed-at (str (unopt (.processedAt r))))))
+      (merge (session-event-common->map e :system-message)
+             {:content (mapv (fn [^BetaManagedAgentsSystemContentBlock b] (.text b))
+                             (.content r))}))
     (.isUserDefineOutcome e)
     (let [^BetaManagedAgentsUserDefineOutcomeEvent r (.asUserDefineOutcome e)]
-      (cond-> {:type :user-define-outcome
-               :id (.id r)
-               :description (.description r)
-               :outcome-id (.outcomeId r)
-               :processed-at (str (.processedAt r))}
-        (unopt (.maxIterations r)) (assoc :max-iterations (unopt (.maxIterations r)))))
+      (merge (session-event-common->map e :user-define-outcome)
+             (cond-> {:description (.description r)}
+               (unopt (.maxIterations r)) (assoc :max-iterations (unopt (.maxIterations r))))))
     (.isSessionUsage e)
-    (session-usage-event->map (.asSessionUsage e))
+    (merge (session-event-common->map e :session-usage)
+           (session-usage-event->map (.asSessionUsage e)))
     (.isSessionUpdated e)
     (let [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUpdatedEvent r (.asSessionUpdated e)]
-      (cond-> {:type :session-updated :id (.id r) :processed-at (str (.processedAt r))}
+      (merge (session-event-common->map e :session-updated)
+             (cond-> {}
         (unopt (.title r)) (assoc :title (unopt (.title r)))
-        (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))))
+        (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))
+        (unopt (.agent r)) (assoc :agent (session-agent->map (unopt (.agent r))))
+        (unopt (.metadata r)) (assoc :metadata (additional-properties->map
+                                                (._additionalProperties ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUpdatedEvent$Metadata
+                                                                         (unopt (.metadata r)))))
+        )))
+    (.isUserInterrupt e) (session-event-common->map e :user-interrupt)
+    (.isUserToolConfirmation e) (session-event-common->map e :user-tool-confirmation)
+    (.isUserCustomToolResult e) (session-event-common->map e :user-custom-tool-result)
+    (.isAgentCustomToolUse e) (session-event-common->map e :agent-custom-tool-use)
+    (.isAgentMessage e) (session-event-common->map e :agent-message)
+    (.isAgentThinking e) (session-event-common->map e :agent-thinking)
+    (.isAgentMcpToolUse e) (session-event-common->map e :agent-mcp-tool-use)
+    (.isAgentMcpToolResult e) (session-event-common->map e :agent-mcp-tool-result)
+    (.isAgentToolUse e) (session-event-common->map e :agent-tool-use)
+    (.isAgentToolResult e) (session-event-common->map e :agent-tool-result)
+    (.isAgentThreadMessageReceived e) (session-event-common->map e :agent-thread-message-received)
+    (.isAgentThreadMessageSent e) (session-event-common->map e :agent-thread-message-sent)
+    (.isAgentThreadContextCompacted e) (session-event-common->map e :agent-thread-context-compacted)
+    (.isSessionError e) (session-event-common->map e :session-error)
+    (.isSessionStatusRescheduled e) (session-event-common->map e :session-status-rescheduled)
+    (.isSessionStatusRunning e) (session-event-common->map e :session-status-running)
+    (.isSessionStatusIdle e) (session-event-common->map e :session-status-idle)
+    (.isSessionStatusTerminated e) (session-event-common->map e :session-status-terminated)
+    (.isSessionThreadCreated e) (session-event-common->map e :session-thread-created)
+    (.isSpanOutcomeEvaluationStart e) (session-event-common->map e :span-outcome-evaluation-start)
+    (.isSpanOutcomeEvaluationEnd e) (session-event-common->map e :span-outcome-evaluation-end)
+    (.isSpanModelRequestStart e) (session-event-common->map e :span-model-request-start)
+    (.isSpanModelRequestEnd e) (session-event-common->map e :span-model-request-end)
+    (.isSpanOutcomeEvaluationOngoing e) (session-event-common->map e :span-outcome-evaluation-ongoing)
+    (.isSessionDeleted e) (session-event-common->map e :session-deleted)
+    (.isSessionThreadStatusRunning e) (session-event-common->map e :session-thread-status-running)
+    (.isSessionThreadStatusIdle e) (session-event-common->map e :session-thread-status-idle)
+    (.isSessionThreadStatusTerminated e) (session-event-common->map e :session-thread-status-terminated)
+    (.isUserToolResult e) (session-event-common->map e :user-tool-result)
+    (.isSessionThreadStatusRescheduled e) (session-event-common->map e :session-thread-status-rescheduled)
     :else {:type :unknown}))
 
 (defn- send-data->map
@@ -1449,7 +1564,12 @@
            :updated-at (str (.updatedAt r))}
     (unopt (.parentThreadId r)) (assoc :parent-thread-id (unopt (.parentThreadId r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
-    (unopt (.usage r)) (assoc :usage (usage->map (unopt (.usage r))))))
+    (unopt (.usage r)) (assoc :usage (usage->map (unopt (.usage r))))
+    (unopt (.stats r)) (assoc :stats (let [^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadStats s
+                                           (unopt (.stats r))]
+                                       {:active-seconds (unopt (.activeSeconds s))
+                                        :duration-seconds (unopt (.durationSeconds s))}))
+    (.type r) (assoc :type (->keyword (.asString (.type r))))))
 
 (defn get-session-thread
   "Retrieve a session thread by session id and thread id."
@@ -1739,6 +1859,20 @@
 (defn- deployment-content->map [^com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentUserMessageEvent$Content c]
   (cond
     (.isText c) (.text ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsTextBlock (.asText c))
+    (.isImage c) {:type :image
+                  :source (cond
+                            (.isBase64 (.source (.asImage c))) {:type :base64}
+                            (.isUrl (.source (.asImage c))) {:type :url}
+                            :else {:type :file})}
+    (.isDocument c) (let [d (.asDocument c)]
+                      (cond-> {:type :document
+                               :source (cond
+                                         (.isBase64 (.source d)) {:type :base64}
+                                         (.isText (.source d)) {:type :text}
+                                         (.isUrl (.source d)) {:type :url}
+                                         :else {:type :file})}
+                        (unopt (.context d)) (assoc :context (unopt (.context d)))
+                        (unopt (.title d)) (assoc :title (unopt (.title d)))))
     (.isRedacted c) {:type :redacted}
     :else {:type :unknown}))
 
@@ -2251,7 +2385,7 @@
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 
 (defn- vault-delete->map [^BetaManagedAgentsDeletedVault r]
-  {:id (.id r) :deleted true})
+  {:id (.id r) :deleted true :type (keyword (.asString (.type r)))})
 
 (defn create-vault
   "Create a vault: `:display-name` (required), `:metadata`, and `:betas`. Credentials are
@@ -2287,7 +2421,7 @@
     (vault->map (-> (.beta client) (.vaults) (.archive vault-id)))))
 
 (defn delete-vault
-  "Delete a vault by id. Returns `{:id ... :deleted true}`."
+  "Delete a vault by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String vault-id]
   (with-api-errors
     (vault-delete->map (-> (.beta client) (.vaults) (.delete vault-id)))))
@@ -2301,7 +2435,8 @@
     (.build b)))
 
 (defn- tunnel->map [^com.anthropic.models.beta.tunnels.BetaTunnel r]
-  (cond-> {:id (.id r) :domain (.domain r) :created-at (str (.createdAt r))}
+  (cond-> {:id (.id r) :domain (.domain r) :created-at (str (.createdAt r))
+           :type (keyword (json-string (._type r)))}
     (unopt (.displayName r)) (assoc :display-name (unopt (.displayName r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 
@@ -2424,9 +2559,18 @@
 
 (defn- dream->map [^com.anthropic.models.beta.dreams.BetaDream r]
   (cond-> {:id (.id r) :status (str (.status r)) :created-at (str (.createdAt r))
-           :inputs (vec (.inputs r)) :outputs (vec (.outputs r))}
+           :inputs (vec (.inputs r)) :outputs (vec (.outputs r))
+           :type (keyword (str (.type r)))
+           :model {:id (.id (.model r))}
+           :usage {:cache-creation-input-tokens (.cacheCreationInputTokens (.usage r))
+                   :cache-read-input-tokens (.cacheReadInputTokens (.usage r))
+                   :input-tokens (.inputTokens (.usage r))
+                   :output-tokens (.outputTokens (.usage r))}}
     (unopt (.instructions r)) (assoc :instructions (unopt (.instructions r)))
     (unopt (.sessionId r)) (assoc :session-id (unopt (.sessionId r)))
+    (unopt (.endedAt r)) (assoc :ended-at (str (unopt (.endedAt r))))
+    (unopt (.error r)) (assoc :error (let [^com.anthropic.models.beta.dreams.BetaDreamError e (unopt (.error r))]
+                                      {:type (->keyword (.type e)) :message (.message e)}))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 (defn create-dream [^AnthropicClient client req] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.create (->dream-create-params req))))))
 (defn get-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.retrieve dream-id)))))
@@ -2437,7 +2581,13 @@
 ;; ---- Vault credentials ----------------------------------------------------
 
 (defn- credential->map [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredential r]
-  (cond-> {:id (.id r) :vault-id (.vaultId r) :created-at (str (.createdAt r)) :updated-at (str (.updatedAt r))}
+  (cond-> {:id (.id r) :vault-id (.vaultId r) :created-at (str (.createdAt r)) :updated-at (str (.updatedAt r))
+           :type (keyword (.asString (.type r)))
+           :metadata (additional-properties->map (._additionalProperties (.metadata r)))
+           :auth (cond
+                   (.isMcpOAuth (.auth r)) {:type :mcp-oauth :mcp-server-url (.mcpServerUrl (.asMcpOAuth (.auth r)))}
+                   (.isStaticBearer (.auth r)) {:type :static-bearer :mcp-server-url (.mcpServerUrl (.asStaticBearer (.auth r)))}
+                   :else {:type :environment-variable :secret-name (.secretName (.asEnvironmentVariable (.auth r)))})}
     (unopt (.displayName r)) (assoc :display-name (unopt (.displayName r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 (defn- ->credential-create-params [vault-id {:keys [auth display-name]}]
@@ -2469,7 +2619,7 @@
 (defn list-vault-credentials [^AnthropicClient client ^String vault-id] (with-api-errors (let [^com.anthropic.models.beta.vaults.credentials.CredentialListPage p (-> (.beta client) (.vaults) (.credentials) (.list vault-id))] (mapv credential->map (.autoPager p)))))
 (defn update-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id changes] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.update (->credential-update-params vault-id credential-id changes))))))
 (defn archive-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.archive (->credential-archive-params vault-id credential-id))))))
-(defn delete-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (let [r (-> (.beta client) (.vaults) (.credentials) (.delete (->credential-delete-params vault-id credential-id)))] {:id (.id r) :deleted true})))
+(defn delete-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (let [r (-> (.beta client) (.vaults) (.credentials) (.delete (->credential-delete-params vault-id credential-id)))] {:id (.id r) :deleted true :type (keyword (.asString (.type r)))})))
 (defn mcp-oauth-validate-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id]
   (with-api-errors (credential-validation->map (-> (.beta client) (.vaults) (.credentials)
                                                      (.mcpOAuthValidate (->credential-mcp-oauth-validate-params vault-id credential-id))))))
@@ -2514,7 +2664,9 @@
 (defn- user-profile->map [^BetaUserProfile r]
   (cond-> {:id (.id r)
            :created-at (str (.createdAt r))
-           :updated-at (str (.updatedAt r))}
+           :updated-at (str (.updatedAt r))
+           :metadata (additional-properties->map (._additionalProperties (.metadata r)))
+           :type (keyword (.asString (.type r)))}
     (unopt (.name r)) (assoc :name (unopt (.name r)))
     (unopt (.externalId r)) (assoc :external-id (unopt (.externalId r)))
     (.relationship r) (assoc :relationship (str (.relationship r)))
@@ -2625,6 +2777,10 @@
 (defn- webhook-memory-store-deleted->map [^BetaWebhookMemoryStoreDeletedEventData d]
   (webhook-common->map :memory-store-deleted (.id d) (.organizationId d) (.workspaceId d)))
 
+(defn- webhook-generic->map
+  [^BetaWebhookSessionCreatedEventData d type]
+  (webhook-common->map type (.id d) (.organizationId d) (.workspaceId d)))
+
 (defn- webhook-data->map [^BetaWebhookEventData d]
   (cond
     (.isSessionCreated d) (webhook-session-created->map (.asSessionCreated d))
@@ -2645,6 +2801,32 @@
     (.isMemoryStoreCreated d) (webhook-memory-store-created->map (.asMemoryStoreCreated d))
     (.isMemoryStoreArchived d) (webhook-memory-store-archived->map (.asMemoryStoreArchived d))
     (.isMemoryStoreDeleted d) (webhook-memory-store-deleted->map (.asMemoryStoreDeleted d))
+    (.isSessionPending d) (webhook-generic->map (.asSessionPending d) :session-pending)
+    (.isSessionRunning d) (webhook-generic->map (.asSessionRunning d) :session-running)
+    (.isSessionIdled d) (webhook-generic->map (.asSessionIdled d) :session-idled)
+    (.isSessionRequiresAction d) (webhook-generic->map (.asSessionRequiresAction d) :session-requires-action)
+    (.isSessionArchived d) (webhook-generic->map (.asSessionArchived d) :session-archived)
+    (.isSessionDeleted d) (webhook-generic->map (.asSessionDeleted d) :session-deleted)
+    (.isSessionStatusRescheduled d) (webhook-generic->map (.asSessionStatusRescheduled d) :session-status-rescheduled)
+    (.isSessionStatusRunStarted d) (webhook-generic->map (.asSessionStatusRunStarted d) :session-status-run-started)
+    (.isSessionStatusIdled d) (webhook-generic->map (.asSessionStatusIdled d) :session-status-idled)
+    (.isSessionStatusTerminated d) (webhook-generic->map (.asSessionStatusTerminated d) :session-status-terminated)
+    (.isSessionThreadCreated d) (webhook-generic->map (.asSessionThreadCreated d) :session-thread-created)
+    (.isSessionThreadIdled d) (webhook-generic->map (.asSessionThreadIdled d) :session-thread-idled)
+    (.isSessionThreadTerminated d) (webhook-generic->map (.asSessionThreadTerminated d) :session-thread-terminated)
+    (.isSessionOutcomeEvaluationEnded d) (webhook-generic->map (.asSessionOutcomeEvaluationEnded d) :session-outcome-evaluation-ended)
+    (.isVaultCreated d) (webhook-generic->map (.asVaultCreated d) :vault-created)
+    (.isVaultArchived d) (webhook-generic->map (.asVaultArchived d) :vault-archived)
+    (.isVaultDeleted d) (webhook-generic->map (.asVaultDeleted d) :vault-deleted)
+    (.isVaultCredentialCreated d) (webhook-generic->map (.asVaultCredentialCreated d) :vault-credential-created)
+    (.isVaultCredentialArchived d) (webhook-generic->map (.asVaultCredentialArchived d) :vault-credential-archived)
+    (.isVaultCredentialDeleted d) (webhook-generic->map (.asVaultCredentialDeleted d) :vault-credential-deleted)
+    (.isVaultCredentialRefreshFailed d) (webhook-generic->map (.asVaultCredentialRefreshFailed d) :vault-credential-refresh-failed)
+    (.isSessionUpdated d) (webhook-generic->map (.asSessionUpdated d) :session-updated)
+    (.isAgentCreated d) (webhook-generic->map (.asAgentCreated d) :agent-created)
+    (.isAgentArchived d) (webhook-generic->map (.asAgentArchived d) :agent-archived)
+    (.isAgentDeleted d) (webhook-generic->map (.asAgentDeleted d) :agent-deleted)
+    (.isAgentUpdated d) (webhook-generic->map (.asAgentUpdated d) :agent-updated)
     :else {:type :unknown}))
 
 (defn- webhook-event->map [^UnwrapWebhookEvent r]
@@ -2652,6 +2834,10 @@
     (cond-> (assoc data
                    :id (.id r)
                    :created-at (str (.createdAt r)))
+      (unopt (.sessionThreadId (.data r)))
+      (assoc :session-thread-id (unopt (.sessionThreadId (.data r))))
+      (unopt (.vaultId (.data r)))
+      (assoc :vault-id (unopt (.vaultId (.data r))))
       (not= :unknown (:type data))
       (assoc :event-type (json-string (._type r))))))
 
