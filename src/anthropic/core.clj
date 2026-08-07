@@ -83,8 +83,10 @@
                                           ToolSearchToolRegex20251119$AllowedCaller
                                           ToolSearchToolRegex20251119$Type
                                           ToolChoice
-                                          ToolChoiceAny ToolChoiceAuto
+                                          ToolChoiceAny ToolChoiceAny$Builder
+                                          ToolChoiceAuto ToolChoiceAuto$Builder
                                           ToolChoiceNone ToolChoiceTool
+                                          ToolChoiceTool$Builder
                                           ServerToolUseBlock
                                           ToolResultBlockParam ToolResultBlockParam$Builder
                                           ToolTextEditor20250728
@@ -439,13 +441,20 @@
       :strict! #(.strict ^com.anthropic.models.messages.WebSearchTool20260318$Builder b (boolean %))})
     (.build b)))
 
+(defn- ->citations-config ^CitationsConfigParam [enabled]
+  (-> (CitationsConfigParam/builder)
+      (.enabled (boolean (if (map? enabled) (:enabled enabled) enabled)))
+      (.build)))
+
 (defn- ->web-fetch-tool ^WebFetchTool20260318
-  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains] :as t}]
+  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations] :as t}]
   (let [b (WebFetchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+    (when (some? use-cache) (.useCache b (boolean use-cache)))
+    (when citations (.citations b (->citations-config citations)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.WebFetchTool20260318$Builder b
@@ -603,11 +612,6 @@
                             "Unsupported document source type"
                             {:type type}))))
 
-(defn- ->citations-config ^CitationsConfigParam [enabled]
-  (-> (CitationsConfigParam/builder)
-      (.enabled (boolean enabled))
-      (.build)))
-
 (defn- ->search-result-text ^TextBlockParam [{:keys [text cache-control]}]
   (let [b (-> (TextBlockParam/builder) (.text ^String text))]
     (when cache-control (.cacheControl b (->cache-control cache-control)))
@@ -693,7 +697,26 @@
 
 (defn- ->tool-choice ^ToolChoice [tc]
   (if (map? tc)
-    (ToolChoice/ofTool (-> (ToolChoiceTool/builder) (.name ^String (:name tc)) (.build)))
+    (case (keyword (:type tc))
+      :auto (let [b ^ToolChoiceAuto$Builder (ToolChoiceAuto/builder)]
+              (when (contains? tc :disable-parallel-tool-use)
+                (.disableParallelToolUse b (boolean (:disable-parallel-tool-use tc))))
+              (ToolChoice/ofAuto (.build b)))
+      :any (let [b ^ToolChoiceAny$Builder (ToolChoiceAny/builder)]
+             (when (contains? tc :disable-parallel-tool-use)
+               (.disableParallelToolUse b (boolean (:disable-parallel-tool-use tc))))
+             (ToolChoice/ofAny (.build b)))
+      :none (if (contains? tc :disable-parallel-tool-use)
+              ;; The API has no parallel-use control to disable when no tool runs.
+              (throw (anthropic-error :unsupported-disable-parallel-tool-use
+                                      "Tool choice :none has no parallel tool use to disable"
+                                      {:tool-choice tc}))
+              (ToolChoice/ofNone (.build (ToolChoiceNone/builder))))
+      (let [b ^ToolChoiceTool$Builder (ToolChoiceTool/builder)]
+        (.name b ^String (:name tc))
+        (when (contains? tc :disable-parallel-tool-use)
+          (.disableParallelToolUse b (boolean (:disable-parallel-tool-use tc))))
+        (ToolChoice/ofTool (.build b))))
     (case (keyword tc)
       :auto (ToolChoice/ofAuto (.build (ToolChoiceAuto/builder)))
       :any (ToolChoice/ofAny (.build (ToolChoiceAny/builder)))
@@ -793,7 +816,7 @@
   "Translate a request map into the SDK's MessageCountTokensParams. Accepts the
   same `:model`/`:system`/`:messages`/`:tools`/`:thinking`/`:tool-choice` keys as
   `->params`; `:max-tokens` and sampling params are ignored (not part of the
-  count-tokens request)."
+  count-tokens request). Web-fetch tools accept `:use-cache` and `:citations`."
   ^MessageCountTokensParams [{:keys [model system messages tools thinking tool-choice
                                      response-format effort user-profile-id
                                      cache-control extra-headers extra-query
@@ -1131,10 +1154,12 @@
   `:cache-control`; system-block citations are not wrapped), `:messages` (a seq of
   `{:role :user|:assistant :content \"...\"}`), `:tools`, and the optional
   controls `:temperature`, `:top-p`, `:top-k`, `:stop-sequences` (seq of
-  strings), `:tool-choice` (`:auto`/`:any`/`:none` or `{:type :tool :name \"x\"}`),
+  strings), `:tool-choice` (`:auto`/`:any`/`:none` or a map with `:type`/`:name`
+  and optional `:disable-parallel-tool-use`),
   `:thinking` (`{:type :enabled :budget-tokens N}` / `{:type :adaptive}` /
   `{:type :disabled}`), `:metadata` (`{:user-id \"...\"}`), and `:service-tier`
-  (`:auto`/`:standard-only`). Custom tools accept `:cache-control`. The request
+  (`:auto`/`:standard-only`). Web-fetch tools accept `:use-cache` and
+  `:citations`; custom tools accept `:cache-control`. The request
   escape hatches `:extra-headers`, `:extra-query`, and `:extra-body` pass
   unwrapped values to the SDK builder. For structured output, pass
   `:response-format` (a

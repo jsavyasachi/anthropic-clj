@@ -20,6 +20,7 @@
                                           RefusalStopDetails RefusalStopDetails$Category
                                           InputJsonDelta TextDelta ThinkingDelta
                                           DirectCaller TextBlockParam Tool ToolUseBlock ToolUseBlock$Caller
+                                          ToolChoice ToolUnion WebFetchTool20260318
                                           OutputConfig OutputTokensDetails
                                           ServerToolUsage Usage Usage$Builder
                                           StopReason ToolResultBlockParam
@@ -33,6 +34,7 @@
            (com.anthropic.models.completions Completion CompletionCreateParams)))
 
 (def ->params #'a/->params)
+(def ->tool-choice #'a/->tool-choice)
 (def ->completion-params
   #(when-let [v (ns-resolve 'anthropic.core '->completion-params)]
      ((deref v) %)))
@@ -184,6 +186,52 @@
   (testing "thinking :enabled with a budget"
     (is (some? (opt (.thinking (->params {:messages [{:role :user :content "hi"}]
                                           :thinking {:type :enabled :budget-tokens 2048}})))))))
+
+(def web-fetch-tool-spec
+  {:type :web-fetch :name "web-fetch"
+   :max-content-tokens 2048
+   :use-cache true
+   :citations {:enabled true}})
+
+(deftest stable-web-fetch-use-cache
+  (let [^WebFetchTool20260318 web-fetch
+        (.asWebFetchTool20260318 ^ToolUnion (->tool web-fetch-tool-spec))]
+    (is (= true (opt (.useCache web-fetch))))))
+
+(deftest stable-web-fetch-citations
+  (let [^WebFetchTool20260318 web-fetch
+        (.asWebFetchTool20260318 ^ToolUnion (->tool web-fetch-tool-spec))]
+    (is (= true (when (.isPresent (.citations web-fetch))
+                  (opt (.enabled (opt (.citations web-fetch)))))))))
+
+(deftest tool-choice-disable-parallel-tool-use
+  (testing "disable-parallel-tool-use reaches all supported tool-choice variants"
+    (doseq [[tc variant]
+            [[{:type :auto :disable-parallel-tool-use true} :auto]
+             [{:type :any :disable-parallel-tool-use true} :any]
+             [{:name "get_weather" :disable-parallel-tool-use true} :tool]]]
+      (let [^ToolChoice choice (->tool-choice tc)]
+        (is (= true (case variant
+                      :auto (and (instance? ToolChoice choice) (.isAuto ^ToolChoice choice))
+                      :any (and (instance? ToolChoice choice) (.isAny ^ToolChoice choice))
+                      :tool (and (instance? ToolChoice choice) (.isTool ^ToolChoice choice)))))
+        (is (= true (and (instance? ToolChoice choice)
+                         (opt (.disableParallelToolUse ^ToolChoice choice))))))))
+  (testing "existing keyword and named tool forms remain supported"
+    (is (.isAuto ^ToolChoice (->tool-choice :auto)))
+    (is (.isAny ^ToolChoice (->tool-choice :any)))
+    (is (.isNone ^ToolChoice (->tool-choice :none)))
+    (let [^ToolChoice choice (->tool-choice {:type :tool :name "get_weather"})]
+      (is (.isTool choice))
+      (is (= "get_weather" (.name (.asTool choice)))))
+    (let [error (try
+                  (->tool-choice {:type :none :disable-parallel-tool-use true})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      ;; Same error keyword as the beta path, so a caller catching this does not
+      ;; have to branch on which Messages API produced it.
+      (is (= :unsupported-disable-parallel-tool-use
+             (:anthropic/error (ex-data error)))))))
 
 (deftest client-construction
   (doseq [opts [{:api-key "sk-test"}
