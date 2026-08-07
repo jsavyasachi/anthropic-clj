@@ -588,6 +588,48 @@
          (ex-data-for #(->deployment-create-params
                         {:name "n" :agent "agent_1" :environment-id "env_1"})))))
 
+(deftest deployment-agent-fields-round-trip
+  (let [resources [{:type :file :file-id "file_1" :mount-path "/tmp/file"}
+                   {:type :github-repository :url "https://github.com/acme/repo"
+                    :authorization-token "token"
+                    :mount-path "/tmp/repo"}
+                   {:type :memory-store :memory-store-id "ms_1"}]
+        schedule {:expression "0 0 * * *" :timezone "UTC" :type :cron}
+        ^DeploymentCreateParams p (->deployment-create-params
+                                    {:name "nightly" :agent "agent_1" :environment-id "env_1"
+                                     :initial-events [] :resources resources :schedule schedule})
+        ^DeploymentUpdateParams u (->deployment-update-params "dep_1"
+                                    {:resources resources :schedule schedule})]
+    (is (= 3 (count (opt (.resources p)))))
+    (is (= ["file_1" "https://github.com/acme/repo" "ms_1"]
+           (mapv (fn [r] (cond (.isFile r) (.fileId (.asFile r))
+                               (.isGitHubRepository r) (.url (.asGitHubRepository r))
+                               :else (.memoryStoreId (.asMemoryStore r))))
+                 (opt (.resources p)))))
+    (is (= "0 0 * * *" (.expression (opt (.schedule p)))))
+    (is (= 3 (count (opt (.resources u)))))
+    (is (= "UTC" (.timezone (opt (.schedule u)))))))
+
+(deftest deployment-unknown-resource-type
+  (is (= :unknown-deployment-resource-type
+         (:anthropic/error
+          (ex-data-for #(->deployment-create-params
+                         {:name "n" :agent "a" :environment-id "e" :initial-events []
+                          :resources [{:type :unknown}]}))))))
+
+(deftest deployment-resource-required-keys
+  ;; The SDK rejects a null on these fields, so a missing key must surface as the
+  ;; library's :missing-key error and never as a null pointer from inside the SDK.
+  (doseq [[resource k] [[{:type :file} :file-id]
+                        [{:type :github-repository :authorization-token "t"} :url]
+                        [{:type :github-repository :url "https://x.test"} :authorization-token]
+                        [{:type :memory-store} :memory-store-id]]]
+    (let [d (ex-data-for #(->deployment-create-params
+                           {:name "n" :agent "a" :environment-id "e" :initial-events []
+                            :resources [resource]}))]
+      (is (= :missing-key (:anthropic/error d)) (str "for " resource))
+      (is (= k (:key d)) (str "for " resource)))))
+
 (deftest session-thread-params
   (let [^ThreadRetrieveParams rp (->thread-retrieve-params "sess_1" "thread_1")
         ^ThreadListParams lp (->thread-list-params "sess_1")
@@ -647,6 +689,23 @@
     (is (= "renamed" (opt (.name p)))))
   (is (= {:anthropic/error :missing-key :key :name}
          (ex-data-for #(->environment-create-params {})))))
+
+(deftest environment-agent-fields-round-trip
+  (let [config {:type :self-hosted}
+        ^EnvironmentCreateParams p (->environment-create-params
+                                    {:name "prod" :config config :scope :organization})
+        ^EnvironmentUpdateParams u (->environment-update-params "env_1"
+                                    {:config config :scope :account})]
+    (is (.isSelfHosted (opt (.config p))))
+    (is (= "organization" (.asString (opt (.scope p)))))
+    (is (.isSelfHosted (opt (.config u))))
+    (is (= "account" (.asString (opt (.scope u)))))))
+
+(deftest environment-unknown-config-type
+  (is (= :unknown-environment-config-type
+         (:anthropic/error
+          (ex-data-for #(->environment-create-params
+                         {:name "prod" :config {:type :unknown}}))))))
 
 (deftest environment-work-params
   (let [^WorkRetrieveParams retrieve (->environment-work-retrieve-params "env_1" "work_1")
@@ -1035,11 +1094,15 @@
               (.environmentId "env_1")
               (.initialEvents ^java.util.List (java.util.ArrayList.))
               (.metadata (-> (com.anthropic.models.beta.deployments.BetaManagedAgentsDeployment$Metadata/builder)
+                             (.putAdditionalProperty "team" (JsonValue/from "platform"))
                              (.build)))
               (.name "nightly")
               (.pausedReason (java.util.Optional/empty))
               (.resources ^java.util.List (java.util.ArrayList.))
-              (.schedule (java.util.Optional/empty))
+              (.schedule (-> (com.anthropic.models.beta.deployments.BetaManagedAgentsSchedule/builder)
+                             (.expression "0 0 * * *") (.timezone "UTC")
+                             (.type (com.anthropic.models.beta.deployments.BetaManagedAgentsSchedule$Type/of "cron"))
+                             (.build)))
               (.status (com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentStatus/of "running"))
               (.type (com.anthropic.models.beta.deployments.BetaManagedAgentsDeployment$Type/of "deployment"))
               (.createdAt ts)
@@ -1051,7 +1114,13 @@
     (is (= "nightly" (:name m)))
     (is (= "env_1" (:environment-id m)))
     (is (= "2026-07-04T00:00Z" (:created-at m)))
-    (is (= ["vault_1"] (:vault-ids m)))))
+    (is (= ["vault_1"] (:vault-ids m)))
+    (is (= {:team "platform"} (:metadata m)))
+    (is (= :deployment (:type m)))
+    (is (= "0 0 * * *" (get-in m [:schedule :expression])))
+    (is (= "UTC" (get-in m [:schedule :timezone])))
+    (is (= "UTC" (.timezone (opt (.schedule (->deployment-update-params "dep_1"
+                                                          (select-keys m [:resources :schedule])))))))))
 
 (deftest deployment-run-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
@@ -1086,8 +1155,10 @@
               (.type (com.anthropic.core.JsonValue/from "environment"))
               (.createdAt "2026-07-04T00:00:00Z")
               (.metadata (-> (com.anthropic.models.beta.environments.BetaEnvironment$Metadata/builder)
+                             (.putAdditionalProperty "team" (JsonValue/from "platform"))
                              (.build)))
               (.updatedAt "2026-07-04T00:00:00Z")
+              (.scope (com.anthropic.models.beta.environments.BetaEnvironment$Scope/of "organization"))
               (.build))
         d (-> (BetaEnvironmentDeleteResponse/builder)
               (.id "env_1")
@@ -1097,6 +1168,10 @@
     (is (= "env_1" (:id m)))
     (is (= "prod" (:name m)))
     (is (= "Production" (:description m)))
+    (is (= {:team "platform"} (:metadata m)))
+    (is (= :self-hosted (:type (:config m))))
+    (is (= :organization (:scope m)))
+    (is (.isSelfHosted (opt (.config (->environment-update-params "env_1" m)))))
     (is (= {:id "env_1" :deleted true :type :environment_deleted} (environment-delete->map d)))))
 
 (deftest environment-work-response-mapping
@@ -1164,6 +1239,7 @@
               (.archivedAt (java.util.Optional/empty))
               (.displayName "Main Vault")
               (.metadata (-> (com.anthropic.models.beta.vaults.BetaManagedAgentsVault$Metadata/builder)
+                             (.putAdditionalProperty "team" (JsonValue/from "platform"))
                              (.build)))
               (.type (com.anthropic.models.beta.vaults.BetaManagedAgentsVault$Type/of "vault"))
               (.createdAt ts)
@@ -1173,10 +1249,14 @@
               (.id "vault_1")
               (.type (com.anthropic.models.beta.vaults.BetaManagedAgentsDeletedVault$Type/of "vault_deleted"))
               (.build))
-        m (vault->map r)]
+        m (vault->map r)
+        ^VaultUpdateParams u (->vault-update-params "vault_1" m)]
     (is (= "vault_1" (:id m)))
     (is (= "Main Vault" (:display-name m)))
     (is (= "2026-07-04T00:00Z" (:updated-at m)))
+    (is (= {:team "platform"} (:metadata m)))
+    (is (= :vault (:type m)))
+    (is (= "platform" (.convert ^JsonValue (get (._additionalProperties (opt (.metadata u))) "team") String)))
     (is (= {:id "vault_1" :deleted true} (vault-delete->map d)))))
 
 (deftest user-profile-response-mapping
