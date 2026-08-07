@@ -54,6 +54,9 @@
                                                BetaToolBash20250124
                                                BetaToolTextEditor20250728
                                                BetaMemoryTool20250818
+                                               BetaToolBash20250124$InputExample$Builder
+                                               BetaToolTextEditor20250728$InputExample$Builder
+                                               BetaMemoryTool20250818$InputExample$Builder
                                                BetaToolSearchToolBm25_20251119$AllowedCaller
                                                BetaToolSearchToolBm25_20251119$Builder
                                                BetaToolSearchToolBm25_20251119$Type
@@ -65,6 +68,7 @@
                                                BetaToolComputerUse20251124
                                                BetaToolComputerUse20251124$AllowedCaller
                                                BetaToolComputerUse20251124$Builder
+                                               BetaToolComputerUse20251124$InputExample$Builder
                                                BetaAdvisorTool20260301
                                                BetaAdvisorTool20260301$AllowedCaller
                                                BetaAdvisorTool20260301$Builder
@@ -73,8 +77,10 @@
                                                BetaCitationsConfigParam BetaUserLocation
                                                BetaWebSearchTool20260318$AllowedCaller
                                                BetaWebSearchTool20260318$Builder
+                                               BetaWebSearchTool20260318$ResponseInclusion
                                                BetaWebFetchTool20260318$AllowedCaller
                                                BetaWebFetchTool20260318$Builder
+                                               BetaWebFetchTool20260318$ResponseInclusion
                                                BetaCodeExecutionTool20260521$AllowedCaller
                                                BetaCodeExecutionTool20260521$Builder
                                                BetaToolBash20250124$AllowedCaller
@@ -83,6 +89,7 @@
                                                BetaToolTextEditor20250728$Builder
                                                BetaMemoryTool20250818$AllowedCaller
                                                BetaMemoryTool20250818$Builder
+                                               BetaTool$InputExample$Builder
                                                BetaToolChangeMcpToolReference
                                                BetaToolChangeMcpToolsetReference
                                                BetaToolChoice BetaToolChoiceAny
@@ -286,6 +293,31 @@
   (when (some? defer-loading) (defer-loading! defer-loading))
   (when (some? strict) (strict! strict)))
 
+(defn- ->beta-bash-input-example [example]
+  (let [b (BetaToolBash20250124$InputExample$Builder.)]
+    (doseq [[k v] example] (.putAdditionalProperty b ^String (name k) (->json v)))
+    (.build b)))
+
+(defn- ->beta-text-editor-input-example [example]
+  (let [b (BetaToolTextEditor20250728$InputExample$Builder.)]
+    (doseq [[k v] example] (.putAdditionalProperty b ^String (name k) (->json v)))
+    (.build b)))
+
+(defn- ->beta-memory-input-example [example]
+  (let [b (BetaMemoryTool20250818$InputExample$Builder.)]
+    (doseq [[k v] example] (.putAdditionalProperty b ^String (name k) (->json v)))
+    (.build b)))
+
+(defn- ->beta-computer-use-input-example [example]
+  (let [b (BetaToolComputerUse20251124$InputExample$Builder.)]
+    (doseq [[k v] example] (.putAdditionalProperty b ^String (name k) (->json v)))
+    (.build b)))
+
+(defn- ->beta-custom-input-example [example]
+  (let [b (BetaTool$InputExample$Builder.)]
+    (doseq [[k v] example] (.putAdditionalProperty b ^String (name k) (->json v)))
+    (.build b)))
+
 (defn- ->custom-tool ^BetaTool [{:keys [name description input-schema] :as t}]
   (let [schema (or input-schema {})
         properties (BetaTool$InputSchema$Properties/builder)
@@ -299,6 +331,10 @@
     (when (seq (:required schema)) (.required schema-builder ^java.util.List (vec (:required schema))))
     (.inputSchema b (.build schema-builder))
     (when description (.description b ^String description))
+    (when (some? (:eager-input-streaming t))
+      (.eagerInputStreaming b (boolean (:eager-input-streaming t))))
+    (when (seq (:input-examples t))
+      (.inputExamples b ^java.util.List (mapv ->beta-custom-input-example (:input-examples t))))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaTool$Builder b
@@ -321,12 +357,14 @@
     :tool-search :computer-use :advisor :mcp-toolset})
 
 (defn- ->web-search-tool ^BetaWebSearchTool20260318
-  [{:keys [max-uses allowed-domains blocked-domains user-location] :as t}]
+  [{:keys [max-uses allowed-domains blocked-domains user-location response-inclusion] :as t}]
   (let [b (BetaWebSearchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
     (when user-location (.userLocation b (->user-location user-location)))
+    (when response-inclusion
+      (.responseInclusion b (BetaWebSearchTool20260318$ResponseInclusion/of (name response-inclusion))))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaWebSearchTool20260318$Builder b
@@ -342,7 +380,7 @@
     (.build b)))
 
 (defn- ->web-fetch-tool ^BetaWebFetchTool20260318
-  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations] :as t}]
+  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations response-inclusion] :as t}]
   (let [b (BetaWebFetchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
@@ -350,6 +388,8 @@
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
     (when (some? use-cache) (.useCache b (boolean use-cache)))
     (when citations (.citations b (->citations citations)))
+    (when response-inclusion
+      (.responseInclusion b (BetaWebFetchTool20260318$ResponseInclusion/of (name response-inclusion))))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaWebFetchTool20260318$Builder b
@@ -370,8 +410,10 @@
       :strict! #(.strict ^BetaCodeExecutionTool20260521$Builder b (boolean %))})
     (.build b)))
 
-(defn- ->bash-tool ^BetaToolBash20250124 [t]
+(defn- ->bash-tool ^BetaToolBash20250124 [{:keys [input-examples] :as t}]
   (let [b (BetaToolBash20250124/builder)]
+    (when (seq input-examples)
+      (.inputExamples b ^java.util.List (mapv ->beta-bash-input-example input-examples)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaToolBash20250124$Builder b
@@ -382,9 +424,11 @@
     (.build b)))
 
 (defn- ->text-editor-tool ^BetaToolTextEditor20250728
-  [{:keys [max-characters] :as t}]
+  [{:keys [max-characters input-examples] :as t}]
   (let [b (BetaToolTextEditor20250728/builder)]
     (when max-characters (.maxCharacters b (long max-characters)))
+    (when (seq input-examples)
+      (.inputExamples b ^java.util.List (mapv ->beta-text-editor-input-example input-examples)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaToolTextEditor20250728$Builder b
@@ -394,8 +438,10 @@
       :strict! #(.strict ^BetaToolTextEditor20250728$Builder b (boolean %))})
     (.build b)))
 
-(defn- ->memory-tool ^BetaMemoryTool20250818 [t]
+(defn- ->memory-tool ^BetaMemoryTool20250818 [{:keys [input-examples] :as t}]
   (let [b (BetaMemoryTool20250818/builder)]
+    (when (seq input-examples)
+      (.inputExamples b ^java.util.List (mapv ->beta-memory-input-example input-examples)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaMemoryTool20250818$Builder b
@@ -426,12 +472,14 @@
     (.build b)))
 
 (defn- ->computer-use-tool ^BetaToolComputerUse20251124
-  [{:keys [display-height-px display-width-px display-number enable-zoom] :as t}]
+  [{:keys [display-height-px display-width-px display-number enable-zoom input-examples] :as t}]
   (let [b (BetaToolComputerUse20251124/builder)]
     (when display-height-px (.displayHeightPx b (long display-height-px)))
     (when display-width-px (.displayWidthPx b (long display-width-px)))
     (when display-number (.displayNumber b (long display-number)))
     (when (some? enable-zoom) (.enableZoom b (boolean enable-zoom)))
+    (when (seq input-examples)
+      (.inputExamples b ^java.util.List (mapv ->beta-computer-use-input-example input-examples)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaToolComputerUse20251124$Builder b
@@ -442,11 +490,12 @@
     (.build b)))
 
 (defn- ->advisor-tool ^BetaAdvisorTool20260301
-  [{:keys [model max-tokens max-uses] :as t}]
+  [{:keys [model max-tokens max-uses caching] :as t}]
   (let [b (BetaAdvisorTool20260301/builder)]
     (when model (.model b ^String model))
     (when max-tokens (.maxTokens b (long max-tokens)))
     (when max-uses (.maxUses b (long max-uses)))
+    (when caching (.caching b ^BetaCacheControlEphemeral (->cache-control caching)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^BetaAdvisorTool20260301$Builder b
@@ -759,7 +808,8 @@
   "Send a beta Messages request and return a generic Clojure map response.
 
   Request maps support context-management, diagnostics, speed, and tool-choice
-  disable-parallel-tool-use options."
+  disable-parallel-tool-use options. Tool specs support response-inclusion,
+  input-examples, eager-input-streaming, and caching options."
   ([^AnthropicClient client req] (create-beta-message client req {}))
   ([^AnthropicClient client req opts]
    (with-api-errors
@@ -837,7 +887,9 @@
 
   Options include `:max-iterations`, `:on-message`, and `:on-turn`. `:on-turn`
   receives each assistant response and the current params, and returns params
-  for the next iteration, allowing tools and request settings to change."
+  for the next iteration, allowing tools and request settings to change. Tool
+  specs support response-inclusion, input-examples, eager-input-streaming, and
+  caching options."
   ([^AnthropicClient client params]
    (run-beta-tools client params {}))
   ([^AnthropicClient client params opts]
