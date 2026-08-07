@@ -32,6 +32,10 @@
 (def run-beta-tools* #'messages/run-beta-tools*)
 (def ->tool #'messages/->tool)
 (def ->server-tool #'messages/->server-tool)
+(def ->tool-choice #'messages/->tool-choice)
+
+(defn- ex-data-for [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
 (def stable->tool #'anthropic.core/->tool)
 
 (def server-tool-versions
@@ -677,3 +681,22 @@
   (is (= {:capital "Sacramento"}
          (parse-beta-text {:content [{:type :text
                                       :text "{\"capital\":\"Sacramento\"}"}]}))))
+
+(deftest beta-tool-choice-none-map-form
+  ;; {:type :none} must build the none variant, not silently return nil, and must
+  ;; behave the same as the bare :none keyword and as the stable path.
+  (doseq [tc [:none {:type :none}]]
+    (let [c (->tool-choice tc)]
+      (is (some? c) (str "nil tool choice for " tc))
+      (is (.isNone ^com.anthropic.models.beta.messages.BetaToolChoice c) (str "wrong variant for " tc))))
+  (is (= :unsupported-disable-parallel-tool-use
+         (:anthropic/error
+          (ex-data-for #(->tool-choice {:type :none :disable-parallel-tool-use true}))))))
+
+(deftest beta-tool-search-rejects-an-unknown-variant
+  ;; An unrecognized variant must raise the library's error rather than falling out
+  ;; of `case` as a raw IllegalArgumentException.
+  (doseq [t [{:type :tool-search :variant :bogus} {:type :tool-search}]]
+    (is (= :unsupported-tool-search-variant
+           (:anthropic/error (ex-data-for #(->tool t))))
+        (str "for " t))))

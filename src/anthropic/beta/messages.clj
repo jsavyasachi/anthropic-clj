@@ -270,9 +270,12 @@
              (when (contains? tc :disable-parallel-tool-use)
                (.disableParallelToolUse b (boolean (:disable-parallel-tool-use tc))))
              (BetaToolChoice/ofAny (.build b)))
-      :none (when (contains? tc :disable-parallel-tool-use)
-              (throw (ex-info "Unsupported disable parallel tool use"
-                              {:anthropic/error :unsupported-disable-parallel-tool-use})))
+      :none (if (contains? tc :disable-parallel-tool-use)
+              ;; The API has no parallel tool use to disable when no tool runs.
+              (throw (ex-info "Tool choice :none has no parallel tool use to disable"
+                              {:anthropic/error :unsupported-disable-parallel-tool-use
+                               :tool-choice tc}))
+              (BetaToolChoice/ofNone (.build (BetaToolChoiceNone/builder))))
       (let [b (BetaToolChoiceTool/builder)]
         (.name b ^String (:name tc))
         (when (contains? tc :disable-parallel-tool-use)
@@ -662,7 +665,10 @@
                      :bm25 (BetaToolUnion/ofSearchToolBm25_20251119
                             (->tool-search-bm25 (validate-tool-version family t "20251119")))
                      :regex (BetaToolUnion/ofSearchToolRegex20251119
-                             (->tool-search-regex (validate-tool-version family t "20251119"))))
+                             (->tool-search-regex (validate-tool-version family t "20251119")))
+                     (throw (ex-info "Unsupported tool-search variant"
+                                     {:anthropic/error :unsupported-tool-search-variant
+                                      :variant (:variant t)})))
       :advisor (BetaToolUnion/ofAdvisorTool20260301
                 (->advisor-tool (validate-tool-version family t "20260301")))
       :mcp-toolset (BetaToolUnion/ofMcpToolset (->mcp-toolset t))
@@ -686,7 +692,10 @@
                         :bm25 (MessageCountTokensParams$Tool/ofBetaToolSearchToolBm25_20251119
                                (->tool-search-bm25 (validate-tool-version family t "20251119")))
                         :regex (MessageCountTokensParams$Tool/ofBetaToolSearchToolRegex20251119
-                                (->tool-search-regex (validate-tool-version family t "20251119"))))
+                                (->tool-search-regex (validate-tool-version family t "20251119")))
+                        (throw (ex-info "Unsupported tool-search variant"
+                                        {:anthropic/error :unsupported-tool-search-variant
+                                         :variant (:variant t)})))
         :advisor (MessageCountTokensParams$Tool/ofBetaAdvisorTool20260301
                   (->advisor-tool (validate-tool-version family t "20260301")))
         :mcp-toolset (MessageCountTokensParams$Tool/ofBetaMcpToolset (->mcp-toolset t))

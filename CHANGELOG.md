@@ -3,6 +3,35 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.23.0] - 2026-08-07
+
+Closes the last known parity gaps against `anthropic-java` 2.53.0. Every
+non-deprecated operation, request field, and response field the SDK exposes is now
+reachable through a Clojure-shaped map.
+
+### Added
+- Stable web fetch accepts `:use-cache` and `:citations`, matching the shapes the
+  beta path already took.
+- Tool choice accepts `:disable-parallel-tool-use` on the auto, any, and tool
+  variants, on both the stable and beta paths. Tool choice `:none` has no parallel
+  tool use to disable and reports `:unsupported-disable-parallel-tool-use` rather
+  than dropping the key.
+- Beta message creation accepts `:context-management`, `:diagnostics`, `:speed`,
+  and `:output-format`. `:output-format` sets the top-level output format, which is
+  a distinct wire field from the format carried inside `:response-format`'s output
+  config.
+- Deployment create and update accept `:resources` and `:schedule`, and the
+  deployment map carries back resources, schedule, initial events, metadata, and
+  type.
+- Environment create and update accept `:config`, as either a cloud or a
+  self-hosted config, and `:scope`. The environment map carries back all three.
+- Vault maps carry `:metadata` and `:type`.
+
+### Fixed
+- A deployment resource missing a field the API requires now reports
+  `:anthropic/error :missing-key` with the offending key, instead of failing with a
+  null pointer raised inside the SDK.
+
 ## [0.22.0] - 2026-08-07
 
 ### Added
