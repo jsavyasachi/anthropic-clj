@@ -140,6 +140,7 @@
 (def memory-store->map #'beta/memory-store->map)
 (def agent->map #'beta/agent->map)
 (def deployment->map #'beta/deployment->map)
+(def memory-list-item->map #'beta/memory-list-item->map)
 (def deployment-run->map #'beta/deployment-run->map)
 (def environment->map #'beta/environment->map)
 (def environment-delete->map #'beta/environment-delete->map)
@@ -165,6 +166,9 @@
 (def stream-event->map #'beta/stream-event->map)
 (def consume-event-stream #'beta/consume-event-stream)
 (def stream-event-json #'beta/stream-event-json)
+(def session->map #'beta/session->map)
+(def deployment->map #'beta/deployment->map)
+(def ->managed-agent-model-config #'beta/->managed-agent-model-config)
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
@@ -353,6 +357,135 @@
     (is (= "t2" (opt (.title p)))))
   (is (= {:anthropic/error :missing-key :key :agent}
          (ex-data-for #(->session-create-params {})))))
+
+(deftest beta-253-budget-and-inference-geo-params
+  (let [budget {:max-list-cost {:amount "1.25" :currency :usd} :type :limit}
+        p (->session-create-params {:agent "agent_1" :environment-id "env_1" :budget budget})
+        bp (opt (.budget p))]
+    (is (= "1.25" (.amount (.maxListCost bp))))
+    (is (= "USD" (.asString (.currency (.maxListCost bp)))))
+    (is (= "limit" (.asString (.type bp)))))
+  (let [p (->agent-create-params {:name "a" :model "claude-opus-4-8"
+                                  :effort :high :inference-geo "us"})]
+    (is (= "us" (opt (.inferenceGeo (.asBetaManagedAgentsModelConfigParams (.model p)))))))
+  (let [p (->agent-create-params {:name "a" :model "claude-opus-4-8"
+                                  :inference-geo "us"})]
+    (is (.isBetaManagedAgentsModelConfigParams (.model p)))
+    (is (= "us" (opt (.inferenceGeo (.asBetaManagedAgentsModelConfigParams (.model p)))))))
+  (let [p (->agent-update-params "agent_1" {:model "claude-opus-4-8" :inference-geo "eu"})]
+    (is (.isBetaManagedAgentsModelConfigParams (opt (.model p))))
+    (is (= "eu" (opt (.inferenceGeo (.asBetaManagedAgentsModelConfigParams (opt (.model p))))))))
+  (let [p (->deployment-update-params "dep_1"
+                                      {:budget {:max-list-cost {:amount "2" :currency :usd}
+                                                :type :limit}})]
+    (is (= "2" (.amount (.maxListCost (opt (.budget p))))))))
+
+(deftest beta-253-budget-response-mapping-and-round-trip
+  (let [money (-> (com.anthropic.models.beta.BetaMonetaryAmount/builder)
+                  (.amount "1.25") (.currency com.anthropic.models.beta.BetaCurrency/USD) (.build))
+        budget (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit/builder)
+                   (.maxListCost money)
+                   (.type com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit$Type/LIMIT)
+                   (.build))
+        ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        agent (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent/builder)
+                  (.id "agent_1") (.name "a") (.version 1)
+                  (.description "d") (.mcpServers []) (.skills []) (.tools [])
+                  (.multiagent (java.util.Optional/empty))
+                  (.model (-> (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfig/builder)
+                              (.id (com.anthropic.models.beta.agents.BetaManagedAgentsModel/of "m")) (.build)))
+                  (.system "s")
+                  (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent$Type/of "agent"))
+                  (.build))
+        session (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSession/builder)
+                    (.id "sess_1") (.agent agent) (.environmentId "env_1")
+                    (.archivedAt (java.util.Optional/empty)) (.title (java.util.Optional/empty))
+                    (.createdAt ts) (.updatedAt ts) (.budget budget)
+                    (.metadata (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSession$Metadata/builder) (.build)))
+                    (.outcomeEvaluations []) (.resources [])
+                    (.stats (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionStats/builder) (.build)))
+                    (.status (com.anthropic.models.beta.sessions.BetaManagedAgentsSession$Status/of "idle"))
+                    (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSession$Type/of "session"))
+                    (.usage (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage/builder) (.build)))
+                    (.vaultIds []) (.deploymentId (java.util.Optional/empty)) (.build))
+        mapped (session->map session)
+        round-trip (->session-update-params "sess_1" {:budget (:budget mapped)})]
+    (is (= {:max-list-cost {:amount "1.25" :currency :usd} :type :limit} (:budget mapped)))
+    (is (= "1.25" (.amount (.maxListCost (opt (.budget round-trip)))))))
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        budget (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit/builder)
+                   (.maxListCost (-> (com.anthropic.models.beta.BetaMonetaryAmount/builder)
+                                     (.amount "2") (.currency com.anthropic.models.beta.BetaCurrency/USD) (.build)))
+                   (.type com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit$Type/LIMIT) (.build))
+        deployment (-> (BetaManagedAgentsDeployment/builder)
+                       (.id "dep_1") (.agent (agent-ref)) (.environmentId "env_1")
+                       (.name "d") (.initialEvents []) (.metadata (-> (com.anthropic.models.beta.deployments.BetaManagedAgentsDeployment$Metadata/builder) (.build)))
+                       (.resources []) (.vaultIds []) (.createdAt ts) (.updatedAt ts)
+                       (.status (com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentStatus/of "running"))
+                       (.type (com.anthropic.models.beta.deployments.BetaManagedAgentsDeployment$Type/of "deployment"))
+                       (.archivedAt (java.util.Optional/empty)) (.description (java.util.Optional/empty))
+                       (.pausedReason (java.util.Optional/empty)) (.schedule (java.util.Optional/empty))
+                       (.budget budget) (.build))
+        mapped (deployment->map deployment)
+        round-trip (->deployment-update-params "dep_1" {:budget (:budget mapped)})]
+    (is (= {:max-list-cost {:amount "2" :currency :usd} :type :limit} (:budget mapped)))
+    (is (= "2" (.amount (.maxListCost (opt (.budget round-trip))))))))
+
+(deftest beta-253-session-updated-budget-mapping
+  (let [budget (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit/builder)
+                   (.maxListCost (-> (com.anthropic.models.beta.BetaMonetaryAmount/builder)
+                                     (.amount "3") (.currency com.anthropic.models.beta.BetaCurrency/USD) (.build)))
+                   (.type com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit$Type/LIMIT) (.build))
+        event (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUpdatedEvent/builder)
+                  (.id "evt_1") (.processedAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+                  (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUpdatedEvent$Type/of "session_updated"))
+                  (.agent (java.util.Optional/empty))
+                  (.title (java.util.Optional/empty)) (.budget budget) (.build))]
+    (is (= {:type :session-updated :id "evt_1" :processed-at "2026-07-04T00:00Z"
+            :budget {:max-list-cost {:amount "3" :currency :usd} :type :limit}}
+           (session-event->map (BetaManagedAgentsSessionEvent/ofSessionUpdated event))))))
+
+(deftest beta-253-memory-list-item-mapping
+  (let [memory (-> (BetaManagedAgentsMemory/builder)
+                   (.id "mem_1") (.contentSha256 "sha") (.contentSizeBytes 1)
+                   (.createdAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+                   (.memoryStoreId "ms_1") (.memoryVersionId "mv_1") (.path "/a")
+                   (.type (com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsMemory$Type/of "memory"))
+                   (.updatedAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+                   (.content (java.util.Optional/empty)) (.build))
+        prefix (-> (com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsMemoryPrefix/builder)
+                   (.path "/")
+                   (.type (com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsMemoryPrefix$Type/of "memory_prefix"))
+                   (.build))]
+    (is (= :memory (:type (memory-list-item->map (com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsMemoryListItem/ofMemory memory)))))
+    (is (= :memory-prefix (:type (memory-list-item->map (com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsMemoryListItem/ofMemoryPrefix prefix)))))))
+
+(deftest beta-253-usage-and-session-usage-event-mapping
+  (let [money (-> (com.anthropic.models.beta.BetaMonetaryAmount/builder)
+                  (.amount "0.50")
+                  (.currency com.anthropic.models.beta.BetaCurrency/USD)
+                  (.build))
+        tools (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsServerToolUsage/builder)
+                  (.webFetchRequests 2) (.webSearchRequests 3) (.build))
+        usage (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage/builder)
+                  (.activeSeconds 4.5) (.cacheReadInputTokens 7) (.inputTokens 8)
+                  (.listCost money) (.outputTokens 9) (.serverToolUse tools) (.build))
+        f (ns-resolve 'anthropic.beta 'usage->map)]
+    (is (= {:active-seconds 4.5 :cache-read-input-tokens 7 :input-tokens 8
+            :list-cost {:amount "0.50" :currency :usd} :output-tokens 9
+            :server-tool-use {:web-fetch-requests 2 :web-search-requests 3}}
+           (f usage))))
+  (let [snapshot (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot/builder)
+                     (.activeSeconds 1.0) (.inputTokens 10) (.build))
+        event (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsageEvent/builder)
+                  (.id "evt_usage")
+                  (.processedAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+                  (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsageEvent$Type/of "session_usage"))
+                  (.usage snapshot) (.build))]
+    (is (= {:type :session-usage :id "evt_usage" :processed-at "2026-07-04T00:00Z"
+            :usage {:active-seconds 1.0 :input-tokens 10}}
+           (session-event->map
+            (BetaManagedAgentsSessionEvent/ofSessionUsage event))))))
 
 (deftest session-event-params
   (let [^BetaManagedAgentsEventParams user (->session-event
@@ -781,7 +914,8 @@
               (.updatedAt (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z"))
               (.type (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource$Type/of "file"))
               (.build))]
-    (is (= {:type :file :id "res_1" :file-id "file_1" :mount-path "/tmp/input"}
+    (is (= {:type :file :id "res_1" :file-id "file_1" :mount-path "/tmp/input"
+            :created-at "2026-07-22T00:00Z" :updated-at "2026-07-22T00:00Z"}
            ((ns-resolve 'anthropic.beta 'session-resource->map) r)))))
 
 (deftest vault-credential-mcp-oauth-validate-params-and-response-mapping
@@ -1028,6 +1162,21 @@
     (is (= "sess_1" (:data-id m)))
     (is (= "org_1" (:organization-id m)))
     (is (= "ws_1" (:workspace-id m)))))
+
+(deftest beta-253-session-budget-webhook-mapping
+  (let [data (-> (com.anthropic.models.beta.webhooks.BetaWebhookSessionBudgetReachedEventData/builder)
+                 (.id "sess_1") (.organizationId "org_1") (.workspaceId "ws_1")
+                 (.type (JsonValue/from "session.budget_reached")) (.build))
+        event (-> (UnwrapWebhookEvent/builder)
+                  (.id "evt_budget")
+                  (.createdAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+                  (.data (BetaWebhookEventData/ofSessionBudgetReached data))
+                  (.type (JsonValue/from "event")) (.build))]
+    (is (= {:type :session-budget-reached :data-id "sess_1"
+            :organization-id "org_1" :workspace-id "ws_1"
+            :id "evt_budget" :created-at "2026-07-04T00:00Z"
+            :event-type "event"}
+           (webhook-event->map event)))))
 
 (deftest webhook-environment-and-memory-store-response-mapping
   (let [event-map
