@@ -61,6 +61,7 @@
                                              BetaManagedAgentsAgent
                                              BetaManagedAgentsAgent$Skill
                                              BetaManagedAgentsAgent$Tool
+                                             BetaManagedAgentsAdvisor
                                              BetaManagedAgentsAgentReference
                                              BetaManagedAgentsSessionThreadAgent
                                              BetaManagedAgentsAnthropicSkill
@@ -105,6 +106,7 @@
                                                        EventListPage
                                                        EventSendParams)
            (com.anthropic.models.beta.sessions.threads BetaManagedAgentsSessionThread
+                                                       BetaManagedAgentsSessionThread$Agent
                                                         ThreadArchiveParams
                                                         ThreadListPage
                                                         ThreadListParams
@@ -885,12 +887,30 @@
     (unopt (.environmentId r)) (assoc :environment-id (unopt (.environmentId r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 
-(defn- agent-ref->map [r]
-  (if (instance? BetaManagedAgentsAgentReference r)
+(defn- advisor->map [^BetaManagedAgentsAdvisor a]
+  {:type :advisor :model (.model a)})
+
+(defn- agent-ref->map
+  "An agent slot is a union of an agent reference and an advisor. The union
+   wrapper is per-parent, so the bare reference types are accepted too."
+  [r]
+  (cond
+    (instance? BetaManagedAgentsSessionThread$Agent r)
+    (let [^BetaManagedAgentsSessionThread$Agent u r]
+      (if (.isAdvisor u)
+        (advisor->map (.asAdvisor u))
+        (agent-ref->map (.asAgent u))))
+
+    (instance? BetaManagedAgentsAdvisor r)
+    (advisor->map r)
+
+    (instance? BetaManagedAgentsAgentReference r)
     (let [^BetaManagedAgentsAgentReference r r]
-      {:id (.id r) :version (.version r)})
+      {:type :agent :id (.id r) :version (.version r)})
+
+    :else
     (let [^BetaManagedAgentsSessionThreadAgent r r]
-      {:id (.id r) :version (.version r)})))
+      {:type :agent :id (.id r) :version (.version r)})))
 
 (defn create-session
   "Create a session for `:agent` (an agent id, required), with optional

@@ -665,7 +665,30 @@
         m (session-thread->map r)]
     (is (= "thread_1" (:id m)))
     (is (= "sess_1" (:session-id m)))
-    (is (= "idle" (:status m)))))
+    (is (= "idle" (:status m)))
+    (is (= {:type :agent :id "agent_1" :version 2} (:agent m)))))
+
+(deftest session-thread-advisor-agent-mapping
+  ;; A thread's agent slot is a union: an agent reference or an advisor.
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        r (-> (BetaManagedAgentsSessionThread/builder)
+              (.id "thread_2")
+              (.agent (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAdvisor/builder)
+                          (.model "claude-opus-4-8")
+                          (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAdvisor$Type/of "advisor"))
+                          (.build)))
+              (.archivedAt (java.util.Optional/empty))
+              (.createdAt ts)
+              (.parentThreadId (java.util.Optional/empty))
+              (.sessionId "sess_1")
+              (.stats (java.util.Optional/empty))
+              (.status (com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadStatus/of "idle"))
+              (.type (com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThread$Type/of "session_thread"))
+              (.updatedAt ts)
+              (.usage (java.util.Optional/empty))
+              (.build))
+        m (session-thread->map r)]
+    (is (= {:type :advisor :model "claude-opus-4-8"} (:agent m)))))
 
 (deftest memory-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
