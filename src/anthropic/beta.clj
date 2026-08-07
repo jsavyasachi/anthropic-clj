@@ -857,7 +857,7 @@
 
 (defn- ->agent-create-params ^AgentCreateParams
   [{:keys [name model effort inference-geo system description metadata skills mcp-servers
-           tools multiagent]}]
+           tools multiagent betas]}]
   (when-not name (missing-key! :name))
   (when-not model (missing-key! :model))
   (let [b (AgentCreateParams/builder)]
@@ -872,11 +872,14 @@
     (doseq [server mcp-servers] (.addMcpServer b (->mcp-server server)))
     (doseq [tool tools] (.addTool b (->agent-create-tool tool)))
     (when multiagent (.multiagent b (->agent-multiagent multiagent)))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- ->agent-update-params ^AgentUpdateParams
   [agent-id {:keys [version name model effort inference-geo system description metadata
-                    skills mcp-servers tools multiagent]}]
+                    skills mcp-servers tools multiagent betas]}]
   (let [b (AgentUpdateParams/builder)]
     (.agentId b ^String agent-id)
     (when version (.version b (int version)))
@@ -892,6 +895,9 @@
     (doseq [server mcp-servers] (.addMcpServer b (->mcp-server server)))
     (doseq [tool tools] (.addTool b (->agent-update-tool tool)))
     (when multiagent (.multiagent b (->agent-multiagent multiagent)))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- agent-skill->map [^BetaManagedAgentsAgent$Skill s]
@@ -958,7 +964,7 @@
 (defn create-agent
   "Create a managed agent: `:name` and `:model` (required), `:system`,
   `:description`, `:metadata`, `:skills`, `:mcp-servers`, `:tools`, and
-  `:multiagent`, and `:inference-geo` when using model config.
+  `:multiagent`, `:betas`, and `:inference-geo` when using model config.
   Returns the agent as a map (`:id`, `:name`, `:model`, `:version`,
   `:system`, `:description`, `:skills`, `:mcp-servers`, `:tools`, `:multiagent`,
   `:created-at`, `:updated-at`)."
@@ -985,7 +991,8 @@
   "Update an agent. `changes` may include `:version` (the current agent version,
   for optimistic concurrency - see `:version` in `get-agent`'s return) plus
   `:name`, `:model`, `:inference-geo`, `:system`, `:description`, `:metadata`, or
-  `:multiagent`. Returns the updated agent map, including `:multiagent` when present."
+  `:multiagent` and `:betas`. Returns the updated agent map, including
+  `:multiagent` when present."
   [^AnthropicClient client ^String agent-id changes]
   (with-api-errors
     (agent->map (-> (.beta client) (.agents)
@@ -1013,9 +1020,29 @@
     (.build b)))
 
 (declare ^:private ->session-create-initial-event)
+(declare ^:private ->deployment-resource)
+
+(defn- ->session-agent-update
+  ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgentUpdate
+  [{:keys [mcp-servers tools]}]
+  (let [b (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgentUpdate/builder)]
+    (doseq [server mcp-servers]
+      (.addMcpServer b (->mcp-server server)))
+    (doseq [tool tools]
+      (.addTool b
+                (case (:type tool)
+                  :custom
+                  (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgentUpdate$Tool/ofCustom
+                   (->custom-tool tool))
+                  :mcp-toolset
+                  (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgentUpdate$Tool/ofMcpToolset
+                   (->mcp-toolset tool))
+                  (throw (ex-info (str "Unknown tool type " (:type tool))
+                                  {:anthropic/error :unknown-tool-type :type (:type tool)})))))
+    (.build b)))
 
 (defn- ->session-create-params ^SessionCreateParams
-  [{:keys [agent title environment-id metadata initial-events budget]}]
+  [{:keys [agent title environment-id metadata initial-events budget resources vault-ids betas]}]
   (when-not agent (missing-key! :agent))
   (let [^SessionCreateParams$Builder b (SessionCreateParams/builder)]
     (.agent b ^String agent)
@@ -1023,18 +1050,33 @@
     (when environment-id (.environmentId b ^String environment-id))
     (when metadata (.metadata b (->session-create-metadata metadata)))
     (when budget (.budget b (->budget budget)))
+    (doseq [resource resources]
+      (case (:type resource)
+        :file (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsFileResourceParams (->deployment-resource resource))
+        :github-repository (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams (->deployment-resource resource))
+        :memory-store (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam (->deployment-resource resource))
+        (->deployment-resource resource)))
+    (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (doseq [event initial-events]
       (let [^SessionCreateParams$InitialEvent event (->session-create-initial-event event)]
         (.addInitialEvent b event)))
     (.build b)))
 
 (defn- ->session-update-params ^SessionUpdateParams
-  [session-id {:keys [title metadata budget]}]
+  [session-id {:keys [title metadata budget agent vault-ids betas]}]
   (let [^SessionUpdateParams$Builder b (SessionUpdateParams/builder)]
     (.sessionId b ^String session-id)
     (when title (.title b ^String title))
     (when metadata (.metadata b (->session-update-metadata metadata)))
     (when budget (.budget b (->budget budget)))
+    (when agent (.agent b (->session-agent-update agent)))
+    (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- session->map [^BetaManagedAgentsSession r]
@@ -1082,8 +1124,9 @@
 (defn create-session
   "Create a session for `:agent` (an agent id, required), with optional
   `:title`, `:environment-id`, `:metadata`, and `:budget` shaped as
-  `{:max-list-cost {:amount '...' :currency :usd} :type :limit}`. Session resources, vault
-  ids, and per-session agent overrides are not wrapped yet. Returns the
+  `{:max-list-cost {:amount '...' :currency :usd} :type :limit}`. Optional
+  `:resources`, `:vault-ids`, `:betas`, and per-session agent overrides
+  via `:agent` with `:mcp-servers` and `:tools`. Returns the
   session as a map (`:id`, `:status`, `:title`, `:environment-id`,
   `:created-at`, `:updated-at`, `:budget`, and `:usage`)."
   [^AnthropicClient client req]
@@ -1104,9 +1147,9 @@
       (mapv session->map (.autoPager p)))))
 
 (defn update-session
-  "Update a session's `:title`, `:metadata`, or `:budget`. Budget uses the
-  `{:max-list-cost {:amount '...' :currency :usd} :type :limit}` shape. Returns
-  the updated session map."
+  "Update a session's `:title`, `:metadata`, `:budget`, `:agent`, `:vault-ids`,
+  or `:betas`. Budget uses the `{:max-list-cost {:amount '...' :currency :usd}
+  :type :limit}` shape. Returns the updated session map."
   [^AnthropicClient client ^String session-id changes]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions)
@@ -1614,7 +1657,7 @@
     (.build b)))
 
 (defn- ->deployment-create-params ^DeploymentCreateParams
-  [{:keys [name agent environment-id initial-events description metadata vault-ids budget resources schedule] :as req}]
+  [{:keys [name agent environment-id initial-events description metadata vault-ids budget resources schedule betas] :as req}]
   (when-not name (missing-key! :name))
   (when-not agent (missing-key! :agent))
   (when-not environment-id (missing-key! :environment-id))
@@ -1635,10 +1678,13 @@
         (->deployment-resource resource)))
     (when schedule (.schedule b (->deployment-schedule schedule)))
     (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- ->deployment-update-params ^DeploymentUpdateParams
-  [deployment-id {:keys [name agent environment-id initial-events description metadata vault-ids budget resources schedule]}]
+  [deployment-id {:keys [name agent environment-id initial-events description metadata vault-ids budget resources schedule betas]}]
   (let [^DeploymentUpdateParams$Builder b (DeploymentUpdateParams/builder)]
     (.deploymentId b ^String deployment-id)
     (when name (.name b ^String name))
@@ -1657,6 +1703,9 @@
         (->deployment-resource resource)))
     (when schedule (.schedule b (->deployment-schedule schedule)))
     (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- ->deployment-run-params ^DeploymentRunParams [deployment-id]
@@ -1740,7 +1789,7 @@
 (defn create-deployment
   "Create a deployment. Required: `:name`, `:agent`, `:environment-id`, and
   `:initial-events` (event maps). Optional: `:description`,
-  `:metadata`, `:vault-ids`, `:resources`, `:schedule`, and `:budget`. Budget uses the
+  `:metadata`, `:vault-ids`, `:resources`, `:schedule`, `:budget`, and `:betas`. Budget uses the
   `{:max-list-cost {:amount '...' :currency :usd} :type :limit}` shape.
   Returns the deployment map."
   [^AnthropicClient client req]
@@ -1764,7 +1813,7 @@
 (defn update-deployment
   "Update a deployment. `changes` may include `:name`, `:agent`,
   `:environment-id`, `:initial-events`, `:description`, `:metadata`,
-  `:vault-ids`, `:resources`, `:schedule`, or `:budget`. Returns the updated deployment map."
+  `:vault-ids`, `:resources`, `:schedule`, `:budget`, or `:betas`. Returns the updated deployment map."
   [^AnthropicClient client ^String deployment-id changes]
   (with-api-errors
     (deployment->map (-> (.beta client) (.deployments)
@@ -1907,7 +1956,7 @@
   (additional-properties->map (._additionalProperties m)))
 
 (defn- ->environment-create-params ^EnvironmentCreateParams
-  [{:keys [name description metadata config scope]}]
+  [{:keys [name description metadata config scope betas]}]
   (when-not name (missing-key! :name))
   (let [b (EnvironmentCreateParams/builder)]
     (.name b ^String name)
@@ -1919,10 +1968,13 @@
         :self-hosted (.config b ^com.anthropic.models.beta.environments.BetaSelfHostedConfigParams (->environment-config config))
         (->environment-config config)))
     (when scope (.scope b (com.anthropic.models.beta.environments.EnvironmentCreateParams$Scope/of (clojure.core/name scope))))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- ->environment-update-params ^EnvironmentUpdateParams
-  [environment-id {:keys [name description metadata config scope]}]
+  [environment-id {:keys [name description metadata config scope betas]}]
   (let [b (EnvironmentUpdateParams/builder)]
     (.environmentId b ^String environment-id)
     (when name (.name b ^String name))
@@ -1934,6 +1986,9 @@
         :self-hosted (.config b ^com.anthropic.models.beta.environments.BetaSelfHostedConfigParams (->environment-config config))
         (->environment-config config)))
     (when scope (.scope b (com.anthropic.models.beta.environments.EnvironmentUpdateParams$Scope/of (clojure.core/name scope))))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- environment->map [^BetaEnvironment r]
@@ -1952,7 +2007,7 @@
 
 (defn create-environment
   "Create an environment: `:name` (required), `:description`, `:metadata`,
-  `:config`, and `:scope`. Returns the environment map."
+  `:config`, `:scope`, and `:betas`. Returns the environment map."
   [^AnthropicClient client req]
   (with-api-errors
     (environment->map (-> (.beta client) (.environments)
@@ -1973,7 +2028,7 @@
 
 (defn update-environment
   "Update an environment's `:name`, `:description`, `:metadata`, `:config`, or
-  `:scope`."
+  `:scope`, or `:betas`."
   [^AnthropicClient client ^String environment-id changes]
   (with-api-errors
     (environment->map (-> (.beta client) (.environments)
@@ -2165,19 +2220,25 @@
     (.build b)))
 
 (defn- ->vault-create-params ^VaultCreateParams
-  [{:keys [display-name metadata]}]
+  [{:keys [display-name metadata betas]}]
   (when-not display-name (missing-key! :display-name))
   (let [b (VaultCreateParams/builder)]
     (.displayName b ^String display-name)
     (when metadata (.metadata b (->vault-create-metadata metadata)))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- ->vault-update-params ^VaultUpdateParams
-  [vault-id {:keys [display-name metadata]}]
+  [vault-id {:keys [display-name metadata betas]}]
   (let [b (VaultUpdateParams/builder)]
     (.vaultId b ^String vault-id)
     (when display-name (.displayName b ^String display-name))
     (when metadata (.metadata b (->vault-update-metadata metadata)))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (clojure.core/name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn- vault->map [^BetaManagedAgentsVault r]
@@ -2193,7 +2254,7 @@
   {:id (.id r) :deleted true})
 
 (defn create-vault
-  "Create a vault: `:display-name` (required), `:metadata`. Credentials are
+  "Create a vault: `:display-name` (required), `:metadata`, and `:betas`. Credentials are
   not wrapped yet. Returns the vault map."
   [^AnthropicClient client req]
   (with-api-errors
@@ -2213,7 +2274,7 @@
       (mapv vault->map (.autoPager p)))))
 
 (defn update-vault
-  "Update a vault's `:display-name` or `:metadata`."
+  "Update a vault's `:display-name`, `:metadata`, or `:betas`."
   [^AnthropicClient client ^String vault-id changes]
   (with-api-errors
     (vault->map (-> (.beta client) (.vaults)
