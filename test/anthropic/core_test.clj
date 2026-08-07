@@ -26,9 +26,11 @@
                                           StopReason ToolResultBlockParam
                                           Usage$ServiceTier)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
-           (com.anthropic.models.beta.files FileMetadata)
+           (com.anthropic.models.beta.files BetaFileScope DeletedFile DeletedFile$Type
+                                             FileMetadata)
            (com.anthropic.models.messages.batches BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params
+                                                  DeletedMessageBatch
                                                   MessageBatchCanceledResult
                                                   MessageBatchIndividualResponse)
            (com.anthropic.models.completions Completion CompletionCreateParams)))
@@ -56,6 +58,12 @@
 (def ->count-tool #'a/->count-tool)
 (def reduce-batch-result-stream #'a/reduce-batch-result-stream)
 (def file->map #'a/file->map)
+(def deleted-file->map
+  #(when-let [v (ns-resolve 'anthropic.core 'deleted-file->map)]
+     ((deref v) %)))
+(def deleted-batch->map
+  #(when-let [v (ns-resolve 'anthropic.core 'deleted-batch->map)]
+     ((deref v) %)))
 (def run-tools* #'a/run-tools*)
 
 (defn- resolved-fn [sym]
@@ -771,13 +779,32 @@
                (.sizeBytes 5)
                (.createdAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
                (.type (com.anthropic.core.JsonValue/from "file"))
+               (.scope (-> (BetaFileScope/builder)
+                           (.id "scope_1")
+                           (.type (com.anthropic.core.JsonValue/from "workspace"))
+                           (.build)))
                (.build))
         m (file->map fm)]
     (is (= "file_1" (:id m)))
     (is (= "a.txt" (:filename m)))
     (is (= "text/plain" (:mime-type m)))
     (is (= 5 (:size-bytes m)))
+    (is (= {:id "scope_1" :type "workspace"} (:scope m)))
     (is (str/starts-with? (:created-at m) "2026-01-01"))))
+
+(deftest delete-response-mapping
+  (let [file (-> (DeletedFile/builder)
+                 (.id "file_1")
+                 (.type (DeletedFile$Type/of "file_deleted"))
+                 (.build))
+        batch (-> (DeletedMessageBatch/builder)
+                  (.id "msgbatch_1")
+                  (.type (com.anthropic.core.JsonValue/from "message_batch_deleted"))
+                  (.build))]
+    (is (= {:id "file_1" :deleted true :type :file-deleted}
+           (deleted-file->map file)))
+    (is (= {:id "msgbatch_1" :deleted true :type :message-batch-deleted}
+           (deleted-batch->map batch)))))
 
 (deftest model-mapping
   (let [m (model->map (model-info "claude-x" "Claude X" 200000 64000))]
@@ -831,10 +858,12 @@
                :image-input :pdf-input :structured-outputs :thinking}
              (set (keys c))))))
   (testing "list-models accepts the stable pagination options"
-    (let [p (->model-list-params {:limit 25 :before-id "before" :after-id "after"})]
+    (let [p (->model-list-params {:limit 25 :before-id "before" :after-id "after"
+                                  :betas ["beta-one" :beta-two]})]
       (is (= 25 (opt (.limit p))))
       (is (= "before" (opt (.beforeId p))))
       (is (= "after" (opt (.afterId p))))
+      (is (= ["beta-one" "beta-two"] (mapv str (opt (.betas p)))))
       (is (some #{'[client opts]} (:arglists (meta #'a/list-models)))))))
 
 (defn- delta-event [^RawContentBlockDelta d]

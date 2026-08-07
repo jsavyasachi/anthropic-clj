@@ -1238,18 +1238,22 @@
                                    normalize-content-data)))))
 
 (defn- ->model-list-params ^ModelListParams
-  [{:keys [limit before-id after-id]}]
+  [{:keys [limit before-id after-id betas]}]
   (let [b (ModelListParams/builder)]
     (when limit (.limit b (long limit)))
     (when before-id (.beforeId b ^String before-id))
     (when after-id (.afterId b ^String after-id))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (name beta) beta)]
+        (.addBeta b beta-name)))
     (.build b)))
 
 (defn list-models
   "List the available models as a seq of maps, newest first. Each map has `:id`,
   `:display-name`, `:created-at` (ISO-8601 string), and `:max-input-tokens` /
   `:max-tokens` and `:capabilities` when the API reports them. Pages are followed
-  automatically. Optional `opts`: `:limit`, `:before-id`, and `:after-id`."
+  automatically. Optional `opts`: `:limit`, `:before-id`, `:after-id`, and free-form
+  string or keyword `:betas`."
   ([^AnthropicClient client]
    (list-models client {}))
   ([^AnthropicClient client opts]
@@ -1344,6 +1348,11 @@
                (.isPresent (.expired res)) {:type :expired}
                :else {:type :unknown})}))
 
+(defn- deleted-batch->map [^DeletedMessageBatch d]
+  {:id (.id d)
+   :deleted true
+   :type (->keyword (json->clj (._type d)))})
+
 (defn create-batch
   "Submit a Message Batch. `requests` is a seq of
   `{:custom-id \"...\" :params <same map as create-message>}`. Returns the batch
@@ -1375,11 +1384,11 @@
     (batch->map (-> (.messages client) (.batches) (.cancel id)))))
 
 (defn delete-batch
-  "Delete a batch by id. Returns `{:id ... :deleted true}`."
+  "Delete a batch by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String id]
   (with-api-errors
     (let [^DeletedMessageBatch d (-> (.messages client) (.batches) (.delete id))]
-      {:id (.id d) :deleted true})))
+      (deleted-batch->map d))))
 
 (defn- reduce-batch-result-stream
   [^StreamResponse sr f init]
@@ -1561,12 +1570,21 @@
 ;; ---- Files (beta) ---------------------------------------------------------
 
 (defn- file->map [^FileMetadata f]
-  (cond-> {:id (.id f)
-           :filename (.filename f)
-           :mime-type (.mimeType f)
-           :size-bytes (.sizeBytes f)
-           :created-at (str (.createdAt f))}
-    (.isPresent (.downloadable f)) (assoc :downloadable (.get (.downloadable f)))))
+  (let [scope (.scope f)]
+    (cond-> {:id (.id f)
+             :filename (.filename f)
+             :mime-type (.mimeType f)
+             :size-bytes (.sizeBytes f)
+             :created-at (str (.createdAt f))}
+      (.isPresent (.downloadable f)) (assoc :downloadable (.get (.downloadable f)))
+      (.isPresent scope) (assoc :scope (json->clj (JsonValue/from (.get scope)))))))
+
+(defn- deleted-file->map [^DeletedFile d]
+  (let [t (.type d)]
+    (cond-> {:id (.id d) :deleted true}
+      (.isPresent t) (assoc :type (->keyword
+                                   (.asString ^com.anthropic.models.beta.files.DeletedFile$Type
+                                              (.get t)))))))
 
 (defn- ->upload-params ^FileUploadParams [file]
   (let [b (FileUploadParams/builder)]
@@ -1583,31 +1601,32 @@
 (defn upload-file
   "Upload a file (a path string, `java.io.File`, `java.nio.file.Path`,
   `InputStream`, or byte array) to the Files API. Returns its metadata map
-  (see `get-file`). Uses the beta Files API."
+  (see `get-file`), including `:scope` when reported. Uses the beta Files API."
   [^AnthropicClient client file]
   (with-api-errors
     (file->map (-> (.beta client) (.files) (.upload (->upload-params file))))))
 
 (defn get-file
   "Retrieve a file's metadata by id: `{:id :filename :mime-type :size-bytes
-  :created-at}` plus `:downloadable` when reported."
+  :created-at}` plus `:downloadable` and `:scope` when reported."
   [^AnthropicClient client ^String id]
   (with-api-errors
     (file->map (-> (.beta client) (.files) (.retrieveMetadata id)))))
 
 (defn list-files
-  "List uploaded files (pages followed) as a seq of maps like `get-file`."
+  "List uploaded files (pages followed) as a seq of maps like `get-file`,
+  including `:scope` when reported."
   [^AnthropicClient client]
   (with-api-errors
     (let [^FileListPage p (-> (.beta client) (.files) (.list))]
       (mapv file->map (.autoPager p)))))
 
 (defn delete-file
-  "Delete a file by id. Returns `{:id ... :deleted true}`."
+  "Delete a file by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String id]
   (with-api-errors
     (let [^DeletedFile d (-> (.beta client) (.files) (.delete id))]
-      {:id (.id d) :deleted true})))
+      (deleted-file->map d))))
 
 (defn download-file
   "Download a file's contents by id, returning a byte array. The HTTP response
