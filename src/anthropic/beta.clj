@@ -85,10 +85,12 @@
                                                BetaManagedAgentsSystemContentBlock
                                                BetaManagedAgentsSystemMessageEvent
                                                SessionCreateParams
+                                               SessionCreateParams$Builder
                                                SessionCreateParams$InitialEvent
                                                SessionCreateParams$Metadata
                                                SessionListPage
                                                SessionUpdateParams
+                                               SessionUpdateParams$Builder
                                                SessionUpdateParams$Metadata)
            (com.anthropic.models.beta.sessions.events BetaManagedAgentsEventParams
                                                        BetaManagedAgentsFileRubricParams
@@ -114,10 +116,12 @@
            (com.anthropic.models.beta.deployments BetaManagedAgentsDeployment
                                                   BetaManagedAgentsDeploymentInitialEventParams
                                                   DeploymentCreateParams
+                                                  DeploymentCreateParams$Builder
                                                   DeploymentCreateParams$Metadata
                                                   DeploymentListPage
                                                   DeploymentRunParams
                                                   DeploymentUpdateParams
+                                                  DeploymentUpdateParams$Builder
                                                   DeploymentUpdateParams$Metadata)
            (com.anthropic.models.beta.deploymentruns BetaManagedAgentsDeploymentRun
                                                      DeploymentRunListPage)
@@ -161,6 +165,7 @@
                                                BetaWebhookMemoryStoreCreatedEventData
                                                BetaWebhookMemoryStoreDeletedEventData
                                                BetaWebhookSessionCreatedEventData
+                                               BetaWebhookSessionBudgetReachedEventData
                                                UnwrapWebhookEvent)
            (java.util Optional)))
 
@@ -178,6 +183,85 @@
 
 (defn- unopt [^Optional o]
   (when (.isPresent o) (.get o)))
+
+(defn- monetary-amount->map [^com.anthropic.models.beta.BetaMonetaryAmount a]
+  {:amount (.amount a) :currency (keyword (str/lower-case (.asString (.currency a))))})
+
+(defn- ->monetary-amount ^com.anthropic.models.beta.BetaMonetaryAmount
+  [{:keys [amount currency]}]
+  (-> (com.anthropic.models.beta.BetaMonetaryAmount/builder)
+      (.amount ^String amount)
+      (.currency (com.anthropic.models.beta.BetaCurrency/of (str/upper-case (name currency))))
+      (.build)))
+
+(defn- budget->map [^com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit b]
+  {:max-list-cost (monetary-amount->map (.maxListCost b))
+   :type (keyword (str/lower-case (.asString (.type b))))})
+
+(defn- ->budget ^com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit
+  [{:keys [max-list-cost type]}]
+  (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit/builder)
+      (.maxListCost (->monetary-amount max-list-cost))
+      (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsBudgetLimit$Type/of
+              (if (keyword? type) (name type) type)))
+      (.build)))
+
+(defn- server-tool-usage->map
+  [^com.anthropic.models.beta.sessions.BetaManagedAgentsServerToolUsage u]
+  (cond-> {}
+    (unopt (.webFetchRequests u)) (assoc :web-fetch-requests (unopt (.webFetchRequests u)))
+    (unopt (.webSearchRequests u)) (assoc :web-search-requests (unopt (.webSearchRequests u)))))
+
+(defn- cache-creation-usage->map
+  [^com.anthropic.models.beta.sessions.BetaManagedAgentsCacheCreationUsage u]
+  (cond-> {}
+    (unopt (.ephemeral1hInputTokens u)) (assoc :ephemeral-1h-input-tokens (unopt (.ephemeral1hInputTokens u)))
+    (unopt (.ephemeral5mInputTokens u)) (assoc :ephemeral-5m-input-tokens (unopt (.ephemeral5mInputTokens u)))))
+
+(defprotocol ^:private UsageFields
+  (usage-active-seconds [u])
+  (usage-cache-creation [u])
+  (usage-cache-read-input-tokens [u])
+  (usage-input-tokens [u])
+  (usage-list-cost [u])
+  (usage-output-tokens [u])
+  (usage-server-tool-use [u]))
+
+(extend-protocol UsageFields
+  com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage
+  (usage-active-seconds [u] (.activeSeconds ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage u))
+  (usage-cache-creation [u] (.cacheCreation ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage u))
+  (usage-cache-read-input-tokens [u] (.cacheReadInputTokens ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage u))
+  (usage-input-tokens [u] (.inputTokens ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage u))
+  (usage-list-cost [u] (.listCost ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage u))
+  (usage-output-tokens [u] (.outputTokens ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage u))
+  (usage-server-tool-use [u] (.serverToolUse ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsage u))
+  com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage
+  (usage-active-seconds [u] (.activeSeconds ^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage u))
+  (usage-cache-creation [u] (.cacheCreation ^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage u))
+  (usage-cache-read-input-tokens [u] (.cacheReadInputTokens ^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage u))
+  (usage-input-tokens [u] (.inputTokens ^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage u))
+  (usage-list-cost [u] (.listCost ^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage u))
+  (usage-output-tokens [u] (.outputTokens ^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage u))
+  (usage-server-tool-use [u] (.serverToolUse ^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadUsage u))
+  com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot
+  (usage-active-seconds [u] (.activeSeconds ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot u))
+  (usage-cache-creation [u] (.cacheCreation ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot u))
+  (usage-cache-read-input-tokens [u] (.cacheReadInputTokens ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot u))
+  (usage-input-tokens [u] (.inputTokens ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot u))
+  (usage-list-cost [u] (.listCost ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot u))
+  (usage-output-tokens [u] (.outputTokens ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot u))
+  (usage-server-tool-use [u] (.serverToolUse ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSessionUsageSnapshot u)))
+
+(defn- usage->map [u]
+  (cond-> {}
+    (unopt (usage-active-seconds u)) (assoc :active-seconds (unopt (usage-active-seconds u)))
+    (unopt (usage-cache-creation u)) (assoc :cache-creation (cache-creation-usage->map (unopt (usage-cache-creation u))))
+    (unopt (usage-cache-read-input-tokens u)) (assoc :cache-read-input-tokens (unopt (usage-cache-read-input-tokens u)))
+    (unopt (usage-input-tokens u)) (assoc :input-tokens (unopt (usage-input-tokens u)))
+    (unopt (usage-list-cost u)) (assoc :list-cost (monetary-amount->map (unopt (usage-list-cost u))))
+    (unopt (usage-output-tokens u)) (assoc :output-tokens (unopt (usage-output-tokens u)))
+    (unopt (usage-server-tool-use u)) (assoc :server-tool-use (server-tool-usage->map (unopt (usage-server-tool-use u))))))
 
 (defn- json-string [^JsonValue v]
   (.convert v String))
@@ -512,6 +596,13 @@
 (defn- memory-delete->map [^BetaManagedAgentsDeletedMemory r]
   {:id (.id r) :deleted true})
 
+(defn- memory-list-item->map
+  [^com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsMemoryListItem r]
+  (cond-> {:type (if (.isMemory r) :memory :memory-prefix)
+           :path (.path r)}
+    (.isMemory r) (merge (memory->map (.asMemory r)))
+    ))
+
 (defn create-memory
   "Create a memory in `memory-store-id`: `:path` (required), `:content`,
   and `:view`. Returns the memory map."
@@ -542,7 +633,7 @@
    (with-api-errors
      (let [^MemoryListPage p (-> (.beta client) (.memoryStores) (.memories)
                                  (.list (->memory-list-params memory-store-id opts)))]
-       (mapv memory->map (.autoPager p))))))
+       (mapv memory-list-item->map (.autoPager p))))))
 
 (defn delete-memory
   "Delete a memory. `opts` may include `:expected-content-sha256`."
@@ -706,23 +797,24 @@
     (throw (ex-info (str "Unknown tool type " type)
                     {:anthropic/error :unknown-tool-type :type type}))))
 
-(defn- ->managed-agent-model-config ^BetaManagedAgentsModelConfigParams [model effort]
+(defn- ->managed-agent-model-config ^BetaManagedAgentsModelConfigParams [model effort inference-geo]
   (let [b (BetaManagedAgentsModelConfigParams/builder)]
     (.id b (BetaManagedAgentsModel/of ^String model))
     (when effort
       (.effort b
                (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Effort$BetaManagedAgentsEffortLevel/of
                 (name effort))))
+    (when inference-geo (.inferenceGeo b ^String inference-geo))
     (.build b)))
 
 (defn- ->agent-create-params ^AgentCreateParams
-  [{:keys [name model effort system description metadata skills mcp-servers tools]}]
+  [{:keys [name model effort inference-geo system description metadata skills mcp-servers tools]}]
   (when-not name (missing-key! :name))
   (when-not model (missing-key! :model))
   (let [b (AgentCreateParams/builder)]
     (.name b ^String name)
-    (if effort
-      (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort))
+    (if (or effort inference-geo)
+      (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort inference-geo))
       (.model b ^BetaManagedAgentsModel (BetaManagedAgentsModel/of ^String model)))
     (when system (.system b ^String system))
     (when description (.description b ^String description))
@@ -733,14 +825,14 @@
     (.build b)))
 
 (defn- ->agent-update-params ^AgentUpdateParams
-  [agent-id {:keys [version name model effort system description metadata skills mcp-servers tools]}]
+  [agent-id {:keys [version name model effort inference-geo system description metadata skills mcp-servers tools]}]
   (let [b (AgentUpdateParams/builder)]
     (.agentId b ^String agent-id)
     (when version (.version b (int version)))
     (when name (.name b ^String name))
     (when model
-      (if effort
-        (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort))
+    (if (or effort inference-geo)
+        (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort inference-geo))
         (.model b ^BetaManagedAgentsModel (BetaManagedAgentsModel/of ^String model))))
     (when system (.system b ^String system))
     (when description (.description b ^String description))
@@ -795,6 +887,8 @@
     (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))
     (assoc :effort (model-effort->keyword
                     (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))))
+    (unopt (.inferenceGeo ^BetaManagedAgentsModelConfig (.model r)))
+    (assoc :inference-geo (unopt (.inferenceGeo ^BetaManagedAgentsModelConfig (.model r))))
     (unopt (.system r)) (assoc :system (unopt (.system r)))
     (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
@@ -804,7 +898,8 @@
 
 (defn create-agent
   "Create a managed agent: `:name` and `:model` (required), `:system`,
-  `:description`, `:metadata`, `:skills`, `:mcp-servers`, and `:tools`.
+  `:description`, `:metadata`, `:skills`, `:mcp-servers`, `:tools`, and
+  `:inference-geo` when using model config.
   Returns the agent as a map (`:id`, `:name`, `:model`, `:version`,
   `:system`, `:description`, `:skills`, `:mcp-servers`, `:tools`,
   `:created-at`, `:updated-at`)."
@@ -828,7 +923,7 @@
 (defn update-agent
   "Update an agent. `changes` may include `:version` (the current agent version,
   for optimistic concurrency - see `:version` in `get-agent`'s return) plus
-  `:name`, `:model`, `:system`, `:description`, or `:metadata`. Returns
+  `:name`, `:model`, `:inference-geo`, `:system`, `:description`, or `:metadata`. Returns
   the updated agent map."
   [^AnthropicClient client ^String agent-id changes]
   (with-api-errors
@@ -858,24 +953,26 @@
 (declare ^:private ->session-create-initial-event)
 
 (defn- ->session-create-params ^SessionCreateParams
-  [{:keys [agent title environment-id metadata initial-events]}]
+  [{:keys [agent title environment-id metadata initial-events budget]}]
   (when-not agent (missing-key! :agent))
-  (let [b (SessionCreateParams/builder)]
+  (let [^SessionCreateParams$Builder b (SessionCreateParams/builder)]
     (.agent b ^String agent)
     (when title (.title b ^String title))
     (when environment-id (.environmentId b ^String environment-id))
     (when metadata (.metadata b (->session-create-metadata metadata)))
+    (when budget (.budget b (->budget budget)))
     (doseq [event initial-events]
       (let [^SessionCreateParams$InitialEvent event (->session-create-initial-event event)]
         (.addInitialEvent b event)))
     (.build b)))
 
 (defn- ->session-update-params ^SessionUpdateParams
-  [session-id {:keys [title metadata]}]
-  (let [b (SessionUpdateParams/builder)]
+  [session-id {:keys [title metadata budget]}]
+  (let [^SessionUpdateParams$Builder b (SessionUpdateParams/builder)]
     (.sessionId b ^String session-id)
     (when title (.title b ^String title))
     (when metadata (.metadata b (->session-update-metadata metadata)))
+    (when budget (.budget b (->budget budget)))
     (.build b)))
 
 (defn- session->map [^BetaManagedAgentsSession r]
@@ -884,8 +981,10 @@
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))}
     (unopt (.title r)) (assoc :title (unopt (.title r)))
-    (unopt (.environmentId r)) (assoc :environment-id (unopt (.environmentId r)))
-    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+    (.environmentId r) (assoc :environment-id (.environmentId r))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
+    (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))
+    (.usage r) (assoc :usage (usage->map (.usage r)))))
 
 (defn- advisor->map [^BetaManagedAgentsAdvisor a]
   {:type :advisor :model (.model a)})
@@ -914,10 +1013,11 @@
 
 (defn create-session
   "Create a session for `:agent` (an agent id, required), with optional
-  `:title`, `:environment-id`, and `:metadata`. Session resources, vault
+  `:title`, `:environment-id`, `:metadata`, and `:budget` shaped as
+  `{:max-list-cost {:amount '...' :currency :usd} :type :limit}`. Session resources, vault
   ids, and per-session agent overrides are not wrapped yet. Returns the
   session as a map (`:id`, `:status`, `:title`, `:environment-id`,
-  `:created-at`, `:updated-at`)."
+  `:created-at`, `:updated-at`, `:budget`, and `:usage`)."
   [^AnthropicClient client req]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions) (.create (->session-create-params req))))))
@@ -936,7 +1036,9 @@
       (mapv session->map (.autoPager p)))))
 
 (defn update-session
-  "Update a session's `:title` or `:metadata`. Returns the updated session map."
+  "Update a session's `:title`, `:metadata`, or `:budget`. Budget uses the
+  `{:max-list-cost {:amount '...' :currency :usd} :type :limit}` shape. Returns
+  the updated session map."
   [^AnthropicClient client ^String session-id changes]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions)
@@ -1046,7 +1148,16 @@
 (defn- user-content->map [^BetaManagedAgentsUserMessageEvent$Content c]
   (cond
     (.isText c) (.text ^BetaManagedAgentsTextBlock (.asText c))
+    (.isRedacted c) {:type :redacted}
     :else {:type :unknown}))
+
+(defn- session-usage-event->map
+  [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUsageEvent r]
+  (cond-> {:type :session-usage
+           :id (.id r)
+           :processed-at (str (.processedAt r))
+           :usage (usage->map (.usage r))}
+    (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))))
 
 (defn- session-event->map [^BetaManagedAgentsSessionEvent e]
   (cond
@@ -1071,6 +1182,13 @@
                :outcome-id (.outcomeId r)
                :processed-at (str (.processedAt r))}
         (unopt (.maxIterations r)) (assoc :max-iterations (unopt (.maxIterations r)))))
+    (.isSessionUsage e)
+    (session-usage-event->map (.asSessionUsage e))
+    (.isSessionUpdated e)
+    (let [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUpdatedEvent r (.asSessionUpdated e)]
+      (cond-> {:type :session-updated :id (.id r) :processed-at (str (.processedAt r))}
+        (unopt (.title r)) (assoc :title (unopt (.title r)))
+        (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))))
     :else {:type :unknown}))
 
 (defn- send-data->map
@@ -1219,7 +1337,8 @@
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))}
     (unopt (.parentThreadId r)) (assoc :parent-thread-id (unopt (.parentThreadId r)))
-    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
+    (unopt (.usage r)) (assoc :usage (usage->map (unopt (.usage r))))))
 
 (defn get-session-thread
   "Retrieve a session thread by session id and thread id."
@@ -1305,19 +1424,63 @@
   (let [b (com.anthropic.models.beta.sessions.resources.ResourceDeleteParams/builder)]
     (.sessionId b ^String session-id) (.resourceId b ^String resource-id) (.build b)))
 
+(defprotocol ^:private ResourceUnion
+  (resource-id [r])
+  (resource-mount-path [r])
+  (resource-created-at [r])
+  (resource-updated-at [r])
+  (resource-is-file [r])
+  (resource-as-file [r])
+  (resource-is-github [r])
+  (resource-as-github [r])
+  (resource-as-memory-store [r]))
+
+(extend-protocol ResourceUnion
+  com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse
+  (resource-id [r] (unopt (.id ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)))
+  (resource-mount-path [r] (unopt (.mountPath ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)))
+  (resource-created-at [r] (unopt (.createdAt ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)))
+  (resource-updated-at [r] (unopt (.updatedAt ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)))
+  (resource-is-file [r] (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
+  (resource-as-file [r] (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
+  (resource-is-github [r] (.isGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
+  (resource-as-github [r] (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
+  (resource-as-memory-store [r] (.asMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
+  com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse
+  (resource-id [r] (unopt (.id ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
+  (resource-mount-path [r] (unopt (.mountPath ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
+  (resource-created-at [r] (unopt (.createdAt ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
+  (resource-updated-at [r] (unopt (.updatedAt ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
+  (resource-is-file [r] (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
+  (resource-as-file [r] (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
+  (resource-is-github [r] (.isGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
+  (resource-as-github [r] (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
+  (resource-as-memory-store [r] (.asMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
+
 (defn- session-resource->map [r]
   (cond
     (instance? com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource r)
     (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x r]
-      {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)})
-    (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)
-    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
-      {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)})
-    (.isGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)
-    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
-      {:type :github-repository :id (.id x) :url (.url x) :mount-path (.mountPath x)})
-    :else (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (.asMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)]
-            {:type :memory-store :memory-store-id (.memoryStoreId x)})))
+      (cond-> {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)}
+        (.createdAt x) (assoc :created-at (str (.createdAt x)))
+        (.updatedAt x) (assoc :updated-at (str (.updatedAt x)))))
+    (resource-is-file r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x (resource-as-file r)]
+      (cond-> {:type :file :id (resource-id r) :file-id (.fileId x)
+               :mount-path (resource-mount-path r)}
+        (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
+        (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))
+    (resource-is-github r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x (resource-as-github r)]
+      (cond-> {:type :github-repository :id (resource-id r) :url (.url x)
+               :mount-path (resource-mount-path r)}
+        (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
+        (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))
+    :else (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (resource-as-memory-store r)]
+            (cond-> {:type :memory-store :id (resource-id r) :memory-store-id (.memoryStoreId x)
+                     :mount-path (resource-mount-path r)}
+              (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
+              (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))))
 
 (defn add-session-resource [^AnthropicClient client ^String session-id req]
   (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources)
@@ -1348,24 +1511,25 @@
     (.build b)))
 
 (defn- ->deployment-create-params ^DeploymentCreateParams
-  [{:keys [name agent environment-id initial-events description metadata vault-ids] :as req}]
+  [{:keys [name agent environment-id initial-events description metadata vault-ids budget] :as req}]
   (when-not name (missing-key! :name))
   (when-not agent (missing-key! :agent))
   (when-not environment-id (missing-key! :environment-id))
   (when-not (contains? req :initial-events) (missing-key! :initial-events))
-  (let [b (DeploymentCreateParams/builder)]
+  (let [^DeploymentCreateParams$Builder b (DeploymentCreateParams/builder)]
     (.name b ^String name)
     (.agent b ^String agent)
     (.environmentId b ^String environment-id)
     (.initialEvents b ^java.util.List (mapv ->deployment-initial-event initial-events))
     (when description (.description b ^String description))
     (when metadata (.metadata b (->deployment-create-metadata metadata)))
+    (when budget (.budget b (->budget budget)))
     (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
     (.build b)))
 
 (defn- ->deployment-update-params ^DeploymentUpdateParams
-  [deployment-id {:keys [name agent environment-id initial-events description metadata vault-ids]}]
-  (let [b (DeploymentUpdateParams/builder)]
+  [deployment-id {:keys [name agent environment-id initial-events description metadata vault-ids budget]}]
+  (let [^DeploymentUpdateParams$Builder b (DeploymentUpdateParams/builder)]
     (.deploymentId b ^String deployment-id)
     (when name (.name b ^String name))
     (when agent (.agent b ^String agent))
@@ -1374,6 +1538,7 @@
       (.initialEvents b ^java.util.List (mapv ->deployment-initial-event initial-events)))
     (when description (.description b ^String description))
     (when metadata (.metadata b (->deployment-update-metadata metadata)))
+    (when budget (.budget b (->budget budget)))
     (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
     (.build b)))
 
@@ -1381,6 +1546,21 @@
   (let [b (DeploymentRunParams/builder)]
     (.deploymentId b ^String deployment-id)
     (.build b)))
+
+(defn- deployment-resource->map
+  [^com.anthropic.models.beta.deployments.BetaManagedAgentsSessionResourceConfig r]
+  (cond
+    (.isFile r)
+    (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsFileResourceConfig x (.asFile r)]
+      (cond-> {:type :file :file-id (.fileId x)}
+        (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))
+    (.isGitHubRepository r)
+    (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsGitHubRepositoryResourceConfig x (.asGitHubRepository r)]
+      (cond-> {:type :github-repository :url (.url x)}
+        (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))
+    :else
+    (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig x (.asMemoryStore r)]
+      {:type :memory-store :memory-store-id (.memoryStoreId x)})))
 
 (defn- deployment->map [^BetaManagedAgentsDeployment r]
   (cond-> {:id (.id r)
@@ -1390,15 +1570,19 @@
            :status (str (.status r))
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))
-           :vault-ids (vec (.vaultIds r))}
+           :vault-ids (vec (.vaultIds r))
+           :resources (mapv deployment-resource->map (.resources r))}
     (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
-    (unopt (.pausedReason r)) (assoc :paused-reason (str (unopt (.pausedReason r))))))
+    (unopt (.pausedReason r)) (assoc :paused-reason (str (unopt (.pausedReason r))))
+    (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))))
 
 (defn create-deployment
   "Create a deployment. Required: `:name`, `:agent`, `:environment-id`, and
   `:initial-events` (event maps). Optional: `:description`,
-  `:metadata`, `:vault-ids`. Returns the deployment map."
+  `:metadata`, `:vault-ids`, and `:budget`. Budget uses the
+  `{:max-list-cost {:amount '...' :currency :usd} :type :limit}` shape.
+  Returns the deployment map."
   [^AnthropicClient client req]
   (with-api-errors
     (deployment->map (-> (.beta client) (.deployments)
@@ -1420,7 +1604,7 @@
 (defn update-deployment
   "Update a deployment. `changes` may include `:name`, `:agent`,
   `:environment-id`, `:initial-events`, `:description`, `:metadata`, or
-  `:vault-ids`. Returns the updated deployment map."
+  `:vault-ids`, or `:budget`. Returns the updated deployment map."
   [^AnthropicClient client ^String deployment-id changes]
   (with-api-errors
     (deployment->map (-> (.beta client) (.deployments)
@@ -2079,6 +2263,10 @@
 (defn- webhook-session-created->map [^BetaWebhookSessionCreatedEventData d]
   (webhook-common->map :session-created (.id d) (.organizationId d) (.workspaceId d)))
 
+(defn- webhook-session-budget-reached->map
+  [^BetaWebhookSessionBudgetReachedEventData d]
+  (webhook-common->map :session-budget-reached (.id d) (.organizationId d) (.workspaceId d)))
+
 (defn- webhook-deployment-created->map [^BetaWebhookDeploymentCreatedEventData d]
   (webhook-common->map :deployment-created (.id d) (.organizationId d) (.workspaceId d)))
 
@@ -2130,6 +2318,7 @@
 (defn- webhook-data->map [^BetaWebhookEventData d]
   (cond
     (.isSessionCreated d) (webhook-session-created->map (.asSessionCreated d))
+    (.isSessionBudgetReached d) (webhook-session-budget-reached->map (.asSessionBudgetReached d))
     (.isDeploymentCreated d) (webhook-deployment-created->map (.asDeploymentCreated d))
     (.isDeploymentUpdated d) (webhook-deployment-updated->map (.asDeploymentUpdated d))
     (.isDeploymentPaused d) (webhook-deployment-paused->map (.asDeploymentPaused d))
