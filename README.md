@@ -36,13 +36,13 @@ for roles and block types), with a few Clojure-native conveniences (a native
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.21.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.22.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.21.0"]
+[net.clojars.savya/anthropic-clj "0.22.0"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -437,7 +437,8 @@ changes. Use `:fallbacks :default` or a vector of fallback maps with
 Content blocks accept `:tool-addition` and `:tool-removal` with `:reference`,
 `:mcp-tool-reference`, or `:mcp-toolset-reference` tools. `run-beta-tools`
 accepts `:on-turn`, called with `(response params)` after each assistant turn;
-its returned params control the next iteration.
+its returned params control the next iteration. Tool specs support custom and
+server-side tools, including beta-only server tools.
 
 ## Errors
 

@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.22.0] - 2026-08-07
+
+### Added
+- Beta Messages server tools. A tool spec with a `:type` now builds the matching
+  `BetaToolUnion` variant instead of collapsing to a custom tool, so web search,
+  web fetch, code execution, bash, text editor, memory, and both tool-search
+  variants work on the beta path, alongside the beta-only computer-use, advisor,
+  and MCP toolset tools. Tool specs take the same shape on the stable and beta
+  paths, so a spec moves between `create-message` and `create-beta-message`
+  unchanged. Token counting dispatches the same way.
+- Beta tool options that were previously unreachable: `:max-uses`,
+  `:max-content-tokens`, `:use-cache`, `:citations`, `:allowed-domains`,
+  `:blocked-domains`, and `:user-location` on the server tools, plus
+  `:defer-loading`, `:strict`, and `:allowed-callers` on custom beta tools.
+
 ## [0.21.0] - 2026-08-07
 
 ### Added

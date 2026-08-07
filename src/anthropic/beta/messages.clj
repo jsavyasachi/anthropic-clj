@@ -39,8 +39,44 @@
                                                BetaThinkingConfigDisabled
                                                BetaThinkingConfigEnabled
                                                BetaThinkingConfigParam
-                                               BetaTool BetaTool$InputSchema
+                                               BetaTool BetaTool$Builder BetaTool$AllowedCaller BetaTool$InputSchema
                                                BetaTool$InputSchema$Properties
+                                               BetaToolUnion
+                                               BetaWebSearchTool20260318
+                                               BetaWebFetchTool20260318
+                                               BetaCodeExecutionTool20260521
+                                               BetaToolBash20250124
+                                               BetaToolTextEditor20250728
+                                               BetaMemoryTool20250818
+                                               BetaToolSearchToolBm25_20251119$AllowedCaller
+                                               BetaToolSearchToolBm25_20251119$Builder
+                                               BetaToolSearchToolBm25_20251119$Type
+                                               BetaToolSearchToolRegex20251119$AllowedCaller
+                                               BetaToolSearchToolRegex20251119$Builder
+                                               BetaToolSearchToolRegex20251119$Type
+                                               BetaToolSearchToolBm25_20251119
+                                               BetaToolSearchToolRegex20251119
+                                               BetaToolComputerUse20251124
+                                               BetaToolComputerUse20251124$AllowedCaller
+                                               BetaToolComputerUse20251124$Builder
+                                               BetaAdvisorTool20260301
+                                               BetaAdvisorTool20260301$AllowedCaller
+                                               BetaAdvisorTool20260301$Builder
+                                               BetaMcpToolset BetaMcpToolset$Configs
+                                               BetaMcpToolDefaultConfig
+                                               BetaCitationsConfigParam BetaUserLocation
+                                               BetaWebSearchTool20260318$AllowedCaller
+                                               BetaWebSearchTool20260318$Builder
+                                               BetaWebFetchTool20260318$AllowedCaller
+                                               BetaWebFetchTool20260318$Builder
+                                               BetaCodeExecutionTool20260521$AllowedCaller
+                                               BetaCodeExecutionTool20260521$Builder
+                                               BetaToolBash20250124$AllowedCaller
+                                               BetaToolBash20250124$Builder
+                                               BetaToolTextEditor20250728$AllowedCaller
+                                               BetaToolTextEditor20250728$Builder
+                                               BetaMemoryTool20250818$AllowedCaller
+                                               BetaMemoryTool20250818$Builder
                                                BetaToolChangeMcpToolReference
                                                BetaToolChangeMcpToolsetReference
                                                BetaToolChoice BetaToolChoiceAny
@@ -51,6 +87,7 @@
                                                BetaToolUseBlockParam$Input
                                                BetaUrlImageSource BetaUrlPdfSource
                                                MessageCountTokensParams
+                                               MessageCountTokensParams$Tool
                                                MessageCountTokensParams$Builder
                                                MessageCreateParams
                                                MessageCreateParams$Builder
@@ -217,7 +254,16 @@
       (throw (ex-info "Unsupported tool choice"
                       {:anthropic/error :unsupported-tool-choice :tool-choice tc})))))
 
-(defn- ->tool ^BetaTool [{:keys [name description input-schema cache-control]}]
+(defn- configure-tool-builder
+  [{:keys [allowed-callers cache-control defer-loading strict]}
+   {:keys [add-allowed-caller cache-control! defer-loading! strict!]}]
+  (doseq [c allowed-callers]
+    (add-allowed-caller c))
+  (when cache-control (cache-control! (->cache-control cache-control)))
+  (when (some? defer-loading) (defer-loading! defer-loading))
+  (when (some? strict) (strict! strict)))
+
+(defn- ->custom-tool ^BetaTool [{:keys [name description input-schema] :as t}]
   (let [schema (or input-schema {})
         properties (BetaTool$InputSchema$Properties/builder)
         schema-builder (-> (BetaTool$InputSchema/builder)
@@ -230,8 +276,229 @@
     (when (seq (:required schema)) (.required schema-builder ^java.util.List (vec (:required schema))))
     (.inputSchema b (.build schema-builder))
     (when description (.description b ^String description))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaTool$Builder b
+                                               (BetaTool$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaTool$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaTool$Builder b (boolean %))
+      :strict! #(.strict ^BetaTool$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->user-location ^BetaUserLocation [{:keys [city region country timezone]}]
+  (let [b (BetaUserLocation/builder)]
+    (when city (.city b ^String city))
+    (when region (.region b ^String region))
+    (when country (.country b ^String country))
+    (when timezone (.timezone b ^String timezone))
+    (.build b)))
+
+(def ^:private server-tool-types
+  #{:web-search :web-fetch :code-execution :bash :text-editor :memory
+    :tool-search :computer-use :advisor :mcp-toolset})
+
+(defn- ->web-search-tool ^BetaWebSearchTool20260318
+  [{:keys [max-uses allowed-domains blocked-domains user-location] :as t}]
+  (let [b (BetaWebSearchTool20260318/builder)]
+    (when max-uses (.maxUses b (long max-uses)))
+    (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+    (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+    (when user-location (.userLocation b (->user-location user-location)))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaWebSearchTool20260318$Builder b
+                                               (BetaWebSearchTool20260318$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaWebSearchTool20260318$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaWebSearchTool20260318$Builder b (boolean %))
+      :strict! #(.strict ^BetaWebSearchTool20260318$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->citations ^BetaCitationsConfigParam [citations]
+  (let [b (BetaCitationsConfigParam/builder)]
+    (.enabled b (boolean (if (map? citations) (:enabled citations) citations)))
+    (.build b)))
+
+(defn- ->web-fetch-tool ^BetaWebFetchTool20260318
+  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations] :as t}]
+  (let [b (BetaWebFetchTool20260318/builder)]
+    (when max-uses (.maxUses b (long max-uses)))
+    (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
+    (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+    (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+    (when (some? use-cache) (.useCache b (boolean use-cache)))
+    (when citations (.citations b (->citations citations)))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaWebFetchTool20260318$Builder b
+                                               (BetaWebFetchTool20260318$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaWebFetchTool20260318$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaWebFetchTool20260318$Builder b (boolean %))
+      :strict! #(.strict ^BetaWebFetchTool20260318$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->code-execution-tool ^BetaCodeExecutionTool20260521 [t]
+  (let [b (BetaCodeExecutionTool20260521/builder)]
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaCodeExecutionTool20260521$Builder b
+                                               (BetaCodeExecutionTool20260521$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaCodeExecutionTool20260521$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaCodeExecutionTool20260521$Builder b (boolean %))
+      :strict! #(.strict ^BetaCodeExecutionTool20260521$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->bash-tool ^BetaToolBash20250124 [t]
+  (let [b (BetaToolBash20250124/builder)]
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaToolBash20250124$Builder b
+                                               (BetaToolBash20250124$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaToolBash20250124$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaToolBash20250124$Builder b (boolean %))
+      :strict! #(.strict ^BetaToolBash20250124$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->text-editor-tool ^BetaToolTextEditor20250728
+  [{:keys [max-characters] :as t}]
+  (let [b (BetaToolTextEditor20250728/builder)]
+    (when max-characters (.maxCharacters b (long max-characters)))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaToolTextEditor20250728$Builder b
+                                               (BetaToolTextEditor20250728$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaToolTextEditor20250728$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaToolTextEditor20250728$Builder b (boolean %))
+      :strict! #(.strict ^BetaToolTextEditor20250728$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->memory-tool ^BetaMemoryTool20250818 [t]
+  (let [b (BetaMemoryTool20250818/builder)]
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaMemoryTool20250818$Builder b
+                                               (BetaMemoryTool20250818$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaMemoryTool20250818$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaMemoryTool20250818$Builder b (boolean %))
+      :strict! #(.strict ^BetaMemoryTool20250818$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->tool-search-bm25 ^BetaToolSearchToolBm25_20251119
+  [{:keys [allowed-callers cache-control defer-loading strict]}]
+  (let [b (BetaToolSearchToolBm25_20251119/builder)]
+    (.type b BetaToolSearchToolBm25_20251119$Type/TOOL_SEARCH_TOOL_BM25_20251119)
+    (doseq [c allowed-callers] (.addAllowedCaller b (BetaToolSearchToolBm25_20251119$AllowedCaller/of (clojure.core/name c))))
+    (when cache-control (.cacheControl b ^BetaCacheControlEphemeral (->cache-control cache-control)))
+    (when (some? defer-loading) (.deferLoading b (boolean defer-loading)))
+    (when (some? strict) (.strict b (boolean strict)))
+    (.build b)))
+
+(defn- ->tool-search-regex ^BetaToolSearchToolRegex20251119
+  [{:keys [allowed-callers cache-control defer-loading strict]}]
+  (let [b (BetaToolSearchToolRegex20251119/builder)]
+    (.type b BetaToolSearchToolRegex20251119$Type/TOOL_SEARCH_TOOL_REGEX_20251119)
+    (doseq [c allowed-callers] (.addAllowedCaller b (BetaToolSearchToolRegex20251119$AllowedCaller/of (clojure.core/name c))))
+    (when cache-control (.cacheControl b ^BetaCacheControlEphemeral (->cache-control cache-control)))
+    (when (some? defer-loading) (.deferLoading b (boolean defer-loading)))
+    (when (some? strict) (.strict b (boolean strict)))
+    (.build b)))
+
+(defn- ->computer-use-tool ^BetaToolComputerUse20251124
+  [{:keys [display-height-px display-width-px display-number enable-zoom] :as t}]
+  (let [b (BetaToolComputerUse20251124/builder)]
+    (when display-height-px (.displayHeightPx b (long display-height-px)))
+    (when display-width-px (.displayWidthPx b (long display-width-px)))
+    (when display-number (.displayNumber b (long display-number)))
+    (when (some? enable-zoom) (.enableZoom b (boolean enable-zoom)))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaToolComputerUse20251124$Builder b
+                                               (BetaToolComputerUse20251124$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaToolComputerUse20251124$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaToolComputerUse20251124$Builder b (boolean %))
+      :strict! #(.strict ^BetaToolComputerUse20251124$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->advisor-tool ^BetaAdvisorTool20260301
+  [{:keys [model max-tokens max-uses] :as t}]
+  (let [b (BetaAdvisorTool20260301/builder)]
+    (when model (.model b ^String model))
+    (when max-tokens (.maxTokens b (long max-tokens)))
+    (when max-uses (.maxUses b (long max-uses)))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaAdvisorTool20260301$Builder b
+                                               (BetaAdvisorTool20260301$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaAdvisorTool20260301$Builder b ^BetaCacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^BetaAdvisorTool20260301$Builder b (boolean %))
+      :strict! #(.strict ^BetaAdvisorTool20260301$Builder b (boolean %))})
+    (.build b)))
+
+(defn- ->mcp-toolset ^BetaMcpToolset
+  [{:keys [mcp-server-name configs default-config cache-control]}]
+  (let [b (BetaMcpToolset/builder)]
+    (when mcp-server-name (.mcpServerName b ^String mcp-server-name))
+    (when configs
+      (let [cb (BetaMcpToolset$Configs/builder)]
+        (doseq [[k v] configs] (.putAdditionalProperty cb (name k) (->json v)))
+        (.configs b (.build cb))))
+    (when default-config
+      (let [db (BetaMcpToolDefaultConfig/builder)]
+        (when (contains? default-config :defer-loading) (.deferLoading db (boolean (:defer-loading default-config))))
+        (when (contains? default-config :enabled) (.enabled db (boolean (:enabled default-config))))
+        (.defaultConfig b (.build db))))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
     (.build b)))
+
+(defn- ->server-tool ^BetaToolUnion [{:keys [type] :as t}]
+  (case (keyword type)
+    :web-search (BetaToolUnion/ofWebSearchTool20260318 (->web-search-tool t))
+    :web-fetch (BetaToolUnion/ofWebFetchTool20260318 (->web-fetch-tool t))
+    :code-execution (BetaToolUnion/ofCodeExecutionTool20260521 (->code-execution-tool t))
+    :bash (BetaToolUnion/ofBash20250124 (->bash-tool t))
+    :text-editor (BetaToolUnion/ofTextEditor20250728 (->text-editor-tool t))
+    :memory (BetaToolUnion/ofMemoryTool20250818 (->memory-tool t))
+    :tool-search (case (keyword (:variant t))
+                   :bm25 (BetaToolUnion/ofSearchToolBm25_20251119 (->tool-search-bm25 t))
+                   :regex (BetaToolUnion/ofSearchToolRegex20251119 (->tool-search-regex t))
+                   (throw (ex-info "Unsupported tool-search variant"
+                                   {:anthropic/error :unsupported-tool-search-variant
+                                    :variant (:variant t)})))
+    :computer-use (BetaToolUnion/ofComputerUse20251124 (->computer-use-tool t))
+    :advisor (BetaToolUnion/ofAdvisorTool20260301 (->advisor-tool t))
+    :mcp-toolset (BetaToolUnion/ofMcpToolset (->mcp-toolset t))
+    (throw (ex-info "Unsupported server tool type"
+                    {:anthropic/error :unsupported-server-tool :type type}))))
+
+(defn- ->count-tool ^MessageCountTokensParams$Tool [{:keys [type] :as t}]
+  (case (keyword type)
+    :web-search (MessageCountTokensParams$Tool/ofBetaWebSearchTool20260318 (->web-search-tool t))
+    :web-fetch (MessageCountTokensParams$Tool/ofBetaWebFetchTool20260318 (->web-fetch-tool t))
+    :code-execution (MessageCountTokensParams$Tool/ofBetaCodeExecutionTool20260521 (->code-execution-tool t))
+    :bash (MessageCountTokensParams$Tool/ofBetaToolBash20250124 (->bash-tool t))
+    :text-editor (MessageCountTokensParams$Tool/ofBetaToolTextEditor20250728 (->text-editor-tool t))
+    :memory (MessageCountTokensParams$Tool/ofBetaMemoryTool20250818 (->memory-tool t))
+    :tool-search (case (keyword (:variant t))
+                   :bm25 (MessageCountTokensParams$Tool/ofBetaToolSearchToolBm25_20251119 (->tool-search-bm25 t))
+                   :regex (MessageCountTokensParams$Tool/ofBetaToolSearchToolRegex20251119 (->tool-search-regex t))
+                   (throw (ex-info "Unsupported tool-search variant"
+                                   {:anthropic/error :unsupported-tool-search-variant
+                                    :variant (:variant t)})))
+    :computer-use (MessageCountTokensParams$Tool/ofBetaToolComputerUse20251124 (->computer-use-tool t))
+    :advisor (MessageCountTokensParams$Tool/ofBetaAdvisorTool20260301 (->advisor-tool t))
+    :mcp-toolset (MessageCountTokensParams$Tool/ofBetaMcpToolset (->mcp-toolset t))
+    (MessageCountTokensParams$Tool/ofBeta (->custom-tool t))))
+
+(defn- server-tool? [t]
+  ;; Only a recognized `:type` makes a tool server-side. A tool carrying `:fn` is
+  ;; executed locally by `run-beta-tools`, so it is always custom. Any other
+  ;; `:type` belongs to the caller and must not steal the custom-tool path.
+  (and (nil? (:fn t))
+       (contains? server-tool-types (keyword (:type t)))))
+
+(defn- ->tool ^BetaToolUnion [t]
+  (if (server-tool? t)
+    (->server-tool t)
+    (BetaToolUnion/ofBetaTool (->custom-tool t))))
 
 (defn- ->metadata ^BetaMetadata [{:keys [user-id]}]
   (-> (BetaMetadata/builder) (.userId ^String user-id) (.build)))
@@ -356,7 +623,7 @@
     (doseq [beta betas]
       (let [^String beta-name (if (keyword? beta) (name beta) beta)]
         (.addBeta b beta-name)))
-    (doseq [tool tools] (.addTool b (->tool tool)))
+    (doseq [tool tools] (.addTool b (->count-tool tool)))
     (doseq [message messages] (add-count-message b message))
     (.build b)))
 

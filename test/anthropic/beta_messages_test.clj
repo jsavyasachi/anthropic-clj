@@ -1,13 +1,16 @@
 (ns anthropic.beta-messages-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [anthropic.beta.messages :as messages])
+            [anthropic.beta.messages :as messages]
+            [anthropic.core])
   (:import (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.beta.messages BetaMessage BetaTextBlock BetaUsage
                                                BetaMessageTokensCount MessageCountTokensParams
                                                MessageCreateParams BetaRawContentBlockDeltaEvent
-                                               BetaRawMessageStreamEvent)
+                                               BetaRawMessageStreamEvent BetaToolUnion
+                                               MessageCountTokensParams$Tool)
+           (com.anthropic.models.messages ToolUnion)
            (com.anthropic.models.beta.messages.batches BatchCreateParams
                                                        BetaDeletedMessageBatch
                                                        BetaMessageBatch
@@ -27,6 +30,9 @@
 (def parse-beta-text #'messages/parse-beta-text)
 (def ->content-block #'messages/->content-block)
 (def run-beta-tools* #'messages/run-beta-tools*)
+(def ->tool #'messages/->tool)
+(def ->server-tool #'messages/->server-tool)
+(def stable->tool #'anthropic.core/->tool)
 
 (defn- json-value->clj [value]
   (cond
@@ -40,6 +46,141 @@
   (json-value->clj (.convert (JsonValue/from value) Object)))
 
 (defn- opt [o] (when (.isPresent o) (.get o)))
+
+(deftest beta-server-tool-unions
+  (doseq [[tool predicate]
+          [[{:type :web-search :name "web-search"} #(.isWebSearchTool20260318 ^BetaToolUnion %)]
+           [{:type :web-fetch :name "web-fetch"} #(.isWebFetchTool20260318 ^BetaToolUnion %)]
+           [{:type :code-execution :name "code-execution"} #(.isCodeExecutionTool20260521 ^BetaToolUnion %)]
+           [{:type :bash :name "bash"} #(.isBash20250124 ^BetaToolUnion %)]
+           [{:type :text-editor :name "text-editor"} #(.isTextEditor20250728 ^BetaToolUnion %)]
+           [{:type :memory :name "memory"} #(.isMemoryTool20250818 ^BetaToolUnion %)]
+           [{:type :tool-search :variant :bm25 :name "tool-search"} #(.isSearchToolBm25_20251119 ^BetaToolUnion %)]
+           [{:type :tool-search :variant :regex :name "tool-search"} #(.isSearchToolRegex20251119 ^BetaToolUnion %)]
+           [{:type :computer-use :name "computer-use" :display-height-px 900 :display-width-px 1400}
+            #(.isComputerUse20251124 ^BetaToolUnion %)]
+           [{:type :advisor :name "advisor" :model "claude-sonnet-4-6"}
+            #(.isAdvisorTool20260301 ^BetaToolUnion %)]
+           [{:type :mcp-toolset :name "mcp-toolset" :mcp-server-name "weather"}
+            #(.isMcpToolset ^BetaToolUnion %)]]]
+    (is (and (instance? BetaToolUnion (->tool tool))
+             (predicate (->tool tool))))))
+
+(deftest beta-custom-tool-options
+  (let [tool (->tool {:name "weather"
+                      :input-schema {:type "object"}
+                      :defer-loading true
+                      :strict true
+                      :allowed-callers [:direct]})]
+    (is (and (instance? BetaToolUnion tool) (.isBetaTool ^BetaToolUnion tool)))
+    (is (= true (and (instance? BetaToolUnion tool)
+                     (.. ^BetaToolUnion tool asBetaTool deferLoading get))))
+    (is (= true (and (instance? BetaToolUnion tool)
+                     (.. ^BetaToolUnion tool asBetaTool strict get))))
+    (is (= "direct" (and (instance? BetaToolUnion tool)
+                          (str (first (opt (.allowedCallers (.asBetaTool ^BetaToolUnion tool))))))))))
+
+(deftest beta-server-tool-options
+  (let [web-search (.asWebSearchTool20260318 ^BetaToolUnion
+                                             (->tool {:type :web-search :name "web-search"
+                                                      :max-uses 3
+                                                      :allowed-domains ["example.com"]
+                                                      :blocked-domains ["blocked.example"]
+                                                      :user-location {:city "Paris" :country "FR"}}))
+        web-fetch (.asWebFetchTool20260318 ^BetaToolUnion
+                                           (->tool {:type :web-fetch :name "web-fetch"
+                                                    :max-content-tokens 2048
+                                                    :use-cache true
+                                                    :citations {:enabled true}}))
+        text-editor (.asTextEditor20250728 ^BetaToolUnion
+                                           (->tool {:type :text-editor :name "text-editor"
+                                                    :max-characters 5000}))
+        computer-use (.asComputerUse20251124 ^BetaToolUnion
+                                             (->tool {:type :computer-use :name "computer-use"
+                                                      :display-height-px 900 :display-width-px 1400
+                                                      :display-number 1 :enable-zoom true}))
+        advisor (.asAdvisorTool20260301 ^BetaToolUnion
+                                       (->tool {:type :advisor :name "advisor"
+                                                :model "claude-sonnet-4-6" :max-tokens 256 :max-uses 2}))]
+    (is (= 3 (opt (.maxUses web-search))))
+    (is (= ["example.com"] (opt (.allowedDomains web-search))))
+    (is (= ["blocked.example"] (opt (.blockedDomains web-search))))
+    (is (= "Paris" (opt (.city (opt (.userLocation web-search))))))
+    (is (= 2048 (opt (.maxContentTokens web-fetch))))
+    (is (= true (opt (.useCache web-fetch))))
+    (is (= true (.. web-fetch citations get enabled get)))
+    (is (= 5000 (opt (.maxCharacters text-editor))))
+    (is (= 900 (.displayHeightPx computer-use)))
+    (is (= 1400 (.displayWidthPx computer-use)))
+    (is (= 1 (opt (.displayNumber computer-use))))
+    (is (= true (opt (.enableZoom computer-use))))
+    (is (= "claude-sonnet-4-6" (str (.model advisor))))
+    (is (= 256 (opt (.maxTokens advisor))))
+    (is (= 2 (opt (.maxUses advisor))))))
+
+(deftest beta-server-tool-option-unions
+  (is (.isCodeExecutionTool20260521 ^BetaToolUnion
+       (->tool {:type :code-execution :name "code" :defer-loading true :strict true})))
+  (is (.isBash20250124 ^BetaToolUnion
+       (->tool {:type :bash :name "bash" :defer-loading true :strict true})))
+  (is (.isMemoryTool20250818 ^BetaToolUnion
+       (->tool {:type :memory :name "memory" :defer-loading true :strict true})))
+  (is (.isSearchToolBm25_20251119 ^BetaToolUnion
+       (->tool {:type :tool-search :variant :bm25 :name "search"})))
+  (is (.isSearchToolRegex20251119 ^BetaToolUnion
+       (->tool {:type :tool-search :variant :regex :name "search"})))
+  (is (.isMcpToolset ^BetaToolUnion
+       (->tool {:type :mcp-toolset :name "mcp" :mcp-server-name "weather"
+                :default-config {:enabled true}}))))
+
+(deftest beta-tool-input-shape-matches-stable-tool
+  (let [tool {:type :web-search :name "web-search" :max-uses 3}
+        stable (stable->tool tool)
+        beta (->tool tool)]
+    (is (.isWebSearchTool20260318 ^ToolUnion stable))
+    (is (.isWebSearchTool20260318 ^BetaToolUnion beta))))
+
+(deftest beta-tool-function-keeps-custom-union
+  (let [tool (->tool {:type :web-search :name "local-search" :input-schema {}
+                      :fn identity})]
+    (is (.isBetaTool ^BetaToolUnion tool))))
+
+(deftest beta-custom-tool-keeps-an-unrecognized-type
+  ;; Only a `:type` in the server-tool set routes server-side. A custom tool may
+  ;; carry any other `:type`, with or without an `:input-schema`, and must not be
+  ;; mistaken for a server tool.
+  (doseq [t [{:name "get_weather" :description "d" :type "custom"}
+             {:name "get_weather" :description "d" :type :custom}
+             {:name "get_weather" :description "d"}
+             {:name "get_weather" :description "d" :type "custom"
+              :input-schema {:type "object"}}]]
+    (is (.isBetaTool ^BetaToolUnion (->tool t)) (str "routed wrong: " t))))
+
+(deftest beta-count-tool-unions
+  (let [server (try
+                 (first (opt (.tools (->count-params {:messages [{:role :user :content "hi"}]
+                                                       :tools [{:type :web-search :name "web-search"}]}))))
+                 (catch Throwable _ nil))
+        custom (try
+                 (first (opt (.tools (->count-params {:messages [{:role :user :content "hi"}]
+                                                       :tools [{:name "weather"
+                                                                :input-schema {:type "object"}}]}))))
+                 (catch Throwable _ nil))]
+    (is (and (instance? MessageCountTokensParams$Tool server)
+             (.isBetaWebSearchTool20260318 ^MessageCountTokensParams$Tool server)))
+    (is (and (instance? MessageCountTokensParams$Tool custom)
+             (.isBeta ^MessageCountTokensParams$Tool custom)))))
+
+(deftest beta-unknown-server-tool
+  ;; An unrecognized `:type` never reaches the server-tool dispatch: it is a custom
+  ;; tool, matching the stable path. Reaching the dispatch directly with an unknown
+  ;; type is the error case.
+  (let [error (try
+                (->server-tool {:type :unknown-server-tool :name "unknown"})
+                nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :unsupported-server-tool (:anthropic/error (ex-data error)))))
+  (is (.isBetaTool ^BetaToolUnion (->tool {:type :unknown-server-tool :name "unknown"}))))
 
 (deftest create-beta-message-request-translation
   (let [^MessageCreateParams p
