@@ -63,6 +63,8 @@
                                              BetaManagedAgentsAgent$Tool
                                              BetaManagedAgentsAdvisor
                                              BetaManagedAgentsAgentReference
+                                             BetaManagedAgentsMultiagentSelfParams
+                                             BetaManagedAgentsMultiagentSelfParams$Type
                                              BetaManagedAgentsSessionThreadAgent
                                              BetaManagedAgentsAnthropicSkill
                                              BetaManagedAgentsAnthropicSkillParams
@@ -81,7 +83,16 @@
                                              BetaManagedAgentsModelConfig$Effort
                                              BetaManagedAgentsModelConfigParams)
            (com.anthropic.models.beta.sessions BetaManagedAgentsDeletedSession
+                                               BetaManagedAgentsAgentParams
+                                               BetaManagedAgentsAdvisorParams
                                                BetaManagedAgentsSession
+                                               BetaManagedAgentsMultiagent
+                                               BetaManagedAgentsMultiagent$Agent
+                                               BetaManagedAgentsMultiagentParams
+                                               BetaManagedAgentsMultiagentParams$Type
+                                               BetaManagedAgentsMultiagentRosterEntryParams
+                                               BetaManagedAgentsAdvisorParams$Type
+                                               BetaManagedAgentsAgentParams$Type
                                                BetaManagedAgentsSystemContentBlock
                                                BetaManagedAgentsSystemMessageEvent
                                                SessionCreateParams
@@ -797,6 +808,44 @@
     (throw (ex-info (str "Unknown tool type " type)
                     {:anthropic/error :unknown-tool-type :type type}))))
 
+(defn- ->agent-roster-entry ^BetaManagedAgentsMultiagentRosterEntryParams [entry]
+  (cond
+    (string? entry)
+    (BetaManagedAgentsMultiagentRosterEntryParams/ofString ^String entry)
+
+    (= :agent (:type entry))
+    (let [b (BetaManagedAgentsAgentParams/builder)]
+      (.id b ^String (:id entry))
+      (when (:version entry) (.version b (int (:version entry))))
+      (.type b (BetaManagedAgentsAgentParams$Type/of "agent"))
+      (BetaManagedAgentsMultiagentRosterEntryParams/ofAgent (.build b)))
+
+    (= :self (:type entry))
+    (BetaManagedAgentsMultiagentRosterEntryParams/ofSelf
+     (-> (BetaManagedAgentsMultiagentSelfParams/builder)
+         (.type (BetaManagedAgentsMultiagentSelfParams$Type/of "self"))
+         (.build)))
+
+    (= :advisor (:type entry))
+    (BetaManagedAgentsMultiagentRosterEntryParams/ofAdvisor
+     (-> (BetaManagedAgentsAdvisorParams/builder)
+         (.model ^String (:model entry))
+         (.type (BetaManagedAgentsAdvisorParams$Type/of "advisor"))
+         (.build)))
+
+    :else
+    (throw (ex-info (str "Unknown multiagent roster entry " entry)
+                    {:anthropic/error :unknown-multiagent-roster-entry
+                     :entry entry}))))
+
+(defn- ->agent-multiagent ^BetaManagedAgentsMultiagentParams
+  [{:keys [type agents]}]
+  (let [b (BetaManagedAgentsMultiagentParams/builder)]
+    (.type b (BetaManagedAgentsMultiagentParams$Type/of (name type)))
+    (doseq [entry agents]
+      (.addAgent b (->agent-roster-entry entry)))
+    (.build b)))
+
 (defn- ->managed-agent-model-config ^BetaManagedAgentsModelConfigParams [model effort inference-geo]
   (let [b (BetaManagedAgentsModelConfigParams/builder)]
     (.id b (BetaManagedAgentsModel/of ^String model))
@@ -808,7 +857,8 @@
     (.build b)))
 
 (defn- ->agent-create-params ^AgentCreateParams
-  [{:keys [name model effort inference-geo system description metadata skills mcp-servers tools]}]
+  [{:keys [name model effort inference-geo system description metadata skills mcp-servers
+           tools multiagent]}]
   (when-not name (missing-key! :name))
   (when-not model (missing-key! :model))
   (let [b (AgentCreateParams/builder)]
@@ -822,10 +872,12 @@
     (doseq [skill skills] (.addSkill b (->agent-skill skill)))
     (doseq [server mcp-servers] (.addMcpServer b (->mcp-server server)))
     (doseq [tool tools] (.addTool b (->agent-create-tool tool)))
+    (when multiagent (.multiagent b (->agent-multiagent multiagent)))
     (.build b)))
 
 (defn- ->agent-update-params ^AgentUpdateParams
-  [agent-id {:keys [version name model effort inference-geo system description metadata skills mcp-servers tools]}]
+  [agent-id {:keys [version name model effort inference-geo system description metadata
+                    skills mcp-servers tools multiagent]}]
   (let [b (AgentUpdateParams/builder)]
     (.agentId b ^String agent-id)
     (when version (.version b (int version)))
@@ -840,6 +892,7 @@
     (doseq [skill skills] (.addSkill b (->agent-skill skill)))
     (doseq [server mcp-servers] (.addMcpServer b (->mcp-server server)))
     (doseq [tool tools] (.addTool b (->agent-update-tool tool)))
+    (when multiagent (.multiagent b (->agent-multiagent multiagent)))
     (.build b)))
 
 (defn- agent-skill->map [^BetaManagedAgentsAgent$Skill s]
@@ -877,6 +930,12 @@
     :else (let [^JsonValue json (or (unopt (._json effort)) (JsonValue/from nil))]
             (.convert json Object))))
 
+(declare ^:private agent-ref->map)
+
+(defn- multiagent->map [^BetaManagedAgentsMultiagent r]
+  {:type (keyword (.asString (.type r)))
+   :agents (mapv agent-ref->map (.agents r))})
+
 (defn- agent->map [^BetaManagedAgentsAgent r]
   (cond-> {:id (.id r)
            :name (.name r)
@@ -894,14 +953,15 @@
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
     (seq (.skills r)) (assoc :skills (mapv agent-skill->map (.skills r)))
     (seq (.mcpServers r)) (assoc :mcp-servers (mapv mcp-server->map (.mcpServers r)))
-    (seq (.tools r)) (assoc :tools (mapv agent-tool->map (.tools r)))))
+    (seq (.tools r)) (assoc :tools (mapv agent-tool->map (.tools r)))
+    (unopt (.multiagent r)) (assoc :multiagent (multiagent->map (unopt (.multiagent r))))))
 
 (defn create-agent
   "Create a managed agent: `:name` and `:model` (required), `:system`,
   `:description`, `:metadata`, `:skills`, `:mcp-servers`, `:tools`, and
-  `:inference-geo` when using model config.
+  `:multiagent`, and `:inference-geo` when using model config.
   Returns the agent as a map (`:id`, `:name`, `:model`, `:version`,
-  `:system`, `:description`, `:skills`, `:mcp-servers`, `:tools`,
+  `:system`, `:description`, `:skills`, `:mcp-servers`, `:tools`, `:multiagent`,
   `:created-at`, `:updated-at`)."
   [^AnthropicClient client req]
   (with-api-errors
@@ -923,8 +983,8 @@
 (defn update-agent
   "Update an agent. `changes` may include `:version` (the current agent version,
   for optimistic concurrency - see `:version` in `get-agent`'s return) plus
-  `:name`, `:model`, `:inference-geo`, `:system`, `:description`, or `:metadata`. Returns
-  the updated agent map."
+  `:name`, `:model`, `:inference-geo`, `:system`, `:description`, `:metadata`, or
+  `:multiagent`. Returns the updated agent map, including `:multiagent` when present."
   [^AnthropicClient client ^String agent-id changes]
   (with-api-errors
     (agent->map (-> (.beta client) (.agents)
@@ -994,6 +1054,12 @@
    wrapper is per-parent, so the bare reference types are accepted too."
   [r]
   (cond
+    (instance? BetaManagedAgentsMultiagent$Agent r)
+    (let [^BetaManagedAgentsMultiagent$Agent u r]
+      (if (.isAdvisor u)
+        (advisor->map (.asAdvisor u))
+        (agent-ref->map (.asAgent u))))
+
     (instance? BetaManagedAgentsSessionThread$Agent r)
     (let [^BetaManagedAgentsSessionThread$Agent u r]
       (if (.isAdvisor u)

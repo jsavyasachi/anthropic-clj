@@ -13,6 +13,7 @@
                                              BetaManagedAgentsAgentReference
                                              BetaManagedAgentsModelConfig)
            (com.anthropic.models.beta.sessions BetaManagedAgentsDeltaType
+                                               BetaManagedAgentsMultiagent
                                                SessionCreateParams
                                                SessionUpdateParams)
            (com.anthropic.models.beta.sessions.events BetaManagedAgentsEventParams
@@ -91,6 +92,7 @@
 (def ->memory-store-update-params #'beta/->memory-store-update-params)
 (def ->agent-create-params #'beta/->agent-create-params)
 (def ->agent-update-params #'beta/->agent-update-params)
+(def agent-ref->map #'beta/agent-ref->map)
 (def ->session-create-params #'beta/->session-create-params)
 (def ->session-update-params #'beta/->session-update-params)
 (def ->session-event #'beta/->session-event)
@@ -343,6 +345,42 @@
          (ex-data-for #(->agent-create-params {:model "m"}))))
   (is (= {:anthropic/error :missing-key :key :model}
          (ex-data-for #(->agent-create-params {:name "n"})))))
+
+(deftest agent-multiagent-params
+  (let [multiagent {:type :coordinator
+                    :agents ["agent_1"
+                             {:type :agent :id "agent_2"}
+                             {:type :agent :id "agent_3" :version 4}
+                             {:type :self}
+                             {:type :advisor :model "claude-opus-4-8"}]}
+        ^AgentCreateParams create (->agent-create-params {:name "helper"
+                                                           :model "claude-opus-4-8"
+                                                           :multiagent multiagent})
+        ^AgentUpdateParams update (->agent-update-params "agent_0"
+                                                         {:multiagent multiagent})
+        ^com.anthropic.models.beta.sessions.BetaManagedAgentsMultiagentParams cm
+        (opt (.multiagent create))]
+    (is (= "coordinator" (.asString (.type cm))))
+    (is (= 5 (count (.agents cm))))
+    (let [entries (.agents cm)]
+      (is (= "agent_1" (.asString (first entries))))
+      (is (= "agent_2" (.id (.asAgent (nth entries 1)))))
+      (is (nil? (opt (.version (.asAgent (nth entries 1))))))
+      (is (= 4 (opt (.version (.asAgent (nth entries 2))))))
+      (is (= "agent_3" (.id (.asAgent (nth entries 2))))))
+    (is (some? (opt (.multiagent update))))
+    (is (some #(.isString %) (.agents cm)))
+    (is (some #(.isAgent %) (.agents cm)))
+    (is (some #(.isSelf %) (.agents cm)))
+    (is (some #(.isAdvisor %) (.agents cm)))))
+
+(deftest agent-multiagent-unknown-roster-entry
+  (let [f (ns-resolve 'anthropic.beta '->agent-roster-entry)]
+    (is (ifn? f))
+    (when f
+      (is (= :unknown-multiagent-roster-entry
+             (:anthropic/error
+              (ex-data-for #(f (Object.)))))))))
 
 (deftest session-params
   (let [^SessionCreateParams p (->session-create-params
@@ -687,6 +725,16 @@
 
 (deftest agent-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        multiagent (-> (BetaManagedAgentsMultiagent/builder)
+                       (.agents [(com.anthropic.models.beta.sessions.BetaManagedAgentsMultiagent$Agent/ofAgent
+                                  (agent-ref))
+                                 (com.anthropic.models.beta.sessions.BetaManagedAgentsMultiagent$Agent/ofAdvisor
+                                  (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAdvisor/builder)
+                                      (.model "claude-opus-4-8")
+                                      (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAdvisor$Type/of "advisor"))
+                                      (.build)))])
+                       (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsMultiagent$Type/of "coordinator"))
+                       (.build))
         r (-> (BetaManagedAgentsAgent/builder)
               (.id "agent_1")
               (.archivedAt (java.util.Optional/empty))
@@ -705,7 +753,7 @@
                                        (.type (com.anthropic.models.beta.agents.BetaManagedAgentsEffortHigh$Type/of "high"))
                                        (.build)))
                           (.build)))
-              (.multiagent (java.util.Optional/empty))
+              (.multiagent multiagent)
               (.name "helper")
               (.skills [(com.anthropic.models.beta.agents.BetaManagedAgentsAgent$Skill/ofCustom
                          (-> (com.anthropic.models.beta.agents.BetaManagedAgentsCustomSkill/builder)
@@ -736,7 +784,24 @@
     (is (= [{:type :custom :skill-id "skill_1" :version "2"}] (:skills m)))
     (is (= [{:name "github" :url "https://mcp.example.test"}] (:mcp-servers m)))
     (is (= [{:type :mcp-toolset :mcp-server-name "github"}] (:tools m)))
-    (is (= :high (:effort m)))))
+    (is (= :high (:effort m)))
+    (is (= {:type :coordinator
+            :agents [{:type :agent :id "agent_1" :version 1}
+                     {:type :advisor :model "claude-opus-4-8"}]}
+           (:multiagent m)))
+    ;; The mapped roster must survive a round trip back through the request
+    ;; builder with its values intact, not merely be accepted.
+    (let [^AgentCreateParams rt (->agent-create-params {:name "helper"
+                                                        :model "claude-opus-4-8"
+                                                        :multiagent (:multiagent m)})
+          ^com.anthropic.models.beta.sessions.BetaManagedAgentsMultiagentParams rtm
+          (opt (.multiagent rt))
+          entries (.agents rtm)]
+      (is (= "coordinator" (.asString (.type rtm))))
+      (is (= 2 (count entries)))
+      (is (= "agent_1" (.id (.asAgent (first entries)))))
+      (is (= 1 (opt (.version (.asAgent (first entries))))))
+      (is (= "claude-opus-4-8" (.model (.asAdvisor (second entries))))))))
 
 (deftest session-event-response-mapping
   (let [event (BetaManagedAgentsSessionEvent/ofUserMessage
