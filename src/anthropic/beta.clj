@@ -968,13 +968,15 @@
     (agent->map (-> (.beta client) (.agents) (.create (->agent-create-params req))))))
 
 (defn get-agent
-  "Retrieve an agent by id, as a map like `create-agent`'s return."
+  "Retrieve an agent by id, as a map like `create-agent`'s return, including
+  `:multiagent` when present."
   [^AnthropicClient client ^String agent-id]
   (with-api-errors
     (agent->map (-> (.beta client) (.agents) (.retrieve agent-id)))))
 
 (defn list-agents
-  "List agents (pages followed) as a vector of maps."
+  "List agents (pages followed) as a vector of maps, including `:multiagent`
+  when present."
   [^AnthropicClient client]
   (with-api-errors
     (let [^AgentListPage p (-> (.beta client) (.agents) (.list))]
@@ -991,7 +993,8 @@
                     (.update (->agent-update-params agent-id changes))))))
 
 (defn archive-agent
-  "Archive an agent by id. Returns the archived agent map."
+  "Archive an agent by id. Returns the archived agent map, including
+  `:multiagent` when present."
   [^AnthropicClient client ^String agent-id]
   (with-api-errors
     (agent->map (-> (.beta client) (.agents) (.archive agent-id)))))
