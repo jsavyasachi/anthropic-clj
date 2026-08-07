@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.20.0] - 2026-08-07
+
+### Added
+- Track `com.anthropic/anthropic-java` 2.53.0.
+- Session and deployment budgets. `create-session`, `update-session`,
+  `create-deployment`, and `update-deployment` accept `:budget`, shaped as
+  `{:max-list-cost {:amount "1.25" :currency :usd} :type :limit}`, and the
+  session, deployment, and session-updated event maps carry it back.
+- `:usage` on session and session-thread maps, including `:list-cost`,
+  `:active-seconds`, and `:server-tool-use` web fetch and web search counts.
+- `:inference-geo` on agent create and update, and on the agent map.
+- Multiagent rosters. `create-agent` and `update-agent` accept `:multiagent`,
+  and the agent map carries it back. Roster entries cover a bare agent id, an
+  agent reference with an optional version, self, and an advisor.
+- The `session_usage` session event, the redacted content block, and the
+  `session.budget_reached` webhook.
+- `:created-at` and `:updated-at` on session resources.
+
+### Changed
+- Agent slots report `:type`: either `:agent` with an id and version, or
+  `:advisor` with a model. This follows the SDK moving each slot behind a union.
+- `list-memories` returns memory list items rather than memories, so each entry
+  carries `:path` and a `:type` of `:memory` or `:memory-prefix`.
+
 ## [0.19.0] - 2026-07-24
 
 ### Added
