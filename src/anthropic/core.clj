@@ -14,14 +14,16 @@
            (com.anthropic.helpers MessageAccumulator)
            (java.net Proxy)
            (java.time Duration)
-           (com.anthropic.models.beta.files DeletedFile FileListPage FileMetadata
-                                            FileUploadParams)
+           (com.anthropic.models.beta AnthropicBeta)
+           (com.anthropic.models.beta.files DeletedFile FileListPage FileListParams
+                                            FileMetadata FileUploadParams)
            (com.anthropic.models.models ModelCapabilities ModelInfo ModelListPage ModelListParams)
            (com.anthropic.models.messages.batches BatchCreateParams
                                                   BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params
                                                   BatchCreateParams$Request$Params$Builder
                                                   BatchCreateParams$Request$Params$ServiceTier
+                                                  BatchListParams
                                                   BatchListPage
                                                   DeletedMessageBatch MessageBatch
                                                   MessageBatchIndividualResponse
@@ -1284,7 +1286,7 @@
   "Translate a per-request map into batch params through `->params` so both
   request surfaces preserve the same stable fields."
   ^BatchCreateParams$Request$Params
-  [req]
+  [{:keys [stream] :as req}]
   (let [^MessageCreateParams p (->params req)
         ^BatchCreateParams$Request$Params$Builder b (doto (BatchCreateParams$Request$Params/builder)
             (.maxTokens (.maxTokens p))
@@ -1305,6 +1307,8 @@
              [(.topP p) #(.topP b (double %))]]]
       (when (.isPresent ^java.util.Optional value)
         (setter (.get ^java.util.Optional value))))
+    (when (some? stream)
+      (.stream b (boolean stream)))
     (when-let [system (:system req)]
       (if (string? system)
         (.system b ^String system)
@@ -1370,12 +1374,24 @@
   (with-api-errors
     (batch->map (-> (.messages client) (.batches) (.retrieve id)))))
 
+(defn- ->batch-list-params ^BatchListParams
+  [{:keys [after-id before-id limit]}]
+  (let [b (BatchListParams/builder)]
+    (when after-id (.afterId b ^String after-id))
+    (when before-id (.beforeId b ^String before-id))
+    (when limit (.limit b (long limit)))
+    (.build b)))
+
 (defn list-batches
-  "List all batches (pages followed) as a seq of maps like `get-batch`."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^BatchListPage p (-> (.messages client) (.batches) (.list))]
-      (mapv batch->map (.autoPager p)))))
+  "List all batches (pages followed) as a seq of maps like `get-batch`.
+  Optional opts: `:after-id`, `:before-id`, and `:limit`."
+  ([^AnthropicClient client]
+   (list-batches client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^BatchListPage p (-> (.messages client) (.batches)
+                                (.list (->batch-list-params opts)))]
+       (mapv batch->map (.autoPager p))))))
 
 (defn cancel-batch
   "Request cancellation of a batch; returns the updated batch map."
@@ -1613,13 +1629,30 @@
   (with-api-errors
     (file->map (-> (.beta client) (.files) (.retrieveMetadata id)))))
 
+(defn- ->file-list-params ^FileListParams
+  [{:keys [scope-id after-id before-id limit betas]}]
+  (let [b (FileListParams/builder)]
+    (when scope-id (.scopeId b ^String scope-id))
+    (when after-id (.afterId b ^String after-id))
+    (when before-id (.beforeId b ^String before-id))
+    (when limit (.limit b (long limit)))
+    (when (seq betas)
+      (.betas b ^java.util.List
+              (mapv #(AnthropicBeta/of (if (keyword? %) (name %) %)) betas)))
+    (.build b)))
+
 (defn list-files
   "List uploaded files (pages followed) as a seq of maps like `get-file`,
-  including `:scope` when reported."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^FileListPage p (-> (.beta client) (.files) (.list))]
-      (mapv file->map (.autoPager p)))))
+  including `:scope` when reported. Optional opts: `:scope-id`,
+  `:after-id`, `:before-id`, `:limit`, and free-form string or
+  keyword `:betas`."
+  ([^AnthropicClient client]
+   (list-files client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^FileListPage p (-> (.beta client) (.files)
+                               (.list (->file-list-params opts)))]
+       (mapv file->map (.autoPager p))))))
 
 (defn delete-file
   "Delete a file by id. Returns `{:id ... :deleted true :type ...}`."

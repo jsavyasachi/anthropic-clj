@@ -639,6 +639,41 @@
     (is (= "us" (opt (.inferenceGeo p))))
     (is (= "standard_only" (str (opt (.serviceTier p)))))))
 
+(deftest batch-request-preserves-stream
+  (let [^BatchCreateParams$Request$Params p
+        (.params (->batch-request
+                  {:custom-id "streaming"
+                   :params {:model "claude-sonnet-4-6"
+                            :max-tokens 128
+                            :messages [{:role :user :content "hi"}]
+                            :stream true}}))]
+    (is (= true (opt (.stream p))))))
+
+(deftest batch-list-params-preserve-options
+  (let [build (resolved-fn '->batch-list-params)
+        p (when build (build {:after-id "after" :before-id "before" :limit 17}))]
+    (is (some? build))
+    (when p
+      (is (= "after" (opt (.afterId p))))
+      (is (= "before" (opt (.beforeId p))))
+      (is (= 17 (long (opt (.limit p))))))))
+
+(deftest file-list-params-preserve-options
+  (let [build (resolved-fn '->file-list-params)
+        p (when build
+            (build {:scope-id "scope"
+                    :after-id "after"
+                    :before-id "before"
+                    :limit 19
+                    :betas ["beta-one" :beta-two]}))]
+    (is (some? build))
+    (when p
+      (is (= "scope" (opt (.scopeId p))))
+      (is (= "after" (opt (.afterId p))))
+      (is (= "before" (opt (.beforeId p))))
+      (is (= 19 (long (opt (.limit p)))))
+      (is (= ["beta-one" "beta-two"] (mapv str (opt (.betas p))))))))
+
 (deftest batch-result-stream-reduction
   (testing "reduces batch results without retaining the full result collection and closes the stream"
     (let [closed? (atom false)
