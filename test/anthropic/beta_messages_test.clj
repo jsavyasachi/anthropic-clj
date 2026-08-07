@@ -69,6 +69,8 @@
 (deftest beta-custom-tool-options
   (let [tool (->tool {:name "weather"
                       :input-schema {:type "object"}
+                      :eager-input-streaming true
+                      :input-examples [{:location "Paris"}]
                       :defer-loading true
                       :strict true
                       :allowed-callers [:direct]})]
@@ -77,6 +79,8 @@
                      (.. ^BetaToolUnion tool asBetaTool deferLoading get))))
     (is (= true (and (instance? BetaToolUnion tool)
                      (.. ^BetaToolUnion tool asBetaTool strict get))))
+    (is (= true (.. ^BetaToolUnion tool asBetaTool eagerInputStreaming get)))
+    (is (= "Paris" (json-roundtrip (get (._additionalProperties (first (opt (.inputExamples (.asBetaTool ^BetaToolUnion tool)))) ) "location"))))
     (is (= "direct" (and (instance? BetaToolUnion tool)
                           (str (first (opt (.allowedCallers (.asBetaTool ^BetaToolUnion tool))))))))))
 
@@ -86,37 +90,56 @@
                                                       :max-uses 3
                                                       :allowed-domains ["example.com"]
                                                       :blocked-domains ["blocked.example"]
+                                                      :response-inclusion :excluded
                                                       :user-location {:city "Paris" :country "FR"}}))
         web-fetch (.asWebFetchTool20260318 ^BetaToolUnion
                                            (->tool {:type :web-fetch :name "web-fetch"
                                                     :max-content-tokens 2048
                                                     :use-cache true
+                                                    :response-inclusion :excluded
                                                     :citations {:enabled true}}))
+        bash (->tool {:type :bash :name "bash" :input-examples [{:command "pwd"}]})
         text-editor (.asTextEditor20250728 ^BetaToolUnion
                                            (->tool {:type :text-editor :name "text-editor"
-                                                    :max-characters 5000}))
+                                                    :max-characters 5000
+                                                    :input-examples [{:path "/tmp/a"}]}))
+        memory (->tool {:type :memory :name "memory" :input-examples [{:query "Paris"}]})
         computer-use (.asComputerUse20251124 ^BetaToolUnion
                                              (->tool {:type :computer-use :name "computer-use"
                                                       :display-height-px 900 :display-width-px 1400
-                                                      :display-number 1 :enable-zoom true}))
+                                                      :display-number 1 :enable-zoom true
+                                                      :input-examples [{:action "screenshot"}]}))
         advisor (.asAdvisorTool20260301 ^BetaToolUnion
                                        (->tool {:type :advisor :name "advisor"
                                                 :model "claude-sonnet-4-6" :max-tokens 256 :max-uses 2}))]
     (is (= 3 (opt (.maxUses web-search))))
     (is (= ["example.com"] (opt (.allowedDomains web-search))))
     (is (= ["blocked.example"] (opt (.blockedDomains web-search))))
+    (is (= "excluded" (str (opt (.responseInclusion web-search)))))
     (is (= "Paris" (opt (.city (opt (.userLocation web-search))))))
     (is (= 2048 (opt (.maxContentTokens web-fetch))))
     (is (= true (opt (.useCache web-fetch))))
+    (is (= "excluded" (str (opt (.responseInclusion web-fetch)))))
     (is (= true (.. web-fetch citations get enabled get)))
     (is (= 5000 (opt (.maxCharacters text-editor))))
+    (is (= "pwd" (json-roundtrip (get (._additionalProperties (first (opt (.inputExamples (.asBash20250124 ^BetaToolUnion bash))))) "command"))))
+    (is (= "/tmp/a" (json-roundtrip (get (._additionalProperties (first (opt (.inputExamples text-editor)))) "path"))))
+    (is (= "Paris" (json-roundtrip (get (._additionalProperties (first (opt (.inputExamples (.asMemoryTool20250818 ^BetaToolUnion memory))))) "query"))))
     (is (= 900 (.displayHeightPx computer-use)))
     (is (= 1400 (.displayWidthPx computer-use)))
     (is (= 1 (opt (.displayNumber computer-use))))
     (is (= true (opt (.enableZoom computer-use))))
+    (is (= "screenshot" (json-roundtrip (get (._additionalProperties (first (opt (.inputExamples computer-use)))) "action"))))
     (is (= "claude-sonnet-4-6" (str (.model advisor))))
     (is (= 256 (opt (.maxTokens advisor))))
     (is (= 2 (opt (.maxUses advisor))))))
+
+(deftest beta-advisor-caching
+  (let [advisor (.asAdvisorTool20260301 ^BetaToolUnion
+                                       (->tool {:type :advisor :name "advisor"
+                                                :model "claude-sonnet-4-6"
+                                                :caching {:ttl :five-minutes}}))]
+    (is (= "five-minutes" (str (opt (.ttl (opt (.caching advisor)))))))))
 
 (deftest beta-server-tool-option-unions
   (is (.isCodeExecutionTool20260521 ^BetaToolUnion
