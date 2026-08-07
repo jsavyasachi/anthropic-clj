@@ -1660,3 +1660,38 @@
                          com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent$Content))]
     (is (empty? missing)
         (str "user message content variants with no mapper branch: " (sort missing)))))
+
+(defn- assert-union-mapped [union-class label]
+  (let [src (mapper-source)
+        missing (remove #(clojure.string/includes? src (str "." %))
+                        (union-variant-predicates union-class))]
+    (is (empty? missing)
+        (str label " variants with no mapper branch: " (sort missing)))))
+
+(deftest every-agent-tool-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.agents.BetaManagedAgentsAgent$Tool
+                       "agent tool"))
+
+(deftest every-agent-skill-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.agents.BetaManagedAgentsAgent$Skill
+                       "agent skill"))
+
+(deftest every-session-agent-tool-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent$Tool
+                       "session agent tool"))
+
+(deftest every-session-resource-retrieve-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse
+                       "session resource retrieve"))
+
+(deftest every-session-resource-update-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse
+                       "session resource update"))
+
+(deftest every-mcp-server-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.agents.BetaManagedAgentsMcpServerUrlDefinition
+                       "MCP server"))
+
+(deftest every-deployment-initial-event-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentInitialEventParams
+                       "deployment initial event"))
