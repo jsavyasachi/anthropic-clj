@@ -169,13 +169,142 @@
 (def consume-event-stream #'beta/consume-event-stream)
 (def stream-event-json #'beta/stream-event-json)
 (def session->map #'beta/session->map)
+(def session-agent->map #'beta/session-agent->map)
 (def deployment->map #'beta/deployment->map)
 (def ->managed-agent-model-config #'beta/->managed-agent-model-config)
+
+(defn- private-fn [name]
+  (some-> (ns-resolve 'anthropic.beta name) var-get))
+
+(defn- invoke-private [name & args]
+  (apply (private-fn name) args))
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
 
 (defn- ex-data-for [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(deftest every-beta-list-builder-is-wired
+  (doseq [name '[->skill-list-params ->version-list-params
+                 ->memory-store-list-params ->agent-list-params
+                 ->session-list-params ->deployment-list-params
+                 ->deployment-run-list-params ->environment-list-params
+                 ->vault-list-params ->tunnel-list-params
+                 ->certificate-list-params ->dream-list-params
+                 ->credential-list-params ->user-profile-list-params]]
+    (is (fn? (private-fn name))
+        (str name " must build SDK list params"))))
+
+(deftest every-beta-list-builder-accepts-no-options
+  (doseq [[name args] [['->skill-list-params [{}]]
+                       ['->version-list-params ["skill_1" {}]]
+                       ['->memory-store-list-params [{}]]
+                       ['->agent-list-params [{}]]
+                       ['->session-list-params [{}]]
+                       ['->deployment-list-params [{}]]
+                       ['->deployment-run-list-params [{}]]
+                       ['->environment-list-params [{}]]
+                       ['->vault-list-params [{}]]
+                       ['->tunnel-list-params [{}]]
+                       ['->certificate-list-params ["tun_1" {}]]
+                       ['->dream-list-params [{}]]
+                       ['->credential-list-params ["vault_1" {}]]
+                       ['->user-profile-list-params [{}]]]]
+    (if-let [f (private-fn (symbol name))]
+      (is (some? (apply f args))
+          (str name " must support omitted opts"))
+      (is false (str name " must support omitted opts")))))
+
+(deftest beta-list-builder-options-reach-sdk
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        cases [{:name '->skill-list-params :args [{}]
+                :check (fn [p] [(= 7 (opt (.limit p)))
+                                (= "page" (opt (.page p)))
+                                (= "custom" (opt (.source p)))
+                                (= ["beta-test"] (mapv #(.asString %) (opt (.betas p))))])}
+               {:name '->version-list-params :args ["skill_1" {}]
+                :check (fn [p] [(= 7 (opt (.limit p))) (= "page" (opt (.page p)))])}
+               {:name '->memory-store-list-params :args [{}]
+                :check (fn [p] [(= ts (opt (.createdAtGte p)))
+                                (= ts (opt (.createdAtLte p)))
+                                (= true (opt (.includeArchived p)))])}
+               {:name '->agent-list-params :args [{}]
+                :check (fn [p] [(= ts (opt (.createdAtGte p)))
+                                (= ts (opt (.createdAtLte p)))
+                                (= true (opt (.includeArchived p)))])}
+               {:name '->session-list-params :args [{}]
+                :check (fn [p] [(= "agent_1" (opt (.agentId p)))
+                                (= 2 (opt (.agentVersion p)))
+                                (= ts (opt (.createdAtGt p)))
+                                (= ts (opt (.createdAtGte p)))
+                                (= ts (opt (.createdAtLt p)))
+                                (= ts (opt (.createdAtLte p)))
+                                (= "dep_1" (opt (.deploymentId p)))
+                                (= true (opt (.includeArchived p)))
+                                (= "store_1" (opt (.memoryStoreId p)))
+                                (= "desc" (.asString (opt (.order p))))
+                                (= 2 (count (opt (.statuses p))))])}
+               {:name '->deployment-list-params :args [{}]
+                :check (fn [p] [(= "agent_1" (opt (.agentId p)))
+                                (= ts (opt (.createdAtGte p)))
+                                (= ts (opt (.createdAtLte p)))
+                                (= true (opt (.includeArchived p)))
+                                (= "active" (.asString (opt (.status p))))])}
+               {:name '->deployment-run-list-params :args [{}]
+                :check (fn [p] [(= ts (opt (.createdAtGt p)))
+                                (= ts (opt (.createdAtGte p)))
+                                (= ts (opt (.createdAtLt p)))
+                                (= ts (opt (.createdAtLte p)))
+                                (= "dep_1" (opt (.deploymentId p)))
+                                (= true (opt (.hasError p)))
+                                (= "manual" (.asString (opt (.triggerType p))))])}
+               {:name '->environment-list-params :args [{}]
+                :check (fn [p] [(= true (opt (.includeArchived p)))])}
+               {:name '->vault-list-params :args [{}]
+                :check (fn [p] [(= true (opt (.includeArchived p)))])}
+               {:name '->tunnel-list-params :args [{}]
+                :check (fn [p] [(= true (opt (.includeArchived p)))])}
+               {:name '->certificate-list-params :args ["tun_1" {}]
+                :check (fn [p] [(= "tun_1" (opt (.tunnelId p)))
+                                (= true (opt (.includeArchived p)))])}
+               {:name '->dream-list-params :args [{}]
+                :check (fn [p] [(= ts (opt (.createdAtGt p)))
+                                (= ts (opt (.createdAtLt p)))
+                                (= true (opt (.includeArchived p)))
+                                (= 1 (count (opt (.statuses p))))])}
+               {:name '->credential-list-params :args ["vault_1" {}]
+                :check (fn [p] [(= "vault_1" (opt (.vaultId p)))
+                                (= true (opt (.includeArchived p)))])}
+               {:name '->user-profile-list-params :args [{}]
+                :check (fn [p] [(= "desc" (.asString (opt (.order p))))])}]]
+    (doseq [{:keys [name args check]} cases]
+      (let [opts (cond-> (merge {:limit 7 :page "page" :betas [:beta-test]
+                         :created-at-gt ts :created-at-gte ts
+                         :created-at-lt ts :created-at-lte ts
+                         :include-archived true
+                         :agent-id "agent_1" :agent-version 2
+                         :deployment-id "dep_1" :memory-store-id "store_1"
+                         :order :desc :statuses [:running :idle]
+                         :status :active :has-error true :trigger-type :manual
+                         :source "custom"}
+                        (last args))
+                   (= name '->dream-list-params) (assoc :statuses [:pending]))
+            actual-args (if (seq args)
+                          (conj (vec (butlast args)) opts)
+                          [opts])]
+        (if-let [f (private-fn name)]
+          (let [p (try (apply f actual-args)
+                       (catch clojure.lang.ArityException _ nil))]
+            (is (and p (every? true? (check p)))
+              (str name " options must reach the SDK params"))
+          )
+          (is false (str name " options must reach the SDK params")))))))
+
+(deftest beta-list-enum-values-reject-unknowns
+  (if-let [f (private-fn '->session-list-params)]
+    (let [data (ex-data-for #(f {:order :not-real}))]
+      (is (contains? data :anthropic/error)))
+    (is false "->session-list-params must reject unknown enum values")))
 
 (defn- agent-ref ^BetaManagedAgentsAgentReference []
   (-> (BetaManagedAgentsAgentReference/builder)
@@ -473,6 +602,12 @@
   (let [p (->agent-update-params "agent_1" {:model "claude-opus-4-8" :inference-geo "eu"})]
     (is (.isBetaManagedAgentsModelConfigParams (opt (.model p))))
     (is (= "eu" (opt (.inferenceGeo (.asBetaManagedAgentsModelConfigParams (opt (.model p))))))))
+
+(deftest beta-253-speed-model-config
+  (doseq [p [(->agent-create-params {:name "helper" :model "m" :speed :fast})
+             (->agent-update-params "agent_1" {:model "m" :speed :fast})]]
+    (is (= "fast" (.asString (opt (.speed (.asBetaManagedAgentsModelConfigParams
+                                           (opt (.model p))))))))))
   (let [p (->deployment-update-params "dep_1"
                                       {:budget {:max-list-cost {:amount "2" :currency :usd}
                                                 :type :limit}})]
@@ -876,6 +1011,7 @@
                           (.effort (-> (com.anthropic.models.beta.agents.BetaManagedAgentsEffortHigh/builder)
                                        (.type (com.anthropic.models.beta.agents.BetaManagedAgentsEffortHigh$Type/of "high"))
                                        (.build)))
+                          (.speed (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfig$Speed/of "fast"))
                           (.build)))
               (.multiagent multiagent)
               (.name "helper")
@@ -886,7 +1022,20 @@
                              (.version "2")
                              (.build)))])
               (.system "be helpful")
-              (.tools [(com.anthropic.models.beta.agents.BetaManagedAgentsAgent$Tool/ofMcpToolset
+              (.tools [(com.anthropic.models.beta.agents.BetaManagedAgentsAgent$Tool/ofAgentToolset20260401
+                        (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401/builder)
+                            (.configs [])
+                            (.defaultConfig (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig/builder)
+                                                (.enabled true)
+                                                (.permissionPolicy
+                                                 (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig$PermissionPolicy/ofAlwaysAsk
+                                                  (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy/builder)
+                                                      (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy$Type/of "always_ask"))
+                                                      (.build))))
+                                                (.build)))
+                            (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401$Type/of "agent_toolset_20260401"))
+                            (.build)))
+                        (com.anthropic.models.beta.agents.BetaManagedAgentsAgent$Tool/ofMcpToolset
                         (-> (com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolset/builder)
                             (.configs [])
                             (.defaultConfig (-> (com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetDefaultConfig/builder)
@@ -908,8 +1057,10 @@
     (is (= :agent (:type m)))
     (is (= [{:type :custom :skill-id "skill_1" :version "2"}] (:skills m)))
     (is (= [{:name "github" :url "https://mcp.example.test"}] (:mcp-servers m)))
-    (is (= [{:type :mcp-toolset :mcp-server-name "github"}] (:tools m)))
+    (is (= [{:type :agent-toolset-20260401}
+            {:type :mcp-toolset :mcp-server-name "github"}] (:tools m)))
     (is (= :high (:effort m)))
+    (is (= :fast (:speed m)))
     (is (= {:type :coordinator
             :agents [{:type :agent :id "agent_1" :version 1}
                      {:type :advisor :model "claude-opus-4-8"}]}
@@ -927,6 +1078,36 @@
       (is (= "agent_1" (.id (.asAgent (first entries)))))
       (is (= 1 (opt (.version (.asAgent (first entries))))))
       (is (= "claude-opus-4-8" (.model (.asAdvisor (second entries))))))))
+
+(deftest session-agent-model-config-response-mapping
+  (let [model (-> (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfig/builder)
+                  (.id (com.anthropic.models.beta.agents.BetaManagedAgentsModel/of "m"))
+                  (.inferenceGeo "eu")
+                  (.speed (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfig$Speed/of "fast"))
+                  (.effort (-> (com.anthropic.models.beta.agents.BetaManagedAgentsEffortHigh/builder)
+                               (.type (com.anthropic.models.beta.agents.BetaManagedAgentsEffortHigh$Type/of "high"))
+                               (.build)))
+                  (.build))
+        agent (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent/builder)
+                  (.id "agent_1")
+                  (.model model)
+                  (.name "helper")
+                  (.version 1)
+                  (.description "d")
+                  (.system "s")
+                  (.mcpServers [])
+                  (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent$Type/of "agent"))
+                  (.skills [])
+                  (.tools [])
+                  (.multiagent (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionMultiagentCoordinator/builder)
+                                   (.agents [])
+                                   (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSessionMultiagentCoordinator$Type/of "coordinator"))
+                                   (.build)))
+                  (.build))
+        m (session-agent->map agent)]
+    (is (= :high (:effort m)))
+    (is (= "eu" (:inference-geo m)))
+    (is (= :fast (:speed m)))))
 
 (deftest session-event-response-mapping
   (let [event (BetaManagedAgentsSessionEvent/ofUserMessage
