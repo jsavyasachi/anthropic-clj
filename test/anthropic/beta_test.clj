@@ -346,6 +346,66 @@
   (is (= {:anthropic/error :missing-key :key :model}
          (ex-data-for #(->agent-create-params {:name "n"})))))
 
+(deftest agents-platform-request-param-parity
+  (let [^AgentCreateParams agent-create (->agent-create-params
+                                          {:name "helper" :model "m"
+                                           :betas ["beta-create" :beta-keyword]})
+        ^AgentUpdateParams agent-update (->agent-update-params
+                                          "agent_1" {:betas [:beta-update]})
+        ^SessionCreateParams session-create (->session-create-params
+                                              {:agent "agent_1"
+                                               :environment-id "env_1"
+                                               :betas ["beta-session" :session-keyword]
+                                               :resources [{:type :file :file-id "file_1" :mount-path "/tmp/file"}
+                                                           {:type :github-repository :url "https://github.com/acme/repo"
+                                                            :authorization-token "token" :mount-path "/tmp/repo"}
+                                                           {:type :memory-store :memory-store-id "ms_1"}]
+                                               :vault-ids ["vault_1"]})
+        ^SessionUpdateParams session-update (->session-update-params
+                                              "sess_1"
+                                              {:betas [:update-beta]
+                                               :agent {:mcp-servers [{:name "github" :url "https://mcp.example.test"}]}
+                                               :vault-ids ["vault_2"]})
+        ^DeploymentCreateParams deployment-create (->deployment-create-params
+                                                    {:name "d" :agent "a" :environment-id "e"
+                                                     :initial-events [] :betas [:deployment-beta]})
+        ^DeploymentUpdateParams deployment-update (->deployment-update-params
+                                                    "dep_1" {:betas ["deployment-update-beta"]})
+        ^EnvironmentCreateParams environment-create (->environment-create-params
+                                                      {:name "env" :betas [:environment-beta]})
+        ^EnvironmentUpdateParams environment-update (->environment-update-params
+                                                      "env_1" {:betas ["environment-update-beta"]})
+        ^VaultCreateParams vault-create (->vault-create-params
+                                          {:display-name "vault" :betas [:vault-beta]})
+        ^VaultUpdateParams vault-update (->vault-update-params
+                                          "vault_1" {:betas ["vault-update-beta"]})]
+    (is (= ["beta-create" "beta-keyword"] (mapv #(.asString %) (opt (.betas agent-create)))))
+    (is (= ["beta-update"] (mapv #(.asString %) (opt (.betas agent-update)))))
+    (is (= ["beta-session" "session-keyword"] (mapv #(.asString %) (opt (.betas session-create)))))
+    (is (= ["update-beta"] (mapv #(.asString %) (opt (.betas session-update)))))
+    (is (= ["vault_1"] (opt (.vaultIds session-create))))
+    (is (= ["vault_2"] (opt (.vaultIds session-update))))
+    (is (= 3 (count (opt (.resources session-create)))))
+    (is (= "file_1" (.fileId (.asFile (first (opt (.resources session-create)))))))
+    (is (= "https://github.com/acme/repo"
+           (.url (.asGitHubRepository (second (opt (.resources session-create)))))))
+    (is (= "ms_1" (.memoryStoreId (.asMemoryStore (nth (opt (.resources session-create)) 2)))))
+    (is (= 1 (count (opt (.mcpServers (opt (.agent session-update)))))))
+    (is (= ["deployment-beta"] (mapv #(.asString %) (opt (.betas deployment-create)))))
+    (is (= ["deployment-update-beta"] (mapv #(.asString %) (opt (.betas deployment-update)))))
+    (is (= ["environment-beta"] (mapv #(.asString %) (opt (.betas environment-create)))))
+    (is (= ["environment-update-beta"] (mapv #(.asString %) (opt (.betas environment-update)))))
+    (is (= ["vault-beta"] (mapv #(.asString %) (opt (.betas vault-create)))))
+    (is (= ["vault-update-beta"] (mapv #(.asString %) (opt (.betas vault-update))))))
+  (doseq [[resource key] [[{:type :file} :file-id]
+                          [{:type :github-repository :authorization-token "token"} :url]
+                          [{:type :github-repository :url "https://x.test"} :authorization-token]
+                          [{:type :memory-store} :memory-store-id]]]
+    (let [d (ex-data-for #(->session-create-params
+                           {:agent "agent_1" :environment-id "env_1" :resources [resource]}))]
+      (is (= :missing-key (:anthropic/error d)))
+      (is (= key (:key d))))))
+
 (deftest agent-multiagent-params
   (let [multiagent {:type :coordinator
                     :agents ["agent_1"
