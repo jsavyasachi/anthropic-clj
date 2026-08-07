@@ -154,9 +154,11 @@
                                                    UserProfileCreateEnrollmentUrlParams
                                                    UserProfileCreateParams
                                                    UserProfileCreateParams$Metadata
+                                                   UserProfileCreateParams$Relationship
                                                    UserProfileListPage
                                                    UserProfileUpdateParams
-                                                   UserProfileUpdateParams$Metadata)
+                                                   UserProfileUpdateParams$Metadata
+                                                   UserProfileUpdateParams$Relationship)
            (com.anthropic.models.beta.webhooks BetaWebhookDeploymentArchivedEventData
                                                BetaWebhookDeploymentCreatedEventData
                                                BetaWebhookDeploymentDeletedEventData
@@ -1428,7 +1430,8 @@
   `:resources`, `:vault-ids`, `:betas`, and per-session agent overrides
   via `:agent` with `:mcp-servers` and `:tools`. Returns the
   session as a map (`:id`, `:status`, `:title`, `:environment-id`,
-  `:created-at`, `:updated-at`, `:budget`, and `:usage`)."
+  `:created-at`, `:updated-at`, `:budget`, and `:usage`). Resource maps may
+  include GitHub `:checkout` and memory-store `:access` and `:instructions`."
   [^AnthropicClient client req]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions) (.create (->session-create-params req))))))
@@ -1799,6 +1802,12 @@
     (.threadId b ^String thread-id)
     (.build b)))
 
+(defn- session-thread-stats->map
+  [^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadStats s]
+  {:active-seconds (unopt (.activeSeconds s))
+   :duration-seconds (unopt (.durationSeconds s))
+   :startup-seconds (unopt (.startupSeconds s))})
+
 (defn- session-thread->map [^BetaManagedAgentsSessionThread r]
   (cond-> {:id (.id r)
            :session-id (.sessionId r)
@@ -1809,10 +1818,7 @@
     (unopt (.parentThreadId r)) (assoc :parent-thread-id (unopt (.parentThreadId r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
     (unopt (.usage r)) (assoc :usage (usage->map (unopt (.usage r))))
-    (unopt (.stats r)) (assoc :stats (let [^com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadStats s
-                                           (unopt (.stats r))]
-                                       {:active-seconds (unopt (.activeSeconds s))
-                                        :duration-seconds (unopt (.durationSeconds s))}))
+    (unopt (.stats r)) (assoc :stats (session-thread-stats->map (unopt (.stats r))))
     (.type r) (assoc :type (->keyword (.asString (.type r))))))
 
 (defn get-session-thread
@@ -1859,6 +1865,39 @@
       (mapv session-event->map (.autoPager p)))))
 
 ;; ---- Session resources ----------------------------------------------------
+
+(defn- ->github-checkout [checkout]
+  (when checkout
+    (case (:type checkout)
+      :branch (let [name (:name checkout)]
+                (when-not name (missing-key! :name))
+                (let [b (com.anthropic.models.beta.sessions.BetaManagedAgentsBranchCheckout/builder)]
+                  (.name b ^String name)
+                  (.type b (com.anthropic.models.beta.sessions.BetaManagedAgentsBranchCheckout$Type/of "branch"))
+                  (com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams$Checkout/ofBranch
+                   (.build b))))
+      :commit (let [sha (:sha checkout)]
+                (when-not sha (missing-key! :sha))
+                (let [b (com.anthropic.models.beta.sessions.BetaManagedAgentsCommitCheckout/builder)]
+                  (.sha b ^String sha)
+                  (.type b (com.anthropic.models.beta.sessions.BetaManagedAgentsCommitCheckout$Type/of "commit"))
+                  (com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams$Checkout/ofCommit
+                   (.build b))))
+      (throw (ex-info (str "Unknown checkout type " (:type checkout))
+                      {:anthropic/error :unknown-checkout-type :type (:type checkout)})))))
+
+(defn- github-checkout->map
+  [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource$Checkout checkout]
+  (cond
+    (.isBranch checkout) (let [^com.anthropic.models.beta.sessions.BetaManagedAgentsBranchCheckout b (.asBranch checkout)]
+                           {:type :branch :name (.name b)})
+    (.isCommit checkout) (let [^com.anthropic.models.beta.sessions.BetaManagedAgentsCommitCheckout c (.asCommit checkout)]
+                           {:type :commit :sha (.sha c)})
+    :else (throw (ex-info "Unsupported checkout type" {:anthropic/error :unknown-checkout-type}))))
+
+(defn- memory-access->keyword
+  [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource$Access access]
+  (->keyword (.asString access)))
 
 (defn- ->session-resource-add-params
   ^com.anthropic.models.beta.sessions.resources.ResourceAddParams
@@ -1942,6 +1981,20 @@
       (cond-> {:type :file :id (.id x) :file-id (.fileId x) :mount-path (.mountPath x)}
         (.createdAt x) (assoc :created-at (str (.createdAt x)))
         (.updatedAt x) (assoc :updated-at (str (.updatedAt x)))))
+    (instance? com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x r]
+      (cond-> {:type :github-repository :id (.id x) :url (.url x) :mount-path (.mountPath x)}
+        (unopt (.checkout x)) (assoc :checkout (github-checkout->map (unopt (.checkout x))))
+        (.createdAt x) (assoc :created-at (str (.createdAt x)))
+        (.updatedAt x) (assoc :updated-at (str (.updatedAt x)))))
+    (instance? com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x r]
+      (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)
+               :mount-path (unopt (.mountPath x))}
+        (unopt (.access x)) (assoc :access (memory-access->keyword (unopt (.access x))))
+        (unopt (.description x)) (assoc :description (unopt (.description x)))
+        (unopt (.instructions x)) (assoc :instructions (unopt (.instructions x)))
+        (unopt (.name x)) (assoc :name (unopt (.name x)))))
     (resource-is-file r)
     (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x (resource-as-file r)]
       (cond-> {:type :file :id (resource-id r) :file-id (.fileId x)
@@ -1964,7 +2017,11 @@
     (throw (ex-info "Unsupported session resource"
                     {:anthropic/error :unknown-resource-type}))))
 
-(defn add-session-resource [^AnthropicClient client ^String session-id req]
+(defn add-session-resource
+  "Add a file resource to a session. Resource responses include GitHub
+  `:checkout` and memory-store `:access`, `:description`, `:instructions`,
+  and `:name` when returned by the SDK."
+  [^AnthropicClient client ^String session-id req]
   (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources)
                                                (.add (->session-resource-add-params session-id req))))))
 
@@ -2009,12 +2066,20 @@
                          (.type b (com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams$Type/of "github_repository"))
                          (.url b ^String (:url resource))
                          (.authorizationToken b ^String (:authorization-token resource))
+                         (when (:checkout resource)
+                           (.checkout b ^com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams$Checkout
+                                       (->github-checkout (:checkout resource))))
                          (when (:mount-path resource) (.mountPath b ^String (:mount-path resource)))
                          (.build b))
     :memory-store (let [b (com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam/builder)]
                     (when-not (:memory-store-id resource) (missing-key! :memory-store-id))
                     (.type b (com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam$Type/of "memory_store"))
                     (.memoryStoreId b ^String (:memory-store-id resource))
+                    (when (:access resource)
+                      (.access b ^com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam$Access
+                               (->enum-value (:access resource) #{:read-write :read-only}
+                                             com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam$Access/of :access)))
+                    (when (:instructions resource) (.instructions b ^String (:instructions resource)))
                     (.build b))
     (throw (ex-info (str "Unknown deployment resource type " (:type resource))
                     {:anthropic/error :unknown-deployment-resource-type :type (:type resource)}))))
@@ -2094,11 +2159,21 @@
     (.isGitHubRepository r)
     (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsGitHubRepositoryResourceConfig x (.asGitHubRepository r)]
       (cond-> {:type :github-repository :url (.url x)}
+        (unopt (.checkout x)) (assoc :checkout (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsGitHubRepositoryResourceConfig$Checkout c (unopt (.checkout x))]
+                                                 (cond
+                                                   (.isBranch c) (let [^com.anthropic.models.beta.sessions.BetaManagedAgentsBranchCheckout b (.asBranch c)]
+                                                                   {:type :branch :name (.name b)})
+                                                   (.isCommit c) (let [^com.anthropic.models.beta.sessions.BetaManagedAgentsCommitCheckout c (.asCommit c)]
+                                                                   {:type :commit :sha (.sha c)})
+                                                   :else (throw (ex-info "Unsupported checkout type" {:anthropic/error :unknown-checkout-type})))))
         (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))
     :else
     (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig x (.asMemoryStore r)]
-      (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)}
-        (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))))
+      (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig$Access access (unopt (.access x))]
+        (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)}
+        access (assoc :access (->keyword (.asString access)))
+        (unopt (.instructions x)) (assoc :instructions (unopt (.instructions x)))
+        (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r))))))))
 
 (defn- deployment-schedule->map [^com.anthropic.models.beta.deployments.BetaManagedAgentsSchedule r]
   (cond-> {:expression (.expression r)
@@ -2174,7 +2249,8 @@
 (defn create-deployment
   "Create a deployment. Required: `:name`, `:agent`, `:environment-id`, and
   `:initial-events` (event maps). Optional: `:description`,
-  `:metadata`, `:vault-ids`, `:resources`, `:schedule`, `:budget`, and `:betas`. Budget uses the
+  `:metadata`, `:vault-ids`, `:resources` (including GitHub `:checkout` and
+  memory-store `:access` and `:instructions`), `:schedule`, `:budget`, and `:betas`. Budget uses the
   `{:max-list-cost {:amount '...' :currency :usd} :type :limit}` shape.
   Returns the deployment map."
   [^AnthropicClient client req]
@@ -2201,7 +2277,8 @@
 (defn update-deployment
   "Update a deployment. `changes` may include `:name`, `:agent`,
   `:environment-id`, `:initial-events`, `:description`, `:metadata`,
-  `:vault-ids`, `:resources`, `:schedule`, `:budget`, or `:betas`. Returns the updated deployment map."
+  `:vault-ids`, `:resources` (including GitHub `:checkout` and memory-store
+  `:access` and `:instructions`), `:schedule`, `:budget`, or `:betas`. Returns the updated deployment map."
   [^AnthropicClient client ^String deployment-id changes]
   (with-api-errors
     (deployment->map (-> (.beta client) (.deployments)
@@ -2930,20 +3007,26 @@
     (.build b)))
 
 (defn- ->user-profile-create-params ^UserProfileCreateParams
-  [{:keys [name external-id metadata]}]
+  [{:keys [name external-id metadata relationship]}]
   (let [b (UserProfileCreateParams/builder)]
     (when name (.name b ^String name))
     (when external-id (.externalId b ^String external-id))
     (when metadata (.metadata b (->user-profile-create-metadata metadata)))
+    (when relationship (.relationship b ^UserProfileCreateParams$Relationship
+                                      (->enum-value relationship #{:external :resold :internal}
+                                                    UserProfileCreateParams$Relationship/of :relationship)))
     (.build b)))
 
 (defn- ->user-profile-update-params ^UserProfileUpdateParams
-  [user-profile-id {:keys [name external-id metadata]}]
+  [user-profile-id {:keys [name external-id metadata relationship]}]
   (let [b (UserProfileUpdateParams/builder)]
     (.userProfileId b ^String user-profile-id)
     (when name (.name b ^String name))
     (when external-id (.externalId b ^String external-id))
     (when metadata (.metadata b (->user-profile-update-metadata metadata)))
+    (when relationship (.relationship b ^UserProfileUpdateParams$Relationship
+                                      (->enum-value relationship #{:external :resold :internal}
+                                                    UserProfileUpdateParams$Relationship/of :relationship)))
     (.build b)))
 
 (defn- ->user-profile-enrollment-url-params ^UserProfileCreateEnrollmentUrlParams
@@ -2960,7 +3043,7 @@
            :type (keyword (.asString (.type r)))}
     (unopt (.name r)) (assoc :name (unopt (.name r)))
     (unopt (.externalId r)) (assoc :external-id (unopt (.externalId r)))
-    (.relationship r) (assoc :relationship (str (.relationship r)))
+    (.relationship r) (assoc :relationship (->keyword (.asString (.relationship r))))
     (.trustGrants r) (assoc :trust-grants (str (.trustGrants r)))))
 
 (defn- enrollment-url->map [^BetaUserProfileEnrollmentUrl r]
@@ -2968,9 +3051,9 @@
    :expires-at (str (.expiresAt r))})
 
 (defn create-user-profile
-  "Create a user profile with optional `:name`, `:external-id`, and
-  `:metadata`. Relationship config is not wrapped yet. Returns the profile
-  map."
+  "Create a user profile with optional `:name`, `:external-id`, `:metadata`,
+  and `:relationship` (`:external`, `:resold`, or `:internal`). Returns the
+  profile map, including `:relationship`."
   [^AnthropicClient client req]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles)
@@ -2992,7 +3075,8 @@
        (mapv user-profile->map (.autoPager p))))))
 
 (defn update-user-profile
-  "Update a user profile's `:name`, `:external-id`, or `:metadata`."
+  "Update a user profile's `:name`, `:external-id`, `:metadata`, or
+  `:relationship` (`:external`, `:resold`, or `:internal`)."
   [^AnthropicClient client ^String user-profile-id changes]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles)

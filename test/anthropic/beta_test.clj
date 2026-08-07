@@ -103,6 +103,9 @@
 (def ->thread-list-params #'beta/->thread-list-params)
 (def ->thread-archive-params #'beta/->thread-archive-params)
 (def session-thread->map #'beta/session-thread->map)
+(def session-thread-stats->map #'beta/session-thread-stats->map)
+(def session-resource->map #'beta/session-resource->map)
+(def deployment-resource->map #'beta/deployment-resource->map)
 (def ->deployment-create-params #'beta/->deployment-create-params)
 (def ->deployment-update-params #'beta/->deployment-update-params)
 (def ->deployment-run-params #'beta/->deployment-run-params)
@@ -940,12 +943,19 @@
 
 (deftest user-profile-params
   (let [^UserProfileCreateParams p (->user-profile-create-params
-                                    {:name "Ada" :external-id "ada-1" :metadata {:team "x"}})]
+                                    {:name "Ada" :external-id "ada-1" :metadata {:team "x"}
+                                     :relationship :external})]
     (is (= "Ada" (opt (.name p))))
-    (is (= "ada-1" (opt (.externalId p)))))
-  (let [^UserProfileUpdateParams p (->user-profile-update-params "up_1" {:name "Ada L"})]
+    (is (= "ada-1" (opt (.externalId p))))
+    (is (= "external" (some-> (.relationship p) opt .asString))))
+  (let [^UserProfileUpdateParams p (->user-profile-update-params "up_1"
+                                                                  {:name "Ada L"
+                                                                   :relationship :internal})]
     (is (= "up_1" (opt (.userProfileId p))))
-    (is (= "Ada L" (opt (.name p)))))
+    (is (= "Ada L" (opt (.name p))))
+    (is (= "internal" (.asString (opt (.relationship p))))))
+  (is (= :invalid-enum-value
+         (:anthropic/error (ex-data-for #(->user-profile-create-params {:relationship :unknown})))))
   (let [^UserProfileCreateEnrollmentUrlParams p
         (->user-profile-enrollment-url-params "up_1")]
     (is (= "up_1" (opt (.userProfileId p))))))
@@ -1290,6 +1300,55 @@
             :created-at "2026-07-22T00:00Z" :updated-at "2026-07-22T00:00Z"}
            ((ns-resolve 'anthropic.beta 'session-resource->map) r)))))
 
+(deftest session-resource-nested-fields-round-trip
+  (let [github (-> (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource/builder)
+                   (.id "res_2") (.url "https://example.test/repo") (.mountPath "/repo")
+                   (.createdAt (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z"))
+                   (.updatedAt (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z"))
+                   (.branchCheckout "main")
+                   (.type (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource$Type/of "github_repository"))
+                   (.build))
+        memory (-> (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource/builder)
+                   (.memoryStoreId "store_1") (.access (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource$Access/of "read_only"))
+                   (.description "A store") (.instructions "Use it") (.name "Notes")
+                   (.mountPath "/memory")
+                   (.type (com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource$Type/of "memory_store"))
+                   (.build))
+        github-map (session-resource->map github)
+        memory-map (session-resource->map memory)
+        github-params (invoke-private '->deployment-resource
+                                      (assoc github-map :authorization-token "token"))
+        memory-params (invoke-private '->deployment-resource memory-map)]
+    (is (= {:type :branch :name "main"} (:checkout github-map)))
+    (is (= {:access :read-only :description "A store" :instructions "Use it" :name "Notes"}
+           (select-keys memory-map [:access :description :instructions :name])))
+    (is (= "main" (.name (.asBranch (opt (.checkout github-params))))))
+    (is (= "read-only" (.asString (opt (.access memory-params)))))
+    (is (= "Use it" (opt (.instructions memory-params))))))
+
+(deftest session-thread-stats-map-startup-seconds
+  (let [stats (-> (com.anthropic.models.beta.sessions.threads.BetaManagedAgentsSessionThreadStats/builder)
+                  (.activeSeconds 1.0) (.durationSeconds 2.0) (.startupSeconds 0.5) (.build))]
+    (is (= 0.5 (:startup-seconds (session-thread-stats->map stats))))))
+
+(deftest deployment-resource-nested-fields-map
+  (let [github (-> (com.anthropic.models.beta.deployments.BetaManagedAgentsGitHubRepositoryResourceConfig/builder)
+                   (.url "https://example.test/repo") (.branchCheckout "release")
+                   (.type (com.anthropic.models.beta.deployments.BetaManagedAgentsGitHubRepositoryResourceConfig$Type/of "github_repository"))
+                   (.build))
+        memory (-> (com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig/builder)
+                   (.memoryStoreId "store_1") (.access (com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig$Access/of "read_only"))
+                   (.instructions "Use it")
+                   (.type (com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig$Type/of "memory_store"))
+                   (.build))]
+    (is (= {:type :github-repository :checkout {:type :branch :name "release"}}
+           (select-keys (deployment-resource->map
+                         (com.anthropic.models.beta.deployments.BetaManagedAgentsSessionResourceConfig/ofGitHubRepository github))
+                        [:type :name :checkout])))
+    (is (= {:type :memory-store :memory-store-id "store_1" :access :read-only :instructions "Use it"}
+           (deployment-resource->map
+            (com.anthropic.models.beta.deployments.BetaManagedAgentsSessionResourceConfig/ofMemoryStore memory))))))
+
 (deftest vault-credential-mcp-oauth-validate-params-and-response-mapping
   (let [f (ns-resolve 'anthropic.beta '->credential-mcp-oauth-validate-params)]
     (is (ifn? f))
@@ -1531,6 +1590,7 @@
     (is (= "up_1" (:id m)))
     (is (= "Ada" (:name m)))
     (is (= "ada-1" (:external-id m)))
+    (is (= :external (:relationship m)))
     (is (= {:url "https://example.test/enroll"
             :expires-at "2026-07-04T00:00Z"}
            (enrollment-url->map u)))))
