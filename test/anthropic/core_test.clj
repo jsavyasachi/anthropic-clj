@@ -2,11 +2,14 @@
   (:require [clojure.test :refer [deftest testing is]]
             [clojure.string :as str]
             [jsonista.core :as json]
-            [anthropic.core :as a])
+            [anthropic.core :as a]
+            [anthropic.beta.messages :as beta])
   (:import (com.anthropic.client AnthropicClient)
+           (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.messages CacheCreation Container
                                           Message MessageCountTokensParams
+                                          MessageCountTokensTool
                                           MessageCreateParams
                                           MessageCreateParams$System
                                           MessageCreateParams$ServiceTier
@@ -28,6 +31,7 @@
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
            (com.anthropic.models.beta.files BetaFileScope DeletedFile DeletedFile$Type
                                              FileMetadata)
+           (com.anthropic.models.beta.messages BetaTool BetaToolUnion)
            (com.anthropic.models.messages.batches BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params
                                                   DeletedMessageBatch
@@ -55,6 +59,7 @@
 (def ->batch-request #'a/->batch-request)
 (def ->content-block #'a/->content-block)
 (def ->tool #'a/->tool)
+(def beta->tool #'beta/->tool)
 (def ->count-tool #'a/->count-tool)
 (def reduce-batch-result-stream #'a/reduce-batch-result-stream)
 (def file->map #'a/file->map)
@@ -70,6 +75,14 @@
   (some-> (ns-resolve 'anthropic.core sym) deref))
 
 (defn- opt [^java.util.Optional o] (when (.isPresent o) (.get o)))
+
+(defn- input-example->map [^com.anthropic.models.messages.Tool$InputExample example]
+  (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)]))
+        (._additionalProperties example)))
+
+(defn- beta-input-example->map [^com.anthropic.models.beta.messages.BetaTool$InputExample example]
+  (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)]))
+        (._additionalProperties example)))
 
 (deftest completion-request-translation
   (let [^CompletionCreateParams p
@@ -465,6 +478,8 @@
                       (->tool {:name "configured"
                                :description "all options"
                                :input-schema {:type "object" :properties {}}
+                               :eager-input-streaming true
+                               :input-examples [{:location "Paris"}]
                                :allowed-callers [:direct]
                                :cache-control true
                                :defer-loading true
@@ -472,7 +487,25 @@
       (is (= ["direct"] (mapv str (opt (.allowedCallers tool)))))
       (is (.isPresent (.cacheControl tool)))
       (is (= true (opt (.deferLoading tool))))
-      (is (= true (opt (.strict tool))))))
+      (is (= true (opt (.strict tool))))
+      (is (= true (opt (.eagerInputStreaming tool))))
+      (is (= [{"location" "Paris"}]
+             (mapv input-example->map (opt (.inputExamples tool)))))))
+  (testing "the same custom tool settings reach stable and beta tools"
+    (let [spec {:name "weather"
+                :description "Current weather"
+                :input-schema {:type "object" :properties {}}
+                :eager-input-streaming true
+                :input-examples [{:location "Paris"}]
+                :allowed-callers [:direct]
+                :defer-loading true
+                :strict true}
+          stable (.get (.tool ^ToolUnion (->tool spec)))
+          beta-tool (.asBetaTool ^BetaToolUnion (beta->tool spec))]
+      (is (= (opt (.eagerInputStreaming stable))
+             (opt (.eagerInputStreaming beta-tool))))
+      (is (= (mapv input-example->map (opt (.inputExamples stable)))
+             (mapv beta-input-example->map (opt (.inputExamples beta-tool)))))))
   (testing "every stable server tool preserves common configuration"
     (doseq [tool [(->tool {:type :web-search :allowed-callers [:direct]
                            :cache-control true :defer-loading true :strict true})
@@ -513,6 +546,18 @@
           regex (->count-tool {:type :tool-search :variant :regex})]
       (is (.isPresent (.toolSearchToolBm25_20251119 bm25)))
       (is (.isPresent (.toolSearchToolRegex20251119 regex))))))
+
+(deftest count-token-custom-tool-options
+  (let [^MessageCountTokensParams p
+        (->count-params {:messages [{:role :user :content "hi"}]
+                         :tools [{:name "weather"
+                                  :input-schema {:type "object"}
+                                  :eager-input-streaming true
+                                  :input-examples [{:location "Paris"}]}]})
+        tool (.asTool ^MessageCountTokensTool (first (opt (.tools p))))]
+    (is (= true (opt (.eagerInputStreaming tool))))
+    (is (= [{"location" "Paris"}]
+           (mapv input-example->map (opt (.inputExamples tool)))))))
 
 (deftest content-blocks
   (testing "image block, base64 and url sources"
