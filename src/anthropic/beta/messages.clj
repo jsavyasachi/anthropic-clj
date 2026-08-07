@@ -40,6 +40,7 @@
                                                BetaRequestMcpServerToolConfiguration
                                                BetaRequestMcpServerUrlDefinition
                                                BetaTextBlockParam
+                                               BetaTokenTaskBudget
                                                BetaThinkingBlockParam
                                                BetaThinkingConfigAdaptive
                                                BetaThinkingConfigDisabled
@@ -521,44 +522,175 @@
     (when cache-control (.cacheControl b (->cache-control cache-control)))
     (.build b)))
 
+(def ^:private dated-tool-variants
+  {:web-search {"20250305" ["BetaWebSearchTool20250305" "ofWebSearchTool20250305" "ofBetaWebSearchTool20250305"]
+                "20260209" ["BetaWebSearchTool20260209" "ofWebSearchTool20260209" "ofBetaWebSearchTool20260209"]
+                "20260318" ["BetaWebSearchTool20260318" "ofWebSearchTool20260318" "ofBetaWebSearchTool20260318"]}
+   :web-fetch {"20250910" ["BetaWebFetchTool20250910" "ofWebFetchTool20250910" "ofBetaWebFetchTool20250910"]
+               "20260209" ["BetaWebFetchTool20260209" "ofWebFetchTool20260209" "ofBetaWebFetchTool20260209"]
+               "20260309" ["BetaWebFetchTool20260309" "ofWebFetchTool20260309" "ofBetaWebFetchTool20260309"]
+               "20260318" ["BetaWebFetchTool20260318" "ofWebFetchTool20260318" "ofBetaWebFetchTool20260318"]}
+   :code-execution {"20250522" ["BetaCodeExecutionTool20250522" "ofCodeExecutionTool20250522" "ofBetaCodeExecutionTool20250522"]
+                    "20250825" ["BetaCodeExecutionTool20250825" "ofCodeExecutionTool20250825" "ofBetaCodeExecutionTool20250825"]
+                    "20260120" ["BetaCodeExecutionTool20260120" "ofCodeExecutionTool20260120" "ofBetaCodeExecutionTool20260120"]
+                    "20260521" ["BetaCodeExecutionTool20260521" "ofCodeExecutionTool20260521" "ofBetaCodeExecutionTool20260521"]}
+   :bash {"20241022" ["BetaToolBash20241022" "ofBash20241022" "ofBetaToolBash20241022"]
+          "20250124" ["BetaToolBash20250124" "ofBash20250124" "ofBetaToolBash20250124"]}
+   :text-editor {"20241022" ["BetaToolTextEditor20241022" "ofTextEditor20241022" "ofBetaToolTextEditor20241022"]
+                 "20250124" ["BetaToolTextEditor20250124" "ofTextEditor20250124" "ofBetaToolTextEditor20250124"]
+                 "20250429" ["BetaToolTextEditor20250429" "ofTextEditor20250429" "ofBetaToolTextEditor20250429"]
+                 "20250728" ["BetaToolTextEditor20250728" "ofTextEditor20250728" "ofBetaToolTextEditor20250728"]}
+   :computer-use {"20241022" ["BetaToolComputerUse20241022" "ofComputerUse20241022" "ofBetaToolComputerUse20241022"]
+                  "20250124" ["BetaToolComputerUse20250124" "ofComputerUse20250124" "ofBetaToolComputerUse20250124"]
+                  "20251124" ["BetaToolComputerUse20251124" "ofComputerUse20251124" "ofBetaToolComputerUse20251124"]}})
+
+(defn- invoke-method [^Object target method & values]
+  (let [^Class target-class (class target)
+        compatible? (fn [^Class parameter-class value]
+                     (let [value-class (class value)]
+                       (or (and value-class (.isAssignableFrom parameter-class value-class))
+                           (and (.isPrimitive parameter-class)
+                                (= value-class
+                                   ({Boolean/TYPE Boolean
+                                     Long/TYPE Long
+                                     Integer/TYPE Integer
+                                     Double/TYPE Double}
+                                    parameter-class))))))
+        ^java.lang.reflect.Method method-ref
+        (first (filter #(and (= method (.getName ^java.lang.reflect.Method %))
+                             (= (count values) (alength (.getParameterTypes ^java.lang.reflect.Method %)))
+                             (every? true?
+                                     (map compatible?
+                                          (vec (.getParameterTypes ^java.lang.reflect.Method %))
+                                          values)))
+                       (.getMethods target-class)))]
+    (.invoke method-ref target (object-array values))))
+
+(defn- invoke-static-zero [class-name method]
+  (let [^Class target-class (Class/forName (str "com.anthropic.models.beta.messages." class-name))
+        ^java.lang.reflect.Method method-ref
+        (first (filter #(and (= method (.getName ^java.lang.reflect.Method %))
+                             (= 0 (alength (.getParameterTypes ^java.lang.reflect.Method %))))
+                       (.getMethods target-class)))]
+    (.invoke method-ref nil (object-array 0))))
+
+(defn- new-instance [class-name]
+  (let [^Class target-class (Class/forName (str "com.anthropic.models.beta.messages." class-name))]
+    (.newInstance target-class)))
+
+(defn- invoke-static [class-name method value]
+  (let [^Class target-class (Class/forName (str "com.anthropic.models.beta.messages." class-name))
+        ^java.lang.reflect.Method method-ref
+        (first (filter #(and (= method (.getName ^java.lang.reflect.Method %))
+                             (= 1 (alength (.getParameterTypes ^java.lang.reflect.Method %))))
+                       (.getMethods target-class)))]
+    (.invoke method-ref nil (object-array [value]))))
+
+(defn- build-dated-tool [class-name t]
+  (let [builder (invoke-static-zero class-name "builder")
+        input-class (str class-name "$InputExample$Builder")]
+    (doseq [c (:allowed-callers t)] (invoke-method builder "addAllowedCaller" (invoke-static (str class-name "$AllowedCaller") "of" (name c))))
+    (when (:cache-control t) (invoke-method builder "cacheControl" (->cache-control (:cache-control t))))
+    (when (some? (:defer-loading t)) (invoke-method builder "deferLoading" (boolean (:defer-loading t))))
+    (when (some? (:strict t)) (invoke-method builder "strict" (boolean (:strict t))))
+    (when-let [v (:max-uses t)] (invoke-method builder "maxUses" (long v)))
+    (when-let [v (:max-content-tokens t)] (invoke-method builder "maxContentTokens" (long v)))
+    (when-let [v (:max-characters t)] (invoke-method builder "maxCharacters" (long v)))
+    (when-let [v (:display-height-px t)] (invoke-method builder "displayHeightPx" (long v)))
+    (when-let [v (:display-width-px t)] (invoke-method builder "displayWidthPx" (long v)))
+    (when-let [v (:display-number t)] (invoke-method builder "displayNumber" (long v)))
+    (when (some? (:enable-zoom t)) (invoke-method builder "enableZoom" (boolean (:enable-zoom t))))
+    (when (some? (:use-cache t)) (invoke-method builder "useCache" (boolean (:use-cache t))))
+    (when-let [v (:model t)] (invoke-method builder "model" ^String v))
+    (when-let [v (:max-tokens t)] (invoke-method builder "maxTokens" (long v)))
+    (when-let [v (:caching t)] (invoke-method builder "caching" (->cache-control v)))
+    (when (:user-location t) (invoke-method builder "userLocation" (->user-location (:user-location t))))
+    (when (:citations t) (invoke-method builder "citations" (->citations (:citations t))))
+    (when-let [v (:response-inclusion t)]
+      (when-let [response-class (try (Class/forName (str "com.anthropic.models.beta.messages." class-name "$ResponseInclusion")) (catch ClassNotFoundException _ nil))]
+        (when-let [response-method (first (filter #(= "of" (.getName ^java.lang.reflect.Method %)) (.getMethods ^Class response-class)))]
+          (invoke-method builder "responseInclusion"
+                         (.invoke ^java.lang.reflect.Method response-method nil (object-array [(name v)]))))))
+    (when (seq (:allowed-domains t)) (invoke-method builder "allowedDomains" ^java.util.List (vec (:allowed-domains t))))
+    (when (seq (:blocked-domains t)) (invoke-method builder "blockedDomains" ^java.util.List (vec (:blocked-domains t))))
+    (when (seq (:input-examples t))
+      (invoke-method builder "inputExamples"
+                     ^java.util.List
+                     (mapv (fn [example]
+                             (let [input-builder (new-instance input-class)]
+                               (doseq [[k v] example]
+                                 (invoke-method input-builder "putAdditionalProperty" (name k) (->json v)))
+                               (invoke-method input-builder "build")))
+                           (:input-examples t))))
+    (invoke-method builder "build")))
+
+(defn- dated-tool [family t]
+  (let [variants (get dated-tool-variants family)
+        version (if-let [version (:version t)] (if (keyword? version) (name version) (str version))
+                      (last (sort (keys variants))))
+        [class-name _ _] (get variants version)]
+    (if class-name
+      (build-dated-tool class-name t)
+      (throw (ex-info "Unsupported server tool version"
+                      {:anthropic/error :unsupported-server-tool-version
+                       :type family :version (:version t)})))))
+
+(defn- validate-tool-version [family t expected]
+  (when-let [version (:version t)]
+    (let [version (if (keyword? version) (name version) (str version))]
+      (when-not (= expected version)
+        (throw (ex-info "Unsupported server tool version"
+                        {:anthropic/error :unsupported-server-tool-version
+                         :type family :version (:version t)})))))
+  t)
+
 (defn- ->server-tool ^BetaToolUnion [{:keys [type] :as t}]
-  (case (keyword type)
-    :web-search (BetaToolUnion/ofWebSearchTool20260318 (->web-search-tool t))
-    :web-fetch (BetaToolUnion/ofWebFetchTool20260318 (->web-fetch-tool t))
-    :code-execution (BetaToolUnion/ofCodeExecutionTool20260521 (->code-execution-tool t))
-    :bash (BetaToolUnion/ofBash20250124 (->bash-tool t))
-    :text-editor (BetaToolUnion/ofTextEditor20250728 (->text-editor-tool t))
-    :memory (BetaToolUnion/ofMemoryTool20250818 (->memory-tool t))
-    :tool-search (case (keyword (:variant t))
-                   :bm25 (BetaToolUnion/ofSearchToolBm25_20251119 (->tool-search-bm25 t))
-                   :regex (BetaToolUnion/ofSearchToolRegex20251119 (->tool-search-regex t))
-                   (throw (ex-info "Unsupported tool-search variant"
-                                   {:anthropic/error :unsupported-tool-search-variant
-                                    :variant (:variant t)})))
-    :computer-use (BetaToolUnion/ofComputerUse20251124 (->computer-use-tool t))
-    :advisor (BetaToolUnion/ofAdvisorTool20260301 (->advisor-tool t))
-    :mcp-toolset (BetaToolUnion/ofMcpToolset (->mcp-toolset t))
-    (throw (ex-info "Unsupported server tool type"
-                    {:anthropic/error :unsupported-server-tool :type type}))))
+  (let [family (keyword type)]
+    (case family
+      (:web-search :web-fetch :code-execution :bash :text-editor :computer-use)
+      (let [version (if-let [version (:version t)] (if (keyword? version) (name version) (str version))
+                    (last (sort (keys (get dated-tool-variants family)))))
+            [_ constructor _] (get-in dated-tool-variants [family version])]
+        (if constructor
+          (invoke-static "BetaToolUnion" constructor (dated-tool family t))
+          (throw (ex-info "Unsupported server tool version"
+                          {:anthropic/error :unsupported-server-tool-version
+                           :type family :version (:version t)}))))
+      :memory (invoke-static "BetaToolUnion" "ofMemoryTool20250818"
+                             (->memory-tool (validate-tool-version family t "20250818")))
+      :tool-search (case (keyword (:variant t))
+                     :bm25 (BetaToolUnion/ofSearchToolBm25_20251119
+                            (->tool-search-bm25 (validate-tool-version family t "20251119")))
+                     :regex (BetaToolUnion/ofSearchToolRegex20251119
+                             (->tool-search-regex (validate-tool-version family t "20251119"))))
+      :advisor (BetaToolUnion/ofAdvisorTool20260301
+                (->advisor-tool (validate-tool-version family t "20260301")))
+      :mcp-toolset (BetaToolUnion/ofMcpToolset (->mcp-toolset t))
+      (throw (ex-info "Unsupported server tool type" {:anthropic/error :unsupported-server-tool :type type})))))
 
 (defn- ->count-tool ^MessageCountTokensParams$Tool [{:keys [type] :as t}]
-  (case (keyword type)
-    :web-search (MessageCountTokensParams$Tool/ofBetaWebSearchTool20260318 (->web-search-tool t))
-    :web-fetch (MessageCountTokensParams$Tool/ofBetaWebFetchTool20260318 (->web-fetch-tool t))
-    :code-execution (MessageCountTokensParams$Tool/ofBetaCodeExecutionTool20260521 (->code-execution-tool t))
-    :bash (MessageCountTokensParams$Tool/ofBetaToolBash20250124 (->bash-tool t))
-    :text-editor (MessageCountTokensParams$Tool/ofBetaToolTextEditor20250728 (->text-editor-tool t))
-    :memory (MessageCountTokensParams$Tool/ofBetaMemoryTool20250818 (->memory-tool t))
-    :tool-search (case (keyword (:variant t))
-                   :bm25 (MessageCountTokensParams$Tool/ofBetaToolSearchToolBm25_20251119 (->tool-search-bm25 t))
-                   :regex (MessageCountTokensParams$Tool/ofBetaToolSearchToolRegex20251119 (->tool-search-regex t))
-                   (throw (ex-info "Unsupported tool-search variant"
-                                   {:anthropic/error :unsupported-tool-search-variant
-                                    :variant (:variant t)})))
-    :computer-use (MessageCountTokensParams$Tool/ofBetaToolComputerUse20251124 (->computer-use-tool t))
-    :advisor (MessageCountTokensParams$Tool/ofBetaAdvisorTool20260301 (->advisor-tool t))
-    :mcp-toolset (MessageCountTokensParams$Tool/ofBetaMcpToolset (->mcp-toolset t))
-    (MessageCountTokensParams$Tool/ofBeta (->custom-tool t))))
+  (let [family (keyword type)]
+    (if (contains? dated-tool-variants family)
+      (let [version (if-let [version (:version t)] (if (keyword? version) (name version) (str version))
+                    (last (sort (keys (get dated-tool-variants family)))))
+            [_ _ constructor] (get-in dated-tool-variants [family version])]
+        (if constructor
+          (invoke-static "MessageCountTokensParams$Tool" constructor (dated-tool family t))
+          (throw (ex-info "Unsupported server tool version"
+                          {:anthropic/error :unsupported-server-tool-version
+                           :type family :version (:version t)}))))
+      (case family
+        :memory (invoke-static "MessageCountTokensParams$Tool" "ofBetaMemoryTool20250818"
+                               (->memory-tool (validate-tool-version family t "20250818")))
+        :tool-search (case (keyword (:variant t))
+                        :bm25 (MessageCountTokensParams$Tool/ofBetaToolSearchToolBm25_20251119
+                               (->tool-search-bm25 (validate-tool-version family t "20251119")))
+                        :regex (MessageCountTokensParams$Tool/ofBetaToolSearchToolRegex20251119
+                                (->tool-search-regex (validate-tool-version family t "20251119"))))
+        :advisor (MessageCountTokensParams$Tool/ofBetaAdvisorTool20260301
+                  (->advisor-tool (validate-tool-version family t "20260301")))
+        :mcp-toolset (MessageCountTokensParams$Tool/ofBetaMcpToolset (->mcp-toolset t))
+        (MessageCountTokensParams$Tool/ofBeta (->custom-tool t))))))
 
 (defn- server-tool? [t]
   ;; Only a recognized `:type` makes a tool server-side. A tool carrying `:fn` is
@@ -581,10 +713,16 @@
       (.putAdditionalProperty sb ^String (name k) (->json v)))
     (-> (BetaJsonOutputFormat/builder) (.schema (.build sb)) (.build))))
 
-(defn- ->output-config ^BetaOutputConfig [schema effort]
+(defn- ->output-config ^BetaOutputConfig [schema effort task-budget]
   (let [b (BetaOutputConfig/builder)]
     (when schema (.format b (->json-output-format schema)))
     (when effort (.effort b (BetaOutputConfig$Effort/of (name effort))))
+    (when task-budget
+      (.taskBudget b
+                   (let [tb (BetaTokenTaskBudget/builder)]
+                     (.total tb (long (:total task-budget)))
+                     (when (:remaining task-budget) (.remaining tb (long (:remaining task-budget))))
+                     (.build tb))))
     (.build b)))
 
 (defn- ->context-edit ^BetaContextManagementConfig$Edit
@@ -630,7 +768,7 @@
             (.model ^String model))]
     (when max-tokens (.maxTokens b (long max-tokens)))
     (when output-config
-      (.outputConfig b (->output-config (:schema output-config) (:effort output-config))))
+      (.outputConfig b (->output-config (:schema output-config) (:effort output-config) (:task-budget output-config))))
     (when speed (.speed b (BetaFallbackParam$Speed/of (name speed))))
     (when thinking
       (case (keyword (:type thinking))
@@ -679,6 +817,7 @@
 (defn- ->params ^MessageCreateParams
   [{:keys [model max-tokens system messages tools temperature top-p top-k stop-sequences
            tool-choice thinking metadata service-tier response-format output-format effort container inference-geo
+           task-budget
            context-management diagnostics speed
            user-profile-id cache-control betas mcp-servers fallbacks fallback-credit-token
            extra-headers extra-query extra-body]
@@ -703,7 +842,7 @@
     (when inference-geo (.inferenceGeo b ^String inference-geo))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
-    (when (or response-format effort) (.outputConfig b (->output-config response-format effort)))
+    (when (or response-format effort task-budget) (.outputConfig b (->output-config response-format effort task-budget)))
     (when output-format (.outputFormat b (->json-output-format output-format)))
     (when context-management (.contextManagement b (->context-management context-management)))
     (when diagnostics (.diagnostics b (->diagnostics diagnostics)))
@@ -809,7 +948,7 @@
 
   Request maps support context-management, diagnostics, speed, and tool-choice
   disable-parallel-tool-use options. Tool specs support response-inclusion,
-  input-examples, eager-input-streaming, and caching options."
+  input-examples, eager-input-streaming, caching, and dated :version options."
   ([^AnthropicClient client req] (create-beta-message client req {}))
   ([^AnthropicClient client req opts]
    (with-api-errors
@@ -888,8 +1027,8 @@
   Options include `:max-iterations`, `:on-message`, and `:on-turn`. `:on-turn`
   receives each assistant response and the current params, and returns params
   for the next iteration, allowing tools and request settings to change. Tool
-  specs support response-inclusion, input-examples, eager-input-streaming, and
-  caching options."
+  specs support response-inclusion, input-examples, eager-input-streaming,
+  caching, and dated :version options."
   ([^AnthropicClient client params]
    (run-beta-tools client params {}))
   ([^AnthropicClient client params opts]

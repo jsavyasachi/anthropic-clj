@@ -34,6 +34,44 @@
 (def ->server-tool #'messages/->server-tool)
 (def stable->tool #'anthropic.core/->tool)
 
+(def server-tool-versions
+  [{:type :bash
+    :versions [["20241022" #(.isBash20241022 ^BetaToolUnion %)]
+               ["20250124" #(.isBash20250124 ^BetaToolUnion %)]]}
+   {:type :code-execution
+    :versions [["20250522" #(.isCodeExecutionTool20250522 ^BetaToolUnion %)]
+               ["20250825" #(.isCodeExecutionTool20250825 ^BetaToolUnion %)]
+               ["20260120" #(.isCodeExecutionTool20260120 ^BetaToolUnion %)]
+               ["20260521" #(.isCodeExecutionTool20260521 ^BetaToolUnion %)]]}
+   {:type :computer-use
+    :versions [["20241022" #(.isComputerUse20241022 ^BetaToolUnion %)]
+               ["20250124" #(.isComputerUse20250124 ^BetaToolUnion %)]
+               ["20251124" #(.isComputerUse20251124 ^BetaToolUnion %)]]}
+   {:type :text-editor
+    :versions [["20241022" #(.isTextEditor20241022 ^BetaToolUnion %)]
+               ["20250124" #(.isTextEditor20250124 ^BetaToolUnion %)]
+               ["20250429" #(.isTextEditor20250429 ^BetaToolUnion %)]
+               ["20250728" #(.isTextEditor20250728 ^BetaToolUnion %)]]}
+   {:type :web-search
+    :versions [["20250305" #(.isWebSearchTool20250305 ^BetaToolUnion %)]
+               ["20260209" #(.isWebSearchTool20260209 ^BetaToolUnion %)]
+               ["20260318" #(.isWebSearchTool20260318 ^BetaToolUnion %)]]}
+   {:type :web-fetch
+    :versions [["20250910" #(.isWebFetchTool20250910 ^BetaToolUnion %)]
+               ["20260209" #(.isWebFetchTool20260209 ^BetaToolUnion %)]
+               ["20260309" #(.isWebFetchTool20260309 ^BetaToolUnion %)]
+               ["20260318" #(.isWebFetchTool20260318 ^BetaToolUnion %)]]}])
+
+(def server-tool-defaults
+  [{:type :web-search :predicate #(.isWebSearchTool20260318 ^BetaToolUnion %)}
+   {:type :web-fetch :predicate #(.isWebFetchTool20260318 ^BetaToolUnion %)}
+   {:type :code-execution :predicate #(.isCodeExecutionTool20260521 ^BetaToolUnion %)}
+   {:type :bash :predicate #(.isBash20250124 ^BetaToolUnion %)}
+   {:type :text-editor :predicate #(.isTextEditor20250728 ^BetaToolUnion %)}
+   {:type :memory :predicate #(.isMemoryTool20250818 ^BetaToolUnion %)}
+   {:type :computer-use :predicate #(.isComputerUse20251124 ^BetaToolUnion %)}
+   {:type :advisor :predicate #(.isAdvisorTool20260301 ^BetaToolUnion %)}])
+
 (defn- json-value->clj [value]
   (cond
     (instance? java.util.Map value)
@@ -46,6 +84,85 @@
   (json-value->clj (.convert (JsonValue/from value) Object)))
 
 (defn- opt [o] (when (.isPresent o) (.get o)))
+
+(deftest beta-server-tool-versions
+  (doseq [{:keys [type versions]} server-tool-versions
+          [version predicate] versions]
+    (is (predicate (->tool (merge {:type type :version (if (= version "20241022") :20241022 version)
+                                   :name (name type)}
+                                  (when (= type :computer-use)
+                                    {:display-height-px 900 :display-width-px 1400})
+                                  (when (= type :advisor)
+                                    {:model "claude-sonnet-4-6"}))))
+        (str type " version " version))))
+
+(deftest beta-server-tool-default-versions
+  (doseq [{:keys [type predicate]} server-tool-defaults]
+    (is (predicate (->tool (merge {:type type :name (name type)}
+                                  (when (= type :computer-use)
+                                    {:display-height-px 900 :display-width-px 1400})
+                                  (when (= type :advisor)
+                                    {:model "claude-sonnet-4-6"}))))
+        (str type))))
+
+(deftest beta-server-tool-version-options-and-errors
+  (let [tool (.asBash20241022 ^BetaToolUnion
+              (->tool {:type :bash :version "20241022" :name "bash"
+                       :input-examples [{:command "pwd"}] :strict true}))]
+    (is (= "pwd" (json-roundtrip (get (._additionalProperties (first (opt (.inputExamples tool)))) "command"))))
+    (is (= true (opt (.strict tool)))))
+  (let [error (try
+                (->tool {:type :bash :version "20990101" :name "bash"})
+                nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :unsupported-server-tool-version (:anthropic/error (ex-data error))))
+    (is (= :bash (:type (ex-data error))))
+    (is (= "20990101" (:version (ex-data error))))))
+
+(deftest beta-count-tool-versions
+  (doseq [{:keys [type versions]} server-tool-versions
+          [version _] versions]
+    (let [tool (first (opt (.tools (->count-params {:messages [{:role :user :content "hi"}]
+                                                     :tools [(merge {:type type :version version
+                                                                     :name (name type)}
+                                                                    (when (= type :computer-use)
+                                                                      {:display-height-px 900 :display-width-px 1400}))]}))))]
+      (is (instance? MessageCountTokensParams$Tool tool))
+      (is (case type
+            :bash (case version
+                    "20241022" (.isBetaToolBash20241022 ^MessageCountTokensParams$Tool tool)
+                    "20250124" (.isBetaToolBash20250124 ^MessageCountTokensParams$Tool tool))
+            :code-execution (case version
+                              "20250522" (.isBetaCodeExecutionTool20250522 ^MessageCountTokensParams$Tool tool)
+                              "20250825" (.isBetaCodeExecutionTool20250825 ^MessageCountTokensParams$Tool tool)
+                              "20260120" (.isBetaCodeExecutionTool20260120 ^MessageCountTokensParams$Tool tool)
+                              "20260521" (.isBetaCodeExecutionTool20260521 ^MessageCountTokensParams$Tool tool))
+            :computer-use (case version
+                            "20241022" (.isBetaToolComputerUse20241022 ^MessageCountTokensParams$Tool tool)
+                            "20250124" (.isBetaToolComputerUse20250124 ^MessageCountTokensParams$Tool tool)
+                            "20251124" (.isBetaToolComputerUse20251124 ^MessageCountTokensParams$Tool tool))
+            :text-editor (case version
+                           "20241022" (.isBetaToolTextEditor20241022 ^MessageCountTokensParams$Tool tool)
+                           "20250124" (.isBetaToolTextEditor20250124 ^MessageCountTokensParams$Tool tool)
+                           "20250429" (.isBetaToolTextEditor20250429 ^MessageCountTokensParams$Tool tool)
+                           "20250728" (.isBetaToolTextEditor20250728 ^MessageCountTokensParams$Tool tool))
+            :web-search (case version
+                          "20250305" (.isBetaWebSearchTool20250305 ^MessageCountTokensParams$Tool tool)
+                          "20260209" (.isBetaWebSearchTool20260209 ^MessageCountTokensParams$Tool tool)
+                          "20260318" (.isBetaWebSearchTool20260318 ^MessageCountTokensParams$Tool tool))
+            :web-fetch (case version
+                        "20250910" (.isBetaWebFetchTool20250910 ^MessageCountTokensParams$Tool tool)
+                        "20260209" (.isBetaWebFetchTool20260209 ^MessageCountTokensParams$Tool tool)
+                        "20260309" (.isBetaWebFetchTool20260309 ^MessageCountTokensParams$Tool tool)
+                        "20260318" (.isBetaWebFetchTool20260318 ^MessageCountTokensParams$Tool tool)))))))
+
+(deftest beta-output-config-task-budget
+  (let [^MessageCreateParams params
+        (->params {:messages [{:role :user :content "hi"}]
+                   :task-budget {:total 4096 :remaining 1024}})
+        config (opt (.outputConfig params))]
+    (is (= 4096 (.total (opt (.taskBudget config)))))
+    (is (= 1024 (opt (.remaining (opt (.taskBudget config))))))))
 
 (deftest beta-server-tool-unions
   (doseq [[tool predicate]
