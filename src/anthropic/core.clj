@@ -76,7 +76,8 @@
                                           ThinkingConfigEnabled
                                           ThinkingConfigParam ThinkingDelta
                                           ThinkingBlockParam
-                                          Tool Tool$AllowedCaller Tool$InputSchema ToolBash20250124
+                                          Tool Tool$AllowedCaller Tool$InputExample Tool$InputExample$Builder
+                                          Tool$InputSchema ToolBash20250124
                                           ToolBash20250124$AllowedCaller
                                           ToolSearchToolBm25_20251119
                                           ToolSearchToolBm25_20251119$AllowedCaller
@@ -397,6 +398,12 @@
   (when (some? defer-loading) (defer-loading! defer-loading))
   (when (some? strict) (strict! strict)))
 
+(defn- ->custom-input-example ^Tool$InputExample [example]
+  (let [b (Tool$InputExample$Builder.)]
+    (doseq [[k v] example]
+      (.putAdditionalProperty b ^String (name k) (->json v)))
+    (.build b)))
+
 (defn- ->custom-tool ^Tool [{:keys [name description input-schema] :as t}]
   (let [required (:required input-schema)
         isb (Tool$InputSchema/builder)
@@ -406,6 +413,10 @@
     (.name tb ^String name)
     (.inputSchema tb (.build isb))
     (when description (.description tb ^String description))
+    (when (some? (:eager-input-streaming t))
+      (.eagerInputStreaming tb (boolean (:eager-input-streaming t))))
+    (when (seq (:input-examples t))
+      (.inputExamples tb ^java.util.List (mapv ->custom-input-example (:input-examples t))))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.Tool$Builder tb
@@ -1309,7 +1320,8 @@
   `:thinking` (`{:type :enabled :budget-tokens N}` / `{:type :adaptive}` /
   `{:type :disabled}`), `:metadata` (`{:user-id \"...\"}`), and `:service-tier`
   (`:auto`/`:standard-only`). Web-fetch tools accept `:use-cache` and
-  `:citations`; custom tools accept `:cache-control`. The request
+  `:citations`; custom tools accept `:cache-control`, `:eager-input-streaming`,
+  and `:input-examples`. The request
   escape hatches `:extra-headers`, `:extra-query`, and `:extra-body` pass
   unwrapped values to the SDK builder. For structured output, pass
   `:response-format` (a
