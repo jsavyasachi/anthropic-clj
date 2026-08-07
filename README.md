@@ -540,6 +540,16 @@ the blocking client (event maps keyed by `:type`, e.g. `:agent-message`,
 
 Beta endpoints may still change.
 
+## Text completions
+
+The legacy Text Completions endpoint predates Messages. Use `create-message` for
+new work.
+
+```clojure
+(anthropic/create-completion client {:prompt "Human: hello\n\nAssistant:"
+                                      :max-tokens-to-sample 128})
+```
+
 ## Bedrock and Vertex
 
 The SDK ships separate backend artifacts,

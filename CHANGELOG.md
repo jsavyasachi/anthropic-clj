@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Text Completions API support with `create-completion` and `stream-completion`.
+
 ## [0.20.0] - 2026-08-07
 
 ### Added

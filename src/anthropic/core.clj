@@ -28,6 +28,8 @@
                                                   MessageBatchRequestCounts
                                                   MessageBatchResult
                                                   MessageBatchSucceededResult)
+           (com.anthropic.models.completions Completion CompletionCreateParams
+                                              CompletionCreateParams$Builder)
            (com.anthropic.models.messages Base64ImageSource
                                           Base64ImageSource$MediaType
                                           Base64PdfSource
@@ -346,6 +348,10 @@
 
 (defn- anthropic-error [code message data]
   (ex-info message (assoc data :anthropic/error code)))
+
+(defn- missing-key! [k]
+  (throw (ex-info (str "Missing required key " k)
+                  {:anthropic/error :missing-key :key k})))
 
 (declare ->cache-control java->clj)
 
@@ -816,6 +822,28 @@
         (.putAdditionalBodyProperty b property-name (->json v))))
     (.build b)))
 
+(defn- ->completion-params
+  "Translate a request map into the SDK's CompletionCreateParams."
+  ^CompletionCreateParams
+  [{:keys [prompt max-tokens-to-sample model stop-sequences temperature top-k top-p metadata betas]
+    :or {model "claude-opus-4-8"}}]
+  (when-not prompt (missing-key! :prompt))
+  (when-not max-tokens-to-sample (missing-key! :max-tokens-to-sample))
+  (let [^CompletionCreateParams$Builder b
+        (doto (CompletionCreateParams/builder)
+          (.prompt ^String prompt)
+          (.maxTokensToSample (long max-tokens-to-sample))
+          (.model (Model/of (->model-string model))))]
+    (when (seq stop-sequences) (.stopSequences b ^java.util.List (vec stop-sequences)))
+    (when temperature (.temperature b (double temperature)))
+    (when top-k (.topK b (long top-k)))
+    (when top-p (.topP b (double top-p)))
+    (when metadata (.metadata b (->metadata metadata)))
+    (doseq [beta betas]
+      (let [^String beta-name (if (keyword? beta) (name beta) beta)]
+        (.addBeta b beta-name)))
+    (.build b)))
+
 (defn- java->clj [x]
   (cond
     (instance? java.util.Map x) (persistent!
@@ -987,6 +1015,13 @@
       (.isPresent c) (assoc :container (container->map (.get c)))
       (.isPresent ss) (assoc :stop-sequence (.get ss))
       (.isPresent sd) (assoc :stop-details (stop-details->map (.get sd))))))
+
+(defn- completion->map [^Completion c]
+  (let [stop-reason (.stopReason c)]
+    (cond-> {:id (.id c)
+             :completion (.completion c)
+             :model (str (.model c))}
+      (.isPresent stop-reason) (assoc :stop-reason (.get stop-reason)))))
 
 (defn- parse-text
   "Decode the first text block of a response map as JSON (keyword keys), or nil."
@@ -1441,6 +1476,34 @@
           (let [m (event->map ev)]
             (when (= :text-delta (:type m)) (.append sb ^String (:text m)))
             (when on-event (on-event m))))
+        (str sb)))))
+
+(defn create-completion
+  "Send a legacy Text Completions request and return its response map.
+
+  `req` requires `:prompt` and `:max-tokens-to-sample`, and accepts `:model`,
+  `:stop-sequences`, `:temperature`, `:top-k`, `:top-p`, `:metadata`, and
+  free-form string or keyword `:betas`. The sampling controls are deprecated
+  by the SDK for models released after Claude Opus 4.6 and may cause a 400;
+  they remain available for parity with this operation. Use `create-message`
+  for new work."
+  [^AnthropicClient client req]
+  (with-api-errors
+    (completion->map (.create (.completions client) (->completion-params req)))))
+
+(defn stream-completion
+  "Stream a legacy Text Completions request, calling `on-completion` with each
+  completion map and returning the fully concatenated completion text. The
+  sampling controls are deprecated by the SDK for models released after Claude
+  Opus 4.6 and may cause a 400. Use `create-message` for new work."
+  ^String [^AnthropicClient client req on-completion]
+  (with-api-errors
+    (with-open [^StreamResponse sr (.createStreaming (.completions client)
+                                                     (->completion-params req))]
+      (let [sb (StringBuilder.)]
+        (doseq [^Completion c (iterator-seq (.iterator (.stream sr)))]
+          (.append sb ^String (.completion c))
+          (when on-completion (on-completion (completion->map c))))
         (str sb)))))
 
 (defn stream-message
