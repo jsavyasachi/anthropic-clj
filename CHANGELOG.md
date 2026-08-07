@@ -3,10 +3,15 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
-## [Unreleased]
+## [0.21.0] - 2026-08-07
 
 ### Added
-- Text Completions API support with `create-completion` and `stream-completion`.
+- The legacy Text Completions API: `create-completion` and `stream-completion`.
+  This was the one non-deprecated SDK operation the wrapper did not reach, so
+  idiomatic parity is now complete. Its sampling controls (`:temperature`,
+  `:top-k`, `:top-p`) are deprecated by the SDK for models released after Claude
+  Opus 4.6 and are wrapped for parity within the operation. Use `create-message`
+  for new work.
 
 ## [0.20.0] - 2026-08-07
 

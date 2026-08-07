@@ -36,13 +36,13 @@ for roles and block types), with a few Clojure-native conveniences (a native
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.20.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.21.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.20.0"]
+[net.clojars.savya/anthropic-clj "0.21.0"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
