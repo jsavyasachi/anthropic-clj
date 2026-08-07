@@ -293,6 +293,221 @@
 (defn- ->keyword [x]
   (-> x str str/lower-case (str/replace #"[._]" "-") keyword))
 
+(defn- ->offset-date-time ^java.time.OffsetDateTime [x]
+  (if (instance? java.time.OffsetDateTime x)
+    x
+    (java.time.OffsetDateTime/parse ^String x)))
+
+(defn- ->beta-names [betas]
+  (mapv #(if (keyword? %) (clojure.core/name %) %) betas))
+
+(defn- ->list-pagination [opts set-limit set-page add-beta]
+  (when-let [limit (:limit opts)] (set-limit limit))
+  (when-let [page (:page opts)] (set-page page))
+  (doseq [beta (->beta-names (:betas opts))] (add-beta beta)))
+
+(defn- ->enum-value [value allowed constructor key]
+  (let [value (if (keyword? value) value (->keyword value))]
+    (if (contains? allowed value)
+      (constructor (name value))
+      (throw (ex-info (str "Unknown " (name key) " " value)
+                      {:anthropic/error :invalid-enum-value
+                       :key key :value value})))))
+
+(defn- ->skill-list-params
+  ^com.anthropic.models.beta.skills.SkillListParams
+  ([opts]
+   (let [opts (or opts {})
+         b (com.anthropic.models.beta.skills.SkillListParams/builder)]
+     (->list-pagination opts #(.limit b (long %)) #(.page b ^String %)
+                        #(.addBeta b ^String %))
+     (when-let [source (:source opts)] (.source b ^String source))
+     (.build b))))
+
+(defn- ->version-list-params
+  ^VersionListParams
+  ([skill-id] (->version-list-params skill-id {}))
+  ([skill-id opts]
+   (let [opts (or opts {})
+         b (VersionListParams/builder)]
+     (.skillId b ^String skill-id)
+     (->list-pagination opts #(.limit b (long %)) #(.page b ^String %)
+                        #(.addBeta b ^String %))
+     (.build b))))
+
+(defn- ->memory-store-list-params
+  ^com.anthropic.models.beta.memorystores.MemoryStoreListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.memorystores.MemoryStoreListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when-let [v (:created-at-gte opts)] (.createdAtGte b (->offset-date-time v)))
+    (when-let [v (:created-at-lte opts)] (.createdAtLte b (->offset-date-time v)))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (.build b)))
+
+(defn- ->agent-list-params
+  ^com.anthropic.models.beta.agents.AgentListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.agents.AgentListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when-let [v (:created-at-gte opts)] (.createdAtGte b (->offset-date-time v)))
+    (when-let [v (:created-at-lte opts)] (.createdAtLte b (->offset-date-time v)))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (.build b)))
+
+(defn- ->session-list-params
+  ^com.anthropic.models.beta.sessions.SessionListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.sessions.SessionListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when-let [v (:agent-id opts)] (.agentId b ^String v))
+    (when-let [v (:agent-version opts)] (.agentVersion b (int v)))
+    (when-let [v (:created-at-gt opts)] (.createdAtGt b (->offset-date-time v)))
+    (when-let [v (:created-at-gte opts)] (.createdAtGte b (->offset-date-time v)))
+    (when-let [v (:created-at-lt opts)] (.createdAtLt b (->offset-date-time v)))
+    (when-let [v (:created-at-lte opts)] (.createdAtLte b (->offset-date-time v)))
+    (when-let [v (:deployment-id opts)] (.deploymentId b ^String v))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (when-let [v (:memory-store-id opts)] (.memoryStoreId b ^String v))
+    (when-let [v (:order opts)]
+      (let [^com.anthropic.models.beta.sessions.SessionListParams$Order value
+            (->enum-value v #{:asc :desc}
+                          com.anthropic.models.beta.sessions.SessionListParams$Order/of :order)]
+        (.order b value)))
+    (when-let [values (:statuses opts)]
+      (.statuses b ^java.util.List
+                 (mapv #(->enum-value % #{:rescheduling :running :idle :terminated}
+                                      com.anthropic.models.beta.sessions.SessionListParams$Status/of :statuses)
+                       values)))
+    (.build b)))
+
+(defn- ->deployment-list-params
+  ^com.anthropic.models.beta.deployments.DeploymentListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.deployments.DeploymentListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when-let [v (:agent-id opts)] (.agentId b ^String v))
+    (when-let [v (:created-at-gte opts)] (.createdAtGte b (->offset-date-time v)))
+    (when-let [v (:created-at-lte opts)] (.createdAtLte b (->offset-date-time v)))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (when-let [v (:status opts)]
+      (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentStatus value
+            (->enum-value v #{:active :paused}
+                          com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentStatus/of :status)]
+        (.status b value)))
+    (.build b)))
+
+(defn- ->deployment-run-list-params
+  ^com.anthropic.models.beta.deploymentruns.DeploymentRunListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.deploymentruns.DeploymentRunListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when-let [v (:created-at-gt opts)] (.createdAtGt b (->offset-date-time v)))
+    (when-let [v (:created-at-gte opts)] (.createdAtGte b (->offset-date-time v)))
+    (when-let [v (:created-at-lt opts)] (.createdAtLt b (->offset-date-time v)))
+    (when-let [v (:created-at-lte opts)] (.createdAtLte b (->offset-date-time v)))
+    (when-let [v (:deployment-id opts)] (.deploymentId b ^String v))
+    (when (some? (:has-error opts)) (.hasError b (boolean (:has-error opts))))
+    (when-let [v (:trigger-type opts)]
+      (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerType value
+            (->enum-value v #{:schedule :manual}
+                          com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerType/of :trigger-type)]
+        (.triggerType b value)))
+    (.build b)))
+
+(defn- ->environment-list-params
+  ^com.anthropic.models.beta.environments.EnvironmentListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.environments.EnvironmentListParams/builder)]
+    (->list-pagination opts #(.limit b (long %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (.build b)))
+
+(defn- ->vault-list-params
+  ^com.anthropic.models.beta.vaults.VaultListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.vaults.VaultListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (.build b)))
+
+(defn- ->tunnel-list-params
+  ^com.anthropic.models.beta.tunnels.TunnelListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.tunnels.TunnelListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (.build b)))
+
+(defn- ->certificate-list-params
+  ^com.anthropic.models.beta.tunnels.certificates.CertificateListParams
+  [tunnel-id opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.tunnels.certificates.CertificateListParams/builder)]
+    (.tunnelId b ^String tunnel-id)
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (.build b)))
+
+(defn- ->dream-list-params
+  ^com.anthropic.models.beta.dreams.DreamListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.dreams.DreamListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when-let [v (:created-at-gt opts)] (.createdAtGt b (->offset-date-time v)))
+    (when-let [v (:created-at-lt opts)] (.createdAtLt b (->offset-date-time v)))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (when-let [values (:statuses opts)]
+      (.statuses b ^java.util.List
+                 (mapv #(->enum-value % #{:pending :running :completed :failed :cancelled}
+                                      com.anthropic.models.beta.dreams.BetaDreamStatus/of :statuses)
+                       values)))
+    (.build b)))
+
+(defn- ->credential-list-params
+  ^com.anthropic.models.beta.vaults.credentials.CredentialListParams
+  [vault-id opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.vaults.credentials.CredentialListParams/builder)]
+    (.vaultId b ^String vault-id)
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when (some? (:include-archived opts)) (.includeArchived b (boolean (:include-archived opts))))
+    (.build b)))
+
+(defn- ->user-profile-list-params
+  ^com.anthropic.models.beta.userprofiles.UserProfileListParams
+  [opts]
+  (let [opts (or opts {})
+        b (com.anthropic.models.beta.userprofiles.UserProfileListParams/builder)]
+    (->list-pagination opts #(.limit b (int %)) #(.page b ^String %)
+                       #(.addBeta b ^String %))
+    (when-let [v (:order opts)]
+      (let [^com.anthropic.models.beta.userprofiles.UserProfileListParams$Order value
+            (->enum-value v #{:asc :desc}
+                          com.anthropic.models.beta.userprofiles.UserProfileListParams$Order/of :order)]
+        (.order b value)))
+    (.build b)))
+
 ;; ---- Skills ---------------------------------------------------------------
 
 (defn- ->skill-file ^MultipartField [f]
@@ -346,11 +561,13 @@
     (skill-retrieve->map (-> (.beta client) (.skills) (.retrieve skill-id)))))
 
 (defn list-skills
-  "List skills (pages followed) as a vector of maps like `get-skill`."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^SkillListPage p (-> (.beta client) (.skills) (.list))]
-      (mapv skill-list->map (.autoPager p)))))
+  "List skills with optional `:limit`, `:page`, `:source`, and `:betas`."
+  ([^AnthropicClient client] (list-skills client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.skills.SkillListParams params (->skill-list-params opts)
+           ^SkillListPage p (-> (.beta client) (.skills) (.list params))]
+       (mapv skill-list->map (.autoPager p))))))
 
 (defn delete-skill
   "Delete a skill by id. Returns `{:id ... :deleted true :type ...}`."
@@ -373,11 +590,6 @@
   (let [b (VersionRetrieveParams/builder)]
     (.skillId b ^String skill-id)
     (.version b ^String version)
-    (.build b)))
-
-(defn- ->version-list-params ^VersionListParams [skill-id]
-  (let [b (VersionListParams/builder)]
-    (.skillId b ^String skill-id)
     (.build b)))
 
 (defn- ->version-delete-params ^VersionDeleteParams [skill-id version]
@@ -437,12 +649,15 @@
                             (.retrieve (->version-retrieve-params skill-id version))))))
 
 (defn list-skill-versions
-  "List skill versions (pages followed) as a vector of maps."
-  [^AnthropicClient client ^String skill-id]
-  (with-api-errors
-    (let [^VersionListPage p (-> (.beta client) (.skills) (.versions)
-                                 (.list (->version-list-params skill-id)))]
-      (mapv skill-version->map (.autoPager p)))))
+  "List skill versions with optional `:limit`, `:page`, and `:betas`."
+  ([^AnthropicClient client ^String skill-id]
+   (list-skill-versions client skill-id {}))
+  ([^AnthropicClient client ^String skill-id opts]
+   (with-api-errors
+     (let [^VersionListParams params (->version-list-params skill-id opts)
+           ^VersionListPage p (-> (.beta client) (.skills) (.versions)
+                                  (.list params))]
+       (mapv skill-version->map (.autoPager p))))))
 
 (defn delete-skill-version
   "Delete a skill version. Returns `{:id ... :deleted true :type ...}`."
@@ -521,11 +736,14 @@
     (memory-store->map (-> (.beta client) (.memoryStores) (.retrieve memory-store-id)))))
 
 (defn list-memory-stores
-  "List memory stores (pages followed) as a vector of maps."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^MemoryStoreListPage p (-> (.beta client) (.memoryStores) (.list))]
-      (mapv memory-store->map (.autoPager p)))))
+  "List memory stores with optional `:created-at-gte`, `:created-at-lte`,
+  `:include-archived`, `:limit`, `:page`, and `:betas`."
+  ([^AnthropicClient client] (list-memory-stores client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^MemoryStoreListPage p (-> (.beta client) (.memoryStores)
+                                      (.list (->memory-store-list-params opts)))]
+       (mapv memory-store->map (.autoPager p))))))
 
 (defn update-memory-store
   "Update a memory store's `:name`, `:description`, or `:metadata`. Returns
@@ -856,7 +1074,7 @@
       (.addAgent b (->agent-roster-entry entry)))
     (.build b)))
 
-(defn- ->managed-agent-model-config ^BetaManagedAgentsModelConfigParams [model effort inference-geo]
+(defn- ->managed-agent-model-config ^BetaManagedAgentsModelConfigParams [model effort inference-geo speed]
   (let [b (BetaManagedAgentsModelConfigParams/builder)]
     (.id b (BetaManagedAgentsModel/of ^String model))
     (when effort
@@ -864,17 +1082,21 @@
                (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Effort$BetaManagedAgentsEffortLevel/of
                 (name effort))))
     (when inference-geo (.inferenceGeo b ^String inference-geo))
+    (when speed
+      (.speed b ^com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Speed
+              (->enum-value speed #{:standard :fast}
+                            com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Speed/of :speed)))
     (.build b)))
 
 (defn- ->agent-create-params ^AgentCreateParams
-  [{:keys [name model effort inference-geo system description metadata skills mcp-servers
+  [{:keys [name model effort inference-geo speed system description metadata skills mcp-servers
            tools multiagent betas]}]
   (when-not name (missing-key! :name))
   (when-not model (missing-key! :model))
   (let [b (AgentCreateParams/builder)]
     (.name b ^String name)
-    (if (or effort inference-geo)
-      (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort inference-geo))
+    (if (or effort inference-geo speed)
+      (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort inference-geo speed))
       (.model b ^BetaManagedAgentsModel (BetaManagedAgentsModel/of ^String model)))
     (when system (.system b ^String system))
     (when description (.description b ^String description))
@@ -889,15 +1111,15 @@
     (.build b)))
 
 (defn- ->agent-update-params ^AgentUpdateParams
-  [agent-id {:keys [version name model effort inference-geo system description metadata
+  [agent-id {:keys [version name model effort inference-geo speed system description metadata
                     skills mcp-servers tools multiagent betas]}]
   (let [b (AgentUpdateParams/builder)]
     (.agentId b ^String agent-id)
     (when version (.version b (int version)))
     (when name (.name b ^String name))
     (when model
-    (if (or effort inference-geo)
-        (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort inference-geo))
+    (if (or effort inference-geo speed)
+        (.model b ^BetaManagedAgentsModelConfigParams (->managed-agent-model-config model effort inference-geo speed))
         (.model b ^BetaManagedAgentsModel (BetaManagedAgentsModel/of ^String model))))
     (when system (.system b ^String system))
     (when description (.description b ^String description))
@@ -934,6 +1156,8 @@
     (.isMcpToolset t)
     (let [^BetaManagedAgentsMcpToolset tool (.asMcpToolset t)]
       {:type :mcp-toolset :mcp-server-name (.mcpServerName tool)})
+    (.isAgentToolset20260401 t)
+    {:type :agent-toolset-20260401}
     :else {:type :unknown}))
 
 (defn- model-effort->keyword [^BetaManagedAgentsModelConfig$Effort effort]
@@ -966,6 +1190,10 @@
                     (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))))
     (unopt (.inferenceGeo ^BetaManagedAgentsModelConfig (.model r)))
     (assoc :inference-geo (unopt (.inferenceGeo ^BetaManagedAgentsModelConfig (.model r))))
+    (unopt (.speed ^BetaManagedAgentsModelConfig (.model r)))
+    (assoc :speed (let [^com.anthropic.models.beta.agents.BetaManagedAgentsModelConfig$Speed speed
+                        (unopt (.speed ^BetaManagedAgentsModelConfig (.model r)))]
+                    (->keyword (.asString speed))))
     (unopt (.system r)) (assoc :system (unopt (.system r)))
     (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
@@ -977,7 +1205,7 @@
 (defn create-agent
   "Create a managed agent: `:name` and `:model` (required), `:system`,
   `:description`, `:metadata`, `:skills`, `:mcp-servers`, `:tools`, and
-  `:multiagent`, `:betas`, and `:inference-geo` when using model config.
+  `:multiagent`, `:betas`, `:inference-geo`, and `:speed` when using model config.
   Returns the agent as a map (`:id`, `:name`, `:model`, `:version`,
   `:system`, `:description`, `:skills`, `:mcp-servers`, `:tools`, `:multiagent`,
   `:created-at`, `:updated-at`)."
@@ -993,12 +1221,14 @@
     (agent->map (-> (.beta client) (.agents) (.retrieve agent-id)))))
 
 (defn list-agents
-  "List agents (pages followed) as a vector of maps, including `:multiagent`
-  when present."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^AgentListPage p (-> (.beta client) (.agents) (.list))]
-      (mapv agent->map (.autoPager p)))))
+  "List agents with optional `:created-at-gte`, `:created-at-lte`,
+  `:include-archived`, `:limit`, `:page`, and `:betas`."
+  ([^AnthropicClient client] (list-agents client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^AgentListPage p (-> (.beta client) (.agents)
+                                (.list (->agent-list-params opts)))]
+       (mapv agent->map (.autoPager p))))))
 
 (defn update-agent
   "Update an agent. `changes` may include `:version` (the current agent version,
@@ -1111,8 +1341,18 @@
                           (cond
                             (.isCustom t) {:type :custom :name (.name (.asCustom t))}
                             (.isMcpToolset t) {:type :mcp-toolset :mcp-server-name (.mcpServerName (.asMcpToolset t))}
-                            :else {:type :agent-toolset-20260401}))
+                            (.isAgentToolset20260401 t) {:type :agent-toolset-20260401}
+                            :else {:type :unknown}))
                         (.tools r))}
+    (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))
+    (assoc :effort (model-effort->keyword
+                    (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))))
+    (unopt (.inferenceGeo ^BetaManagedAgentsModelConfig (.model r)))
+    (assoc :inference-geo (unopt (.inferenceGeo ^BetaManagedAgentsModelConfig (.model r))))
+    (unopt (.speed ^BetaManagedAgentsModelConfig (.model r)))
+    (assoc :speed (let [^com.anthropic.models.beta.agents.BetaManagedAgentsModelConfig$Speed speed
+                        (unopt (.speed ^BetaManagedAgentsModelConfig (.model r)))]
+                    (->keyword (.asString speed))))
     (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.system r)) (assoc :system (unopt (.system r)))
     (unopt (.multiagent r)) (assoc :multiagent
@@ -1200,11 +1440,15 @@
     (session->map (-> (.beta client) (.sessions) (.retrieve session-id)))))
 
 (defn list-sessions
-  "List sessions (pages followed) as a vector of maps."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^SessionListPage p (-> (.beta client) (.sessions) (.list))]
-      (mapv session->map (.autoPager p)))))
+  "List sessions with optional `:agent-id`, `:agent-version`, timestamp
+  filters, `:deployment-id`, `:include-archived`, `:limit`, `:memory-store-id`,
+  `:order`, `:page`, `:statuses`, and `:betas`."
+  ([^AnthropicClient client] (list-sessions client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^SessionListPage p (-> (.beta client) (.sessions)
+                                  (.list (->session-list-params opts)))]
+       (mapv session->map (.autoPager p))))))
 
 (defn update-session
   "Update a session's `:title`, `:metadata`, `:budget`, `:agent`, `:vault-ids`,
@@ -1661,6 +1905,7 @@
   (resource-created-at [r])
   (resource-updated-at [r])
   (resource-is-file [r])
+  (resource-is-memory-store [r])
   (resource-as-file [r])
   (resource-is-github [r])
   (resource-as-github [r])
@@ -1673,6 +1918,7 @@
   (resource-created-at [r] (unopt (.createdAt ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)))
   (resource-updated-at [r] (unopt (.updatedAt ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r)))
   (resource-is-file [r] (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
+  (resource-is-memory-store [r] (.isMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
   (resource-as-file [r] (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
   (resource-is-github [r] (.isGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
   (resource-as-github [r] (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceRetrieveResponse r))
@@ -1683,6 +1929,7 @@
   (resource-created-at [r] (unopt (.createdAt ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
   (resource-updated-at [r] (unopt (.updatedAt ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
   (resource-is-file [r] (.isFile ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
+  (resource-is-memory-store [r] (.isMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
   (resource-as-file [r] (.asFile ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
   (resource-is-github [r] (.isGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
   (resource-as-github [r] (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
@@ -1707,11 +1954,15 @@
                :mount-path (resource-mount-path r)}
         (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
         (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))
-    :else (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (resource-as-memory-store r)]
-            (cond-> {:type :memory-store :id (resource-id r) :memory-store-id (.memoryStoreId x)
-                     :mount-path (resource-mount-path r)}
-              (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
-              (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))))
+    (resource-is-memory-store r)
+    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (resource-as-memory-store r)]
+      (cond-> {:type :memory-store :id (resource-id r) :memory-store-id (.memoryStoreId x)
+               :mount-path (resource-mount-path r)}
+        (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
+        (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))
+    :else
+    (throw (ex-info "Unsupported session resource"
+                    {:anthropic/error :unknown-resource-type}))))
 
 (defn add-session-resource [^AnthropicClient client ^String session-id req]
   (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources)
@@ -1938,11 +2189,14 @@
     (deployment->map (-> (.beta client) (.deployments) (.retrieve deployment-id)))))
 
 (defn list-deployments
-  "List deployments (pages followed) as a vector of maps."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^DeploymentListPage p (-> (.beta client) (.deployments) (.list))]
-      (mapv deployment->map (.autoPager p)))))
+  "List deployments with optional `:agent-id`, timestamps, `:include-archived`,
+  `:limit`, `:page`, `:status`, and `:betas`."
+  ([^AnthropicClient client] (list-deployments client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^DeploymentListPage p (-> (.beta client) (.deployments)
+                                     (.list (->deployment-list-params opts)))]
+       (mapv deployment->map (.autoPager p))))))
 
 (defn update-deployment
   "Update a deployment. `changes` may include `:name`, `:agent`,
@@ -1998,11 +2252,14 @@
                              (.retrieve deployment-run-id)))))
 
 (defn list-deployment-runs
-  "List deployment runs (pages followed) as a vector of maps."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^DeploymentRunListPage p (-> (.beta client) (.deploymentRuns) (.list))]
-      (mapv deployment-run->map (.autoPager p)))))
+  "List deployment runs with optional timestamps, `:deployment-id`,
+  `:has-error`, `:limit`, `:page`, `:trigger-type`, and `:betas`."
+  ([^AnthropicClient client] (list-deployment-runs client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^DeploymentRunListPage p (-> (.beta client) (.deploymentRuns)
+                                        (.list (->deployment-run-list-params opts)))]
+       (mapv deployment-run->map (.autoPager p))))))
 
 ;; ---- Environments ----------------------------------------------------------
 
@@ -2154,11 +2411,14 @@
     (environment->map (-> (.beta client) (.environments) (.retrieve environment-id)))))
 
 (defn list-environments
-  "List environments (pages followed) as a vector of maps."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^EnvironmentListPage p (-> (.beta client) (.environments) (.list))]
-      (mapv environment->map (.autoPager p)))))
+  "List environments with optional `:include-archived`, `:limit`, `:page`,
+  and `:betas`."
+  ([^AnthropicClient client] (list-environments client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^EnvironmentListPage p (-> (.beta client) (.environments)
+                                      (.list (->environment-list-params opts)))]
+       (mapv environment->map (.autoPager p))))))
 
 (defn update-environment
   "Update an environment's `:name`, `:description`, `:metadata`, `:config`, or
@@ -2401,11 +2661,14 @@
     (vault->map (-> (.beta client) (.vaults) (.retrieve vault-id)))))
 
 (defn list-vaults
-  "List vaults (pages followed) as a vector of maps."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^VaultListPage p (-> (.beta client) (.vaults) (.list))]
-      (mapv vault->map (.autoPager p)))))
+  "List vaults with optional `:include-archived`, `:limit`, `:page`, and
+  `:betas`."
+  ([^AnthropicClient client] (list-vaults client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^VaultListPage p (-> (.beta client) (.vaults)
+                                (.list (->vault-list-params opts)))]
+       (mapv vault->map (.autoPager p))))))
 
 (defn update-vault
   "Update a vault's `:display-name`, `:metadata`, or `:betas`."
@@ -2447,11 +2710,15 @@
 (defn get-tunnel [^AnthropicClient client ^String tunnel-id]
   (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.retrieve tunnel-id)))))
 
-(defn list-tunnels [^AnthropicClient client]
-  (with-api-errors
-    (let [^com.anthropic.models.beta.tunnels.TunnelListPage p
-          (-> (.beta client) (.tunnels) (.list))]
-      (mapv tunnel->map (.autoPager p)))))
+(defn list-tunnels
+  "List tunnels with optional `:include-archived`, `:limit`, `:page`, and
+  `:betas`."
+  ([^AnthropicClient client] (list-tunnels client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.tunnels.TunnelListPage p
+           (-> (.beta client) (.tunnels) (.list (->tunnel-list-params opts)))]
+       (mapv tunnel->map (.autoPager p))))))
 
 (defn archive-tunnel [^AnthropicClient client ^String tunnel-id]
   (with-api-errors (tunnel->map (-> (.beta client) (.tunnels) (.archive tunnel-id)))))
@@ -2511,11 +2778,17 @@
     (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
                                  (.retrieve certificate-id)))) )
 
-(defn list-tunnel-certificates [^AnthropicClient client ^String tunnel-id]
-  (with-api-errors
-    (let [^com.anthropic.models.beta.tunnels.certificates.CertificateListPage p
-          (-> (.beta client) (.tunnels) (.certificates) (.list tunnel-id))]
-      (mapv tunnel-certificate->map (.autoPager p)))))
+(defn list-tunnel-certificates
+  "List tunnel certificates with optional `:include-archived`, `:limit`,
+  `:page`, and `:betas`."
+  ([^AnthropicClient client ^String tunnel-id]
+   (list-tunnel-certificates client tunnel-id {}))
+  ([^AnthropicClient client ^String tunnel-id opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.tunnels.certificates.CertificateListPage p
+           (-> (.beta client) (.tunnels) (.certificates)
+               (.list (->certificate-list-params tunnel-id opts)))]
+       (mapv tunnel-certificate->map (.autoPager p))))))
 
 (defn archive-tunnel-certificate [^AnthropicClient client ^String tunnel-id ^String certificate-id]
   (with-api-errors
@@ -2574,7 +2847,15 @@
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 (defn create-dream [^AnthropicClient client req] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.create (->dream-create-params req))))))
 (defn get-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.retrieve dream-id)))))
-(defn list-dreams [^AnthropicClient client] (with-api-errors (let [^com.anthropic.models.beta.dreams.DreamListPage p (-> (.beta client) (.dreams) (.list))] (mapv dream->map (.autoPager p)))))
+(defn list-dreams
+  "List dreams with optional timestamp filters, `:include-archived`, `:limit`,
+  `:page`, `:statuses`, and `:betas`."
+  ([^AnthropicClient client] (list-dreams client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.dreams.DreamListPage p
+           (-> (.beta client) (.dreams) (.list (->dream-list-params opts)))]
+       (mapv dream->map (.autoPager p))))))
 (defn archive-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.archive dream-id)))))
 (defn cancel-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.cancel dream-id)))))
 
@@ -2616,7 +2897,17 @@
       refresh (assoc :refresh {:status (keyword (str (.status refresh)))}))))
 (defn create-vault-credential [^AnthropicClient client ^String vault-id req] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.create (->credential-create-params vault-id req))))))
 (defn get-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.retrieve (->credential-retrieve-params vault-id credential-id))))))
-(defn list-vault-credentials [^AnthropicClient client ^String vault-id] (with-api-errors (let [^com.anthropic.models.beta.vaults.credentials.CredentialListPage p (-> (.beta client) (.vaults) (.credentials) (.list vault-id))] (mapv credential->map (.autoPager p)))))
+(defn list-vault-credentials
+  "List vault credentials with optional `:include-archived`, `:limit`, `:page`,
+  and `:betas`."
+  ([^AnthropicClient client ^String vault-id]
+   (list-vault-credentials client vault-id {}))
+  ([^AnthropicClient client ^String vault-id opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.vaults.credentials.CredentialListPage p
+           (-> (.beta client) (.vaults) (.credentials)
+               (.list (->credential-list-params vault-id opts)))]
+       (mapv credential->map (.autoPager p))))))
 (defn update-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id changes] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.update (->credential-update-params vault-id credential-id changes))))))
 (defn archive-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.archive (->credential-archive-params vault-id credential-id))))))
 (defn delete-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (let [r (-> (.beta client) (.vaults) (.credentials) (.delete (->credential-delete-params vault-id credential-id)))] {:id (.id r) :deleted true :type (keyword (.asString (.type r)))})))
@@ -2692,11 +2983,13 @@
     (user-profile->map (-> (.beta client) (.userProfiles) (.retrieve user-profile-id)))))
 
 (defn list-user-profiles
-  "List user profiles (pages followed) as a vector of maps."
-  [^AnthropicClient client]
-  (with-api-errors
-    (let [^UserProfileListPage p (-> (.beta client) (.userProfiles) (.list))]
-      (mapv user-profile->map (.autoPager p)))))
+  "List user profiles with optional `:limit`, `:order`, `:page`, and `:betas`."
+  ([^AnthropicClient client] (list-user-profiles client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^UserProfileListPage p (-> (.beta client) (.userProfiles)
+                                      (.list (->user-profile-list-params opts)))]
+       (mapv user-profile->map (.autoPager p))))))
 
 (defn update-user-profile
   "Update a user profile's `:name`, `:external-id`, or `:metadata`."
