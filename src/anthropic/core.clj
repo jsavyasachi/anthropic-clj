@@ -535,40 +535,188 @@
     (when (some? strict) (.strict b (boolean strict)))
     (.build b)))
 
+(def ^:private stable-server-tool-variants
+  {:bash
+   {"20250124" {:builder "com.anthropic.models.messages.ToolBash20250124$Builder"
+                :union "ofBash20250124"
+                :count "ofToolBash20250124"
+                :features #{:common}}
+    }
+   :memory
+   {"20250818" {:builder "com.anthropic.models.messages.MemoryTool20250818$Builder"
+                :union "ofMemoryTool20250818"
+                :count "ofMemoryTool20250818"
+                :features #{:common}}
+    }
+   :code-execution
+   {"20250522" {:builder "com.anthropic.models.messages.CodeExecutionTool20250522$Builder"
+                :union "ofCodeExecutionTool20250522"
+                :count "ofCodeExecutionTool20250522"
+                :features #{:common}}
+    "20250825" {:builder "com.anthropic.models.messages.CodeExecutionTool20250825$Builder"
+                :union "ofCodeExecutionTool20250825"
+                :count "ofCodeExecutionTool20250825"
+                :features #{:common}}
+    "20260120" {:builder "com.anthropic.models.messages.CodeExecutionTool20260120$Builder"
+                :union "ofCodeExecutionTool20260120"
+                :count "ofCodeExecutionTool20260120"
+                :features #{:common}}
+    "20260521" {:builder "com.anthropic.models.messages.CodeExecutionTool20260521$Builder"
+                :union "ofCodeExecutionTool20260521"
+                :count "ofCodeExecutionTool20260521"
+                :features #{:common}}}
+   :text-editor
+   {"20250124" {:builder "com.anthropic.models.messages.ToolTextEditor20250124$Builder"
+                :union "ofTextEditor20250124"
+                :count "ofToolTextEditor20250124"
+                :features #{:common}}
+    "20250429" {:builder "com.anthropic.models.messages.ToolTextEditor20250429$Builder"
+                :union "ofTextEditor20250429"
+                :count "ofToolTextEditor20250429"
+                :features #{:common}}
+    "20250728" {:builder "com.anthropic.models.messages.ToolTextEditor20250728$Builder"
+                :union "ofTextEditor20250728"
+                :count "ofToolTextEditor20250728"
+                :features #{:common :max-characters}}}
+   :web-search
+   {"20250305" {:builder "com.anthropic.models.messages.WebSearchTool20250305$Builder"
+                :union "ofWebSearchTool20250305"
+                :count "ofWebSearchTool20250305"
+                :features #{:common :max-uses :domains :user-location}}
+    "20260209" {:builder "com.anthropic.models.messages.WebSearchTool20260209$Builder"
+                :union "ofWebSearchTool20260209"
+                :count "ofWebSearchTool20260209"
+                :features #{:common :max-uses :domains :user-location}}
+    "20260318" {:builder "com.anthropic.models.messages.WebSearchTool20260318$Builder"
+                :union "ofWebSearchTool20260318"
+                :count "ofWebSearchTool20260318"
+                :features #{:common :max-uses :domains :user-location}}}
+   :web-fetch
+   {"20250910" {:builder "com.anthropic.models.messages.WebFetchTool20250910$Builder"
+                :union "ofWebFetchTool20250910"
+                :count "ofWebFetchTool20250910"
+                :features #{:common :domains :max-uses :max-content-tokens :citations}}
+    "20260209" {:builder "com.anthropic.models.messages.WebFetchTool20260209$Builder"
+                :union "ofWebFetchTool20260209"
+                :count "ofWebFetchTool20260209"
+                :features #{:common :domains :max-uses :max-content-tokens :citations}}
+    "20260309" {:builder "com.anthropic.models.messages.WebFetchTool20260309$Builder"
+                :union "ofWebFetchTool20260309"
+                :count "ofWebFetchTool20260309"
+                :features #{:common :domains :max-uses :max-content-tokens :citations :use-cache}}
+    "20260318" {:builder "com.anthropic.models.messages.WebFetchTool20260318$Builder"
+                :union "ofWebFetchTool20260318"
+                :count "ofWebFetchTool20260318"
+                :features #{:common :domains :max-uses :max-content-tokens :citations :use-cache}}}})
+
+(defn- ->version-string [version]
+  (if (keyword? version) (name version) version))
+
+(defn- unsupported-server-tool-version [family version]
+  (throw (anthropic-error :unsupported-server-tool-version
+                          "Unsupported server tool version"
+                          {:family family :type family :version version})))
+
+(defn- select-server-tool-version [family versions version]
+  (let [selected (or (some-> version ->version-string)
+                     (last (sort (keys versions))))]
+    (or (get versions selected)
+        (unsupported-server-tool-version family version))))
+
+(defn- ->versioned-tool-builder
+  [^String builder-class {:keys [features] :as t}]
+  (let [tool-class (Class/forName (subs builder-class 0
+                                        (- (count builder-class) 8)))
+        b (static-call tool-class "builder" [])
+        caller-class (Class/forName (str (subs builder-class 0
+                                               (- (count builder-class) 8))
+                                         "$AllowedCaller"))]
+    (when (contains? features :max-uses)
+      (when-let [max-uses (:max-uses t)] (instance-call b "maxUses" (long max-uses))))
+    (when (contains? features :max-content-tokens)
+      (when-let [max-content-tokens (:max-content-tokens t)]
+        (instance-call b "maxContentTokens" (long max-content-tokens))))
+    (when (contains? features :domains)
+      (when (seq (:allowed-domains t))
+        (instance-call b "allowedDomains" ^java.util.List (vec (:allowed-domains t))))
+      (when (seq (:blocked-domains t))
+        (instance-call b "blockedDomains" ^java.util.List (vec (:blocked-domains t)))))
+    (when (contains? features :user-location)
+      (when-let [user-location (:user-location t)]
+        (instance-call b "userLocation" (->user-location user-location))))
+    (when (contains? features :citations)
+      (when-let [citations (:citations t)]
+        (instance-call b "citations" (->citations-config citations))))
+    (when (contains? features :use-cache)
+      (when (some? (:use-cache t))
+        (instance-call b "useCache" (boolean (:use-cache t)))))
+    (when (contains? features :max-characters)
+      (when-let [max-characters (:max-characters t)]
+        (instance-call b "maxCharacters" (long max-characters))))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller
+      #(instance-call b "addAllowedCaller"
+                      (static-call caller-class "of" [(name %)]))
+      :cache-control! #(instance-call b "cacheControl" %)
+      :defer-loading! #(instance-call b "deferLoading" (boolean %))
+      :strict! #(instance-call b "strict" (boolean %))})
+    (instance-call b "build")))
+
+(defn- ->versioned-server-tool
+  ^ToolUnion [family {:keys [version] :as t}]
+  (let [entry (select-server-tool-version
+               family (get stable-server-tool-variants family) version)]
+    (static-call ToolUnion (:union entry)
+                 [(->versioned-tool-builder (:builder entry)
+                                             (assoc t :features (:features entry)))])))
+
+(defn- ->versioned-count-tool
+  ^MessageCountTokensTool [family {:keys [version] :as t}]
+  (let [entry (select-server-tool-version
+               family (get stable-server-tool-variants family) version)]
+    (static-call MessageCountTokensTool (:count entry)
+                 [(->versioned-tool-builder (:builder entry)
+                                             (assoc t :features (:features entry)))])))
+
+(def ^:private stable-tool-search-versions #{"20251119"})
+
+(defn- validate-tool-search-version [version]
+  (when (and version
+             (not (contains? stable-tool-search-versions
+                             (->version-string version))))
+    (unsupported-server-tool-version :tool-search version)))
+
 (defn- ->server-tool
-  "Map a server-side tool spec (latest version of each) to a ToolUnion."
+  "Map a server-side tool spec to a dated ToolUnion variant."
   ^ToolUnion [{:keys [type] :as t}]
   (case (keyword type)
-    :web-search (ToolUnion/ofWebSearchTool20260318 (->web-search-tool t))
-    :web-fetch (ToolUnion/ofWebFetchTool20260318 (->web-fetch-tool t))
-    :code-execution (ToolUnion/ofCodeExecutionTool20260521 (->code-execution-tool t))
-    :bash (ToolUnion/ofBash20250124 (->bash-tool t))
-    :text-editor (ToolUnion/ofTextEditor20250728 (->text-editor-tool t))
-    :memory (ToolUnion/ofMemoryTool20250818 (->memory-tool t))
-    :tool-search (case (keyword (:variant t))
+    (:web-search :web-fetch :code-execution :bash :text-editor :memory)
+    (->versioned-server-tool (keyword type) t)
+    :tool-search (do
+                   (validate-tool-search-version (:version t))
+                   (case (keyword (:variant t))
                    :bm25 (ToolUnion/ofSearchToolBm25_20251119 (->tool-search-bm25 t))
                    :regex (ToolUnion/ofSearchToolRegex20251119 (->tool-search-regex t))
                    (throw (anthropic-error :unsupported-tool-search-variant
                                            "Unsupported tool-search variant"
-                                           {:variant (:variant t)})))
+                                           {:variant (:variant t)}))))
     (throw (anthropic-error :unsupported-server-tool
                             "Unsupported server tool type"
                             {:type type}))))
 
 (defn- ->count-tool ^MessageCountTokensTool [{:keys [type] :as t}]
   (case (keyword type)
-    :web-search (MessageCountTokensTool/ofWebSearchTool20260318 (->web-search-tool t))
-    :web-fetch (MessageCountTokensTool/ofWebFetchTool20260318 (->web-fetch-tool t))
-    :code-execution (MessageCountTokensTool/ofCodeExecutionTool20260521 (->code-execution-tool t))
-    :bash (MessageCountTokensTool/ofToolBash20250124 (->bash-tool t))
-    :text-editor (MessageCountTokensTool/ofToolTextEditor20250728 (->text-editor-tool t))
-    :memory (MessageCountTokensTool/ofMemoryTool20250818 (->memory-tool t))
-    :tool-search (case (keyword (:variant t))
+    (:web-search :web-fetch :code-execution :bash :text-editor :memory)
+    (->versioned-count-tool (keyword type) t)
+    :tool-search (do
+                   (validate-tool-search-version (:version t))
+                   (case (keyword (:variant t))
                    :bm25 (MessageCountTokensTool/ofToolSearchToolBm25_20251119 (->tool-search-bm25 t))
                    :regex (MessageCountTokensTool/ofToolSearchToolRegex20251119 (->tool-search-regex t))
                    (throw (anthropic-error :unsupported-tool-search-variant
                                            "Unsupported tool-search variant"
-                                           {:variant (:variant t)})))
+                                           {:variant (:variant t)}))))
     (MessageCountTokensTool/ofTool (->custom-tool t))))
 
 (defn- server-tool? [t] (contains? server-tool-types (keyword (:type t))))

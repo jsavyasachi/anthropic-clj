@@ -368,6 +368,82 @@
     (is (.isPresent (.tool (->tool {:name "x"
                                     :input-schema {:type "object" :properties {}}}))))))
 
+(deftest versioned-server-tools
+  (let [families
+        [{:type :bash
+          :versions {"20250124" #(.isPresent (.bash20250124 %))}}
+         {:type :memory
+          :versions {"20250818" #(.isPresent (.memoryTool20250818 %))}}
+         {:type :code-execution
+          :versions {"20250522" #(.isPresent (.codeExecutionTool20250522 %))
+                     "20250825" #(.isPresent (.codeExecutionTool20250825 %))
+                     "20260120" #(.isPresent (.codeExecutionTool20260120 %))
+                     "20260521" #(.isPresent (.codeExecutionTool20260521 %))}}
+         {:type :text-editor
+          :versions {"20250124" #(.isPresent (.textEditor20250124 %))
+                     "20250429" #(.isPresent (.textEditor20250429 %))
+                     "20250728" #(.isPresent (.textEditor20250728 %))}}
+         {:type :web-search
+          :versions {"20250305" #(.isPresent (.webSearchTool20250305 %))
+                     "20260209" #(.isPresent (.webSearchTool20260209 %))
+                     "20260318" #(.isPresent (.webSearchTool20260318 %))}}
+         {:type :web-fetch
+          :versions {"20250910" #(.isPresent (.webFetchTool20250910 %))
+                     "20260209" #(.isPresent (.webFetchTool20260209 %))
+                     "20260309" #(.isPresent (.webFetchTool20260309 %))
+                     "20260318" #(.isPresent (.webFetchTool20260318 %))}}]]
+    (doseq [{:keys [type versions]} families
+            [version selected?] versions]
+      (is (selected? (->tool {:type type :version version}))
+          (str type " version " version)))
+    (doseq [{:keys [type versions]} families]
+      (let [latest (last (sort (keys versions)))]
+        (is ((get versions latest) (->tool {:type type}))
+            (str type " defaults to " latest))))
+    (let [tool (->tool {:type :text-editor
+                        :version :20250429
+                        :allowed-callers [:direct]
+                        :cache-control true})]
+      (is (= ["direct"] (mapv str
+                               (opt (.allowedCallers (.get (.textEditor20250429 tool))))))
+          "non-default options reach the selected variant")))
+    (is (.isPresent
+         (.searchToolBm25_20251119
+          (->tool {:type :tool-search :variant :bm25}))))
+  (try
+    (->tool {:type :bash :version :19990101})
+    (is false "unknown server-tool versions must throw")
+    (catch clojure.lang.ExceptionInfo e
+      (is (= :unsupported-server-tool-version (:anthropic/error (ex-data e))))
+      (is (= :bash (:family (ex-data e))))
+      (is (= :19990101 (:version (ex-data e)))))))
+
+(deftest versioned-count-tools
+  (let [cases [{:type :code-execution :version :20250825
+                :selected? #(.isCodeExecutionTool20250825 %)}
+               {:type :text-editor :version :20250429
+                :selected? #(.isToolTextEditor20250429 %)}
+               {:type :web-search :version :20260209
+                :selected? #(.isWebSearchTool20260209 %)}
+               {:type :web-fetch :version :20260309
+                :selected? #(.isWebFetchTool20260309 %)}]]
+    (doseq [{:keys [type version selected?]} cases]
+      (is (selected? (->count-tool {:type type :version version}))))
+    (is (.isCodeExecutionTool20260521
+         (->count-tool {:type :code-execution})))
+    (is (.isToolTextEditor20250728
+         (->count-tool {:type :text-editor})))
+    (is (.isWebSearchTool20260318
+         (->count-tool {:type :web-search})))
+    (is (.isWebFetchTool20260318
+         (->count-tool {:type :web-fetch})))
+    (try
+      (->count-tool {:type :web-fetch :version "19990101"})
+      (is false "unknown count-tool versions must throw")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :unsupported-server-tool-version
+               (:anthropic/error (ex-data e))))))))
+
 (deftest tool-search-server-tools
   (testing "tool-search bm25 and regex specs map to the right ToolUnion variants"
     (let [bm25 (->tool {:type :tool-search :variant :bm25
