@@ -3,8 +3,7 @@
   Anthropic Java SDK: skills, memory stores, agents, sessions, deployments,
   deployment runs, environments, vaults, user profiles, and webhooks.
 
-  These wrap beta endpoints that Anthropic may change; detailed deployment-run trigger
-  context/resources/schedules are not wrapped yet. Errors follow
+  These wrap beta endpoints that Anthropic may change. Errors follow
   `anthropic.core`'s contract: API/IO failures are ex-info keyed
   `:anthropic/error` with the SDK exception as cause."
   (:require [anthropic.core]
@@ -1579,8 +1578,43 @@
       (.putAdditionalProperty b ^String k (JsonValue/from v)))
     (.build b)))
 
+(defn- ->deployment-resource [resource]
+  ;; The SDK's resource params reject a null on their required fields, so guard
+  ;; each one here: a missing key is the library's `:missing-key` error rather
+  ;; than a null pointer thrown from inside the SDK.
+  (case (:type resource)
+    :file (let [b (com.anthropic.models.beta.sessions.BetaManagedAgentsFileResourceParams/builder)]
+            (when-not (:file-id resource) (missing-key! :file-id))
+            (.type b (com.anthropic.models.beta.sessions.BetaManagedAgentsFileResourceParams$Type/of "file"))
+            (.fileId b ^String (:file-id resource))
+            (when (:mount-path resource) (.mountPath b ^String (:mount-path resource)))
+            (.build b))
+    :github-repository (let [b (com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams/builder)]
+                         (when-not (:url resource) (missing-key! :url))
+                         (when-not (:authorization-token resource) (missing-key! :authorization-token))
+                         (.type b (com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams$Type/of "github_repository"))
+                         (.url b ^String (:url resource))
+                         (.authorizationToken b ^String (:authorization-token resource))
+                         (when (:mount-path resource) (.mountPath b ^String (:mount-path resource)))
+                         (.build b))
+    :memory-store (let [b (com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam/builder)]
+                    (when-not (:memory-store-id resource) (missing-key! :memory-store-id))
+                    (.type b (com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam$Type/of "memory_store"))
+                    (.memoryStoreId b ^String (:memory-store-id resource))
+                    (.build b))
+    (throw (ex-info (str "Unknown deployment resource type " (:type resource))
+                    {:anthropic/error :unknown-deployment-resource-type :type (:type resource)}))))
+
+(defn- ->deployment-schedule ^com.anthropic.models.beta.deployments.BetaManagedAgentsScheduleParams
+  [{:keys [expression timezone type]}]
+  (let [b (com.anthropic.models.beta.deployments.BetaManagedAgentsScheduleParams/builder)]
+    (when expression (.expression b ^String expression))
+    (when timezone (.timezone b ^String timezone))
+    (when type (.type b (com.anthropic.models.beta.deployments.BetaManagedAgentsScheduleParams$Type/of (name type))))
+    (.build b)))
+
 (defn- ->deployment-create-params ^DeploymentCreateParams
-  [{:keys [name agent environment-id initial-events description metadata vault-ids budget] :as req}]
+  [{:keys [name agent environment-id initial-events description metadata vault-ids budget resources schedule] :as req}]
   (when-not name (missing-key! :name))
   (when-not agent (missing-key! :agent))
   (when-not environment-id (missing-key! :environment-id))
@@ -1593,11 +1627,18 @@
     (when description (.description b ^String description))
     (when metadata (.metadata b (->deployment-create-metadata metadata)))
     (when budget (.budget b (->budget budget)))
+    (doseq [resource resources]
+      (case (:type resource)
+        :file (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsFileResourceParams (->deployment-resource resource))
+        :github-repository (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams (->deployment-resource resource))
+        :memory-store (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam (->deployment-resource resource))
+        (->deployment-resource resource)))
+    (when schedule (.schedule b (->deployment-schedule schedule)))
     (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
     (.build b)))
 
 (defn- ->deployment-update-params ^DeploymentUpdateParams
-  [deployment-id {:keys [name agent environment-id initial-events description metadata vault-ids budget]}]
+  [deployment-id {:keys [name agent environment-id initial-events description metadata vault-ids budget resources schedule]}]
   (let [^DeploymentUpdateParams$Builder b (DeploymentUpdateParams/builder)]
     (.deploymentId b ^String deployment-id)
     (when name (.name b ^String name))
@@ -1608,6 +1649,13 @@
     (when description (.description b ^String description))
     (when metadata (.metadata b (->deployment-update-metadata metadata)))
     (when budget (.budget b (->budget budget)))
+    (doseq [resource resources]
+      (case (:type resource)
+        :file (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsFileResourceParams (->deployment-resource resource))
+        :github-repository (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsGitHubRepositoryResourceParams (->deployment-resource resource))
+        :memory-store (.addResource b ^com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam (->deployment-resource resource))
+        (->deployment-resource resource)))
+    (when schedule (.schedule b (->deployment-schedule schedule)))
     (doseq [^String vault-id vault-ids] (.addVaultId b vault-id))
     (.build b)))
 
@@ -1629,7 +1677,46 @@
         (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))
     :else
     (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig x (.asMemoryStore r)]
-      {:type :memory-store :memory-store-id (.memoryStoreId x)})))
+      (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)}
+        (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))))
+
+(defn- deployment-schedule->map [^com.anthropic.models.beta.deployments.BetaManagedAgentsSchedule r]
+  (cond-> {:expression (.expression r)
+           :timezone (.timezone r)
+           :type (keyword (.asString (.type r)))}
+    (unopt (.lastRunAt r)) (assoc :last-run-at (str (unopt (.lastRunAt r))))
+    (unopt (.upcomingRunsAt r)) (assoc :upcoming-runs-at (mapv str (unopt (.upcomingRunsAt r))))))
+
+(defn- deployment-content->map [^com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentUserMessageEvent$Content c]
+  (cond
+    (.isText c) (.text ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsTextBlock (.asText c))
+    (.isRedacted c) {:type :redacted}
+    :else {:type :unknown}))
+
+(defn- deployment-initial-event->map [^BetaManagedAgentsDeploymentInitialEventParams r]
+  (cond
+    (.isUserMessage r)
+    (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentUserMessageEvent e (.asUserMessage r)]
+      {:type :user-message :content (mapv deployment-content->map (.content e))})
+    (.isSystemMessage r)
+    (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentSystemMessageEvent e (.asSystemMessage r)]
+      {:type :system-message
+       :content (mapv (fn [^com.anthropic.models.beta.sessions.BetaManagedAgentsSystemContentBlock c] (.text c)) (.content e))}
+    (.isUserDefineOutcome r) (let [x (.asUserDefineOutcome r)]
+                               (cond-> {:type :user-define-outcome :description (.description x)}
+                                 (.isText (.rubric x)) (assoc :rubric {:type :text :text (.content (.asText (.rubric x)))})
+                                 (.isFile (.rubric x)) (assoc :rubric {:type :file :file-id (.fileId (.asFile (.rubric x)))})
+                                 (unopt (.maxIterations x)) (assoc :max-iterations (unopt (.maxIterations x))))))
+    :else (throw (ex-info "Unsupported deployment initial event"
+                          {:anthropic/error :unsupported-event-type}))))
+
+(defn- additional-properties->map [m]
+  (walk/keywordize-keys
+   (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)]) m))))
+
+(defn- deployment-metadata->map
+  [^com.anthropic.models.beta.deployments.BetaManagedAgentsDeployment$Metadata m]
+  (additional-properties->map (._additionalProperties m)))
 
 (defn- deployment->map [^BetaManagedAgentsDeployment r]
   (cond-> {:id (.id r)
@@ -1640,16 +1727,20 @@
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))
            :vault-ids (vec (.vaultIds r))
-           :resources (mapv deployment-resource->map (.resources r))}
+           :resources (mapv deployment-resource->map (.resources r))
+           :initial-events (mapv deployment-initial-event->map (.initialEvents r))
+           :metadata (deployment-metadata->map (.metadata r))
+           :type (keyword (.asString (.type r)))}
     (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
     (unopt (.pausedReason r)) (assoc :paused-reason (str (unopt (.pausedReason r))))
-    (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))))
+    (unopt (.budget r)) (assoc :budget (budget->map (unopt (.budget r))))
+    (unopt (.schedule r)) (assoc :schedule (deployment-schedule->map (unopt (.schedule r))))))
 
 (defn create-deployment
   "Create a deployment. Required: `:name`, `:agent`, `:environment-id`, and
   `:initial-events` (event maps). Optional: `:description`,
-  `:metadata`, `:vault-ids`, and `:budget`. Budget uses the
+  `:metadata`, `:vault-ids`, `:resources`, `:schedule`, and `:budget`. Budget uses the
   `{:max-list-cost {:amount '...' :currency :usd} :type :limit}` shape.
   Returns the deployment map."
   [^AnthropicClient client req]
@@ -1672,8 +1763,8 @@
 
 (defn update-deployment
   "Update a deployment. `changes` may include `:name`, `:agent`,
-  `:environment-id`, `:initial-events`, `:description`, `:metadata`, or
-  `:vault-ids`, or `:budget`. Returns the updated deployment map."
+  `:environment-id`, `:initial-events`, `:description`, `:metadata`,
+  `:vault-ids`, `:resources`, `:schedule`, or `:budget`. Returns the updated deployment map."
   [^AnthropicClient client ^String deployment-id changes]
   (with-api-errors
     (deployment->map (-> (.beta client) (.deployments)
@@ -1744,22 +1835,105 @@
       (.putAdditionalProperty b ^String k (JsonValue/from v)))
     (.build b)))
 
+(defn- ->environment-cloud-config ^com.anthropic.models.beta.environments.BetaCloudConfigParams
+  [{:keys [networking packages]}]
+  (let [b (com.anthropic.models.beta.environments.BetaCloudConfigParams/builder)]
+    (.type b (JsonValue/from "cloud"))
+    (when networking
+      (case (:type networking)
+          :unrestricted (.networking b ^com.anthropic.models.beta.environments.BetaUnrestrictedNetwork
+                                      (.build (com.anthropic.models.beta.environments.BetaUnrestrictedNetwork/builder)))
+          :limited (let [n (com.anthropic.models.beta.environments.BetaLimitedNetworkParams/builder)]
+                     (doseq [[k setter] [[:allow-mcp-servers #(.allowMcpServers n (boolean %))]
+                                         [:allow-package-managers #(.allowPackageManagers n (boolean %))]
+                                         [:allowed-hosts #(.allowedHosts n ^java.util.List %)]]]
+                       (when (contains? networking k) (setter (get networking k))))
+                     (.networking b (com.anthropic.models.beta.environments.BetaCloudConfigParams$Networking/ofLimited (.build n))))
+          (throw (ex-info (str "Unknown environment networking type " (:type networking))
+                          {:anthropic/error :unknown-environment-networking-type :type (:type networking)}))))
+    (when packages
+      (let [p (com.anthropic.models.beta.environments.BetaPackagesParams/builder)]
+        (doseq [[k setter] [[:apt #(.apt p ^java.util.List %)] [:cargo #(.cargo p ^java.util.List %)]
+                             [:gem #(.gem p ^java.util.List %)] [:go #(.go p ^java.util.List %)]
+                             [:npm #(.npm p ^java.util.List %)] [:pip #(.pip p ^java.util.List %)]]]
+          (when (contains? packages k) (setter (get packages k))))
+        (.packages b (.build p))))
+    (.build b)))
+
+(defn- ->environment-config [config]
+  (case (:type config)
+    :cloud (->environment-cloud-config config)
+    :self-hosted (let [b (com.anthropic.models.beta.environments.BetaSelfHostedConfigParams/builder)]
+                   (.type b (JsonValue/from "self_hosted"))
+                   (.build b))
+    (throw (ex-info (str "Unknown environment config type " (:type config))
+                    {:anthropic/error :unknown-environment-config-type :type (:type config)}))))
+
+(defn- environment-networking->map
+  [^com.anthropic.models.beta.environments.BetaCloudConfig$Networking n]
+  (cond
+    (.isUnrestricted n) {:type :unrestricted}
+    (.isLimited n) (let [^com.anthropic.models.beta.environments.BetaLimitedNetwork l (.asLimited n)]
+                     (cond-> {:type :limited}
+                       (.allowMcpServers l) (assoc :allow-mcp-servers (.allowMcpServers l))
+                       (.allowPackageManagers l) (assoc :allow-package-managers (.allowPackageManagers l))
+                       (.allowedHosts l) (assoc :allowed-hosts (vec (.allowedHosts l)))))
+    :else (throw (ex-info "Unsupported environment networking" {:anthropic/error :unknown-environment-networking-type}))))
+
+(defn- environment-packages->map
+  [^com.anthropic.models.beta.environments.BetaPackages p]
+  (cond-> {}
+    (unopt (.type p)) (assoc :type (keyword (.asString ^com.anthropic.models.beta.environments.BetaPackages$Type (unopt (.type p)))))
+    (.apt p) (assoc :apt (vec (.apt p)))
+    (.cargo p) (assoc :cargo (vec (.cargo p)))
+    (.gem p) (assoc :gem (vec (.gem p)))
+    (.go p) (assoc :go (vec (.go p)))
+    (.npm p) (assoc :npm (vec (.npm p)))
+    (.pip p) (assoc :pip (vec (.pip p)))))
+
+(defn- environment-config->map
+  [^com.anthropic.models.beta.environments.BetaEnvironment$Config config]
+  (cond
+    (.isCloud config) (let [^com.anthropic.models.beta.environments.BetaCloudConfig x (.asCloud config)]
+                        (cond-> {:type :cloud}
+                          (.networking x) (assoc :networking (environment-networking->map (.networking x)))
+                          (.packages x) (assoc :packages (environment-packages->map (.packages x)))))
+    (.isSelfHosted config) {:type :self-hosted}
+    :else (throw (ex-info "Unsupported environment config"
+                          {:anthropic/error :unknown-environment-config-type}))))
+
+(defn- environment-metadata->map
+  [^com.anthropic.models.beta.environments.BetaEnvironment$Metadata m]
+  (additional-properties->map (._additionalProperties m)))
+
 (defn- ->environment-create-params ^EnvironmentCreateParams
-  [{:keys [name description metadata]}]
+  [{:keys [name description metadata config scope]}]
   (when-not name (missing-key! :name))
   (let [b (EnvironmentCreateParams/builder)]
     (.name b ^String name)
     (when description (.description b ^String description))
     (when metadata (.metadata b (->environment-create-metadata metadata)))
+    (when config
+      (case (:type config)
+        :cloud (.config b ^com.anthropic.models.beta.environments.BetaCloudConfigParams (->environment-config config))
+        :self-hosted (.config b ^com.anthropic.models.beta.environments.BetaSelfHostedConfigParams (->environment-config config))
+        (->environment-config config)))
+    (when scope (.scope b (com.anthropic.models.beta.environments.EnvironmentCreateParams$Scope/of (clojure.core/name scope))))
     (.build b)))
 
 (defn- ->environment-update-params ^EnvironmentUpdateParams
-  [environment-id {:keys [name description metadata]}]
+  [environment-id {:keys [name description metadata config scope]}]
   (let [b (EnvironmentUpdateParams/builder)]
     (.environmentId b ^String environment-id)
     (when name (.name b ^String name))
     (when description (.description b ^String description))
     (when metadata (.metadata b (->environment-update-metadata metadata)))
+    (when config
+      (case (:type config)
+        :cloud (.config b ^com.anthropic.models.beta.environments.BetaCloudConfigParams (->environment-config config))
+        :self-hosted (.config b ^com.anthropic.models.beta.environments.BetaSelfHostedConfigParams (->environment-config config))
+        (->environment-config config)))
+    (when scope (.scope b (com.anthropic.models.beta.environments.EnvironmentUpdateParams$Scope/of (clojure.core/name scope))))
     (.build b)))
 
 (defn- environment->map [^BetaEnvironment r]
@@ -1767,15 +1941,18 @@
            :name (.name r)
            :description (.description r)
            :created-at (str (.createdAt r))
-           :updated-at (str (.updatedAt r))}
-    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+           :updated-at (str (.updatedAt r))
+           :config (environment-config->map (.config r))
+           :metadata (environment-metadata->map (.metadata r))}
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
+    (unopt (.scope r)) (assoc :scope (keyword (.asString ^com.anthropic.models.beta.environments.BetaEnvironment$Scope (unopt (.scope r)))))))
 
 (defn- environment-delete->map [^BetaEnvironmentDeleteResponse r]
   {:id (.id r) :deleted true :type (keyword (.asString (.type r)))})
 
 (defn create-environment
-  "Create an environment: `:name` (required), `:description`, `:metadata`.
-  Work/config/scope details are not wrapped yet. Returns the environment map."
+  "Create an environment: `:name` (required), `:description`, `:metadata`,
+  `:config`, and `:scope`. Returns the environment map."
   [^AnthropicClient client req]
   (with-api-errors
     (environment->map (-> (.beta client) (.environments)
@@ -1795,7 +1972,8 @@
       (mapv environment->map (.autoPager p)))))
 
 (defn update-environment
-  "Update an environment's `:name`, `:description`, or `:metadata`."
+  "Update an environment's `:name`, `:description`, `:metadata`, `:config`, or
+  `:scope`."
   [^AnthropicClient client ^String environment-id changes]
   (with-api-errors
     (environment->map (-> (.beta client) (.environments)
@@ -2006,7 +2184,9 @@
   (cond-> {:id (.id r)
            :display-name (.displayName r)
            :created-at (str (.createdAt r))
-           :updated-at (str (.updatedAt r))}
+           :updated-at (str (.updatedAt r))
+           :metadata (additional-properties->map (._additionalProperties ^com.anthropic.models.beta.vaults.BetaManagedAgentsVault$Metadata (.metadata r)))
+           :type (keyword (.asString (.type r)))}
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
 
 (defn- vault-delete->map [^BetaManagedAgentsDeletedVault r]
