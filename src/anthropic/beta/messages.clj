@@ -14,6 +14,12 @@
                                                BetaCacheControlEphemeral
                                                BetaCacheControlEphemeral$Ttl
                                                BetaContentBlockParam
+                                               BetaContextManagementConfig
+                                               BetaContextManagementConfig$Edit
+                                               BetaClearThinking20251015Edit
+                                               BetaClearToolUses20250919Edit
+                                               BetaCompact20260112Edit
+                                               BetaDiagnosticsParam
                                                BetaImageBlockParam
                                                BetaImageBlockParam$Source
                                                BetaJsonOutputFormat
@@ -92,6 +98,7 @@
                                                MessageCreateParams
                                                MessageCreateParams$Builder
                                                MessageCreateParams$ServiceTier
+                                               MessageCreateParams$Speed
                                                BetaRawMessageStreamEvent)
            (com.anthropic.models.beta.messages.batches BatchCreateParams
                                                        BatchCreateParams$Request
@@ -246,7 +253,23 @@
 
 (defn- ->tool-choice ^BetaToolChoice [tc]
   (if (map? tc)
-    (BetaToolChoice/ofTool (-> (BetaToolChoiceTool/builder) (.name ^String (:name tc)) (.build)))
+    (case (keyword (:type tc))
+      :auto (let [b (BetaToolChoiceAuto/builder)]
+              (when (contains? tc :disable-parallel-tool-use)
+                (.disableParallelToolUse b (boolean (:disable-parallel-tool-use tc))))
+              (BetaToolChoice/ofAuto (.build b)))
+      :any (let [b (BetaToolChoiceAny/builder)]
+             (when (contains? tc :disable-parallel-tool-use)
+               (.disableParallelToolUse b (boolean (:disable-parallel-tool-use tc))))
+             (BetaToolChoice/ofAny (.build b)))
+      :none (when (contains? tc :disable-parallel-tool-use)
+              (throw (ex-info "Unsupported disable parallel tool use"
+                              {:anthropic/error :unsupported-disable-parallel-tool-use})))
+      (let [b (BetaToolChoiceTool/builder)]
+        (.name b ^String (:name tc))
+        (when (contains? tc :disable-parallel-tool-use)
+          (.disableParallelToolUse b (boolean (:disable-parallel-tool-use tc))))
+        (BetaToolChoice/ofTool (.build b))))
     (case (keyword tc)
       :auto (BetaToolChoice/ofAuto (.build (BetaToolChoiceAuto/builder)))
       :any (BetaToolChoice/ofAny (.build (BetaToolChoiceAny/builder)))
@@ -503,14 +526,53 @@
 (defn- ->metadata ^BetaMetadata [{:keys [user-id]}]
   (-> (BetaMetadata/builder) (.userId ^String user-id) (.build)))
 
+(defn- ->json-output-format ^BetaJsonOutputFormat [schema]
+  (let [sb (BetaJsonOutputFormat$Schema/builder)]
+    (doseq [[k v] schema]
+      (.putAdditionalProperty sb ^String (name k) (->json v)))
+    (-> (BetaJsonOutputFormat/builder) (.schema (.build sb)) (.build))))
+
 (defn- ->output-config ^BetaOutputConfig [schema effort]
   (let [b (BetaOutputConfig/builder)]
-    (when schema
-      (let [sb (BetaJsonOutputFormat$Schema/builder)]
-        (doseq [[k v] schema]
-          (.putAdditionalProperty sb ^String (name k) (->json v)))
-        (.format b (-> (BetaJsonOutputFormat/builder) (.schema (.build sb)) (.build)))))
+    (when schema (.format b (->json-output-format schema)))
     (when effort (.effort b (BetaOutputConfig$Effort/of (name effort))))
+    (.build b)))
+
+(defn- ->context-edit ^BetaContextManagementConfig$Edit
+  [{:keys [type clear-tool-inputs instructions keep] :as edit}]
+  (case (keyword type)
+    :clear-tool-uses-20250919
+    (BetaContextManagementConfig$Edit/ofClearToolUses20250919
+     (let [b (BetaClearToolUses20250919Edit/builder)]
+       (when (contains? edit :clear-tool-inputs)
+         (.clearToolInputs b (boolean clear-tool-inputs)))
+       (.build b)))
+    :clear-thinking-20251015
+    (BetaContextManagementConfig$Edit/ofClearThinking20251015
+     (let [b (BetaClearThinking20251015Edit/builder)]
+       (when keep
+         (if (= :all (keyword keep))
+           (.keepAll b)))
+       (.build b)))
+    :compact-20260112
+    (BetaContextManagementConfig$Edit/ofCompact20260112
+     (let [b (BetaCompact20260112Edit/builder)]
+       (when instructions (.instructions b ^String instructions))
+       (.build b)))
+    (throw (ex-info "Unsupported context management edit"
+                    {:anthropic/error :unsupported-context-management-edit :type type}))))
+
+(defn- ->context-management ^BetaContextManagementConfig
+  [{:keys [edits]}]
+  (let [b (BetaContextManagementConfig/builder)]
+    (doseq [edit edits]
+      (.addEdit b ^BetaContextManagementConfig$Edit (->context-edit edit)))
+    (.build b)))
+
+(defn- ->diagnostics ^BetaDiagnosticsParam
+  [{:keys [previous-message-id]}]
+  (let [b (BetaDiagnosticsParam/builder)]
+    (when previous-message-id (.previousMessageId b ^String previous-message-id))
     (.build b)))
 
 (defn- ->fallback-param ^BetaFallbackParam
@@ -567,7 +629,8 @@
 
 (defn- ->params ^MessageCreateParams
   [{:keys [model max-tokens system messages tools temperature top-p top-k stop-sequences
-           tool-choice thinking metadata service-tier response-format effort container inference-geo
+           tool-choice thinking metadata service-tier response-format output-format effort container inference-geo
+           context-management diagnostics speed
            user-profile-id cache-control betas mcp-servers fallbacks fallback-credit-token
            extra-headers extra-query extra-body]
     :or {model "claude-opus-4-8" max-tokens 1024}}]
@@ -592,6 +655,15 @@
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
     (when (or response-format effort) (.outputConfig b (->output-config response-format effort)))
+    (when output-format (.outputFormat b (->json-output-format output-format)))
+    (when context-management (.contextManagement b (->context-management context-management)))
+    (when diagnostics (.diagnostics b (->diagnostics diagnostics)))
+    (when speed
+      (.speed b (case (keyword speed)
+                  :standard MessageCreateParams$Speed/STANDARD
+                  :fast MessageCreateParams$Speed/FAST
+                  (throw (ex-info "Unsupported speed"
+                                  {:anthropic/error :unsupported-speed :speed speed})))))
     (when fallbacks
       (if (= :default (keyword fallbacks))
         (.fallbacksDefault b)
@@ -684,7 +756,10 @@
     (json/read-value text json-mapper)))
 
 (defn create-beta-message
-  "Send a beta Messages request and return a generic Clojure map response."
+  "Send a beta Messages request and return a generic Clojure map response.
+
+  Request maps support context-management, diagnostics, speed, and tool-choice
+  disable-parallel-tool-use options."
   ([^AnthropicClient client req] (create-beta-message client req {}))
   ([^AnthropicClient client req opts]
    (with-api-errors
