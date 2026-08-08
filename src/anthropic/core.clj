@@ -106,8 +106,10 @@
                                           UserLocation
                                           WebSearchTool20260318
                                           WebSearchTool20260318$AllowedCaller
+                                          WebSearchTool20260318$ResponseInclusion
                                           WebFetchTool20260318
                                           WebFetchTool20260318$AllowedCaller
+                                          WebFetchTool20260318$ResponseInclusion
                                           Usage)
            (com.anthropic.errors AnthropicException
                                  AnthropicIoException
@@ -406,6 +408,16 @@
       (.putAdditionalProperty b ^String (name k) (->json v)))
     (.build b)))
 
+(defn- ->stable-input-examples [class-name examples]
+  (mapv (fn [example]
+          (let [^Class builder-class
+                (Class/forName (str class-name "$InputExample$Builder"))
+                builder (.newInstance builder-class)]
+            (doseq [[k v] example]
+              (instance-call builder "putAdditionalProperty" ^String (name k) (->json v)))
+            (instance-call builder "build")))
+        examples))
+
 (defn- ->custom-tool ^Tool [{:keys [name description input-schema] :as t}]
   (let [schema (or input-schema {})
         ^Tool$InputSchema$Properties$Builder properties (Tool$InputSchema$Properties/builder)
@@ -447,12 +459,14 @@
     :tool-search})
 
 (defn- ->web-search-tool ^WebSearchTool20260318
-  [{:keys [max-uses allowed-domains blocked-domains user-location] :as t}]
+  [{:keys [max-uses allowed-domains blocked-domains user-location response-inclusion] :as t}]
   (let [b (WebSearchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
     (when user-location (.userLocation b (->user-location user-location)))
+    (when response-inclusion
+      (.responseInclusion b (WebSearchTool20260318$ResponseInclusion/of (name response-inclusion))))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.WebSearchTool20260318$Builder b
@@ -468,7 +482,7 @@
       (.build)))
 
 (defn- ->web-fetch-tool ^WebFetchTool20260318
-  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations] :as t}]
+  [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations response-inclusion] :as t}]
   (let [b (WebFetchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
@@ -476,6 +490,8 @@
     (when (seq blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
     (when (some? use-cache) (.useCache b (boolean use-cache)))
     (when citations (.citations b (->citations-config citations)))
+    (when response-inclusion
+      (.responseInclusion b (WebFetchTool20260318$ResponseInclusion/of (name response-inclusion))))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.WebFetchTool20260318$Builder b
@@ -497,8 +513,14 @@
       :strict! #(.strict ^com.anthropic.models.messages.CodeExecutionTool20260521$Builder b (boolean %))})
     (.build b)))
 
-(defn- ->bash-tool ^ToolBash20250124 [t]
+(defn- ->bash-tool ^ToolBash20250124
+  [{:keys [input-examples] :as t}]
   (let [b (ToolBash20250124/builder)]
+    (when (seq input-examples)
+      (.inputExamples b ^java.util.List
+                      (->stable-input-examples
+                       "com.anthropic.models.messages.ToolBash20250124"
+                       input-examples)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.ToolBash20250124$Builder b
@@ -509,9 +531,14 @@
     (.build b)))
 
 (defn- ->text-editor-tool ^ToolTextEditor20250728
-  [{:keys [max-characters] :as t}]
+  [{:keys [max-characters input-examples] :as t}]
   (let [b (ToolTextEditor20250728/builder)]
     (when max-characters (.maxCharacters b (long max-characters)))
+    (when (seq input-examples)
+      (.inputExamples b ^java.util.List
+                      (->stable-input-examples
+                       "com.anthropic.models.messages.ToolTextEditor20250728"
+                       input-examples)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.ToolTextEditor20250728$Builder b
@@ -521,8 +548,14 @@
       :strict! #(.strict ^com.anthropic.models.messages.ToolTextEditor20250728$Builder b (boolean %))})
     (.build b)))
 
-(defn- ->memory-tool ^MemoryTool20250818 [t]
+(defn- ->memory-tool ^MemoryTool20250818
+  [{:keys [input-examples] :as t}]
   (let [b (MemoryTool20250818/builder)]
+    (when (seq input-examples)
+      (.inputExamples b ^java.util.List
+                      (->stable-input-examples
+                       "com.anthropic.models.messages.MemoryTool20250818"
+                       input-examples)))
     (configure-tool-builder
      t
      {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.MemoryTool20250818$Builder b
@@ -559,13 +592,13 @@
    {"20250124" {:builder "com.anthropic.models.messages.ToolBash20250124$Builder"
                 :union "ofBash20250124"
                 :count "ofToolBash20250124"
-                :features #{:common}}
+                :features #{:common :input-examples}}
     }
    :memory
    {"20250818" {:builder "com.anthropic.models.messages.MemoryTool20250818$Builder"
                 :union "ofMemoryTool20250818"
                 :count "ofMemoryTool20250818"
-                :features #{:common}}
+                :features #{:common :input-examples}}
     }
    :code-execution
    {"20250522" {:builder "com.anthropic.models.messages.CodeExecutionTool20250522$Builder"
@@ -588,15 +621,15 @@
    {"20250124" {:builder "com.anthropic.models.messages.ToolTextEditor20250124$Builder"
                 :union "ofTextEditor20250124"
                 :count "ofToolTextEditor20250124"
-                :features #{:common}}
+                :features #{:common :input-examples}}
     "20250429" {:builder "com.anthropic.models.messages.ToolTextEditor20250429$Builder"
                 :union "ofTextEditor20250429"
                 :count "ofToolTextEditor20250429"
-                :features #{:common}}
+                :features #{:common :input-examples}}
     "20250728" {:builder "com.anthropic.models.messages.ToolTextEditor20250728$Builder"
                 :union "ofTextEditor20250728"
                 :count "ofToolTextEditor20250728"
-                :features #{:common :max-characters}}}
+                :features #{:common :max-characters :input-examples}}}
    :web-search
    {"20250305" {:builder "com.anthropic.models.messages.WebSearchTool20250305$Builder"
                 :union "ofWebSearchTool20250305"
@@ -609,7 +642,7 @@
     "20260318" {:builder "com.anthropic.models.messages.WebSearchTool20260318$Builder"
                 :union "ofWebSearchTool20260318"
                 :count "ofWebSearchTool20260318"
-                :features #{:common :max-uses :domains :user-location}}}
+                :features #{:common :max-uses :domains :user-location :response-inclusion}}}
    :web-fetch
    {"20250910" {:builder "com.anthropic.models.messages.WebFetchTool20250910$Builder"
                 :union "ofWebFetchTool20250910"
@@ -626,7 +659,7 @@
     "20260318" {:builder "com.anthropic.models.messages.WebFetchTool20260318$Builder"
                 :union "ofWebFetchTool20260318"
                 :count "ofWebFetchTool20260318"
-                :features #{:common :domains :max-uses :max-content-tokens :citations :use-cache}}}})
+                :features #{:common :domains :max-uses :max-content-tokens :citations :use-cache :response-inclusion}}}})
 
 (defn- ->version-string [version]
   (if (keyword? version) (name version) version))
@@ -672,6 +705,19 @@
     (when (contains? features :max-characters)
       (when-let [max-characters (:max-characters t)]
         (instance-call b "maxCharacters" (long max-characters))))
+    (when (contains? features :input-examples)
+      (when (seq (:input-examples t))
+        (instance-call b "inputExamples"
+                       ^java.util.List
+                       (->stable-input-examples
+                        (subs builder-class 0 (- (count builder-class) 8))
+                        (:input-examples t)))))
+    (when (contains? features :response-inclusion)
+      (when-let [response-inclusion (:response-inclusion t)]
+        (let [tool-class (subs builder-class 0 (- (count builder-class) 8))
+              response-class (Class/forName (str tool-class "$ResponseInclusion"))]
+          (instance-call b "responseInclusion"
+                         (static-call response-class "of" [(name response-inclusion)])))))
     (configure-tool-builder
      t
      {:add-allowed-caller
@@ -1330,7 +1376,8 @@
   `:thinking` (`{:type :enabled :budget-tokens N}` / `{:type :adaptive}` /
   `{:type :disabled}`), `:metadata` (`{:user-id \"...\"}`), and `:service-tier`
   (`:auto`/`:standard-only`). Web-fetch tools accept `:use-cache` and
-  `:citations`; custom tools accept `:input-schema` with optional `:type`,
+  `:citations`; latest web-search and web-fetch tools accept `:response-inclusion`;
+  bash, text-editor, and memory tools accept `:input-examples`; custom tools accept `:input-schema` with optional `:type`,
   `:properties`, and `:required` keys, plus `:cache-control`,
   `:eager-input-streaming`, and `:input-examples`. The request
   escape hatches `:extra-headers`, `:extra-query`, and `:extra-body` pass

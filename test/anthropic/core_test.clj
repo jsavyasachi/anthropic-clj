@@ -22,7 +22,8 @@
                                           RawMessageStreamEvent
                                           RefusalStopDetails RefusalStopDetails$Category
                                           InputJsonDelta TextDelta ThinkingDelta
-                                          DirectCaller TextBlockParam Tool ToolUseBlock ToolUseBlock$Caller
+                                          DirectCaller TextBlockParam Tool ToolTextEditor20250124
+                                          ToolTextEditor20250429 ToolUseBlock ToolUseBlock$Caller
                                           ToolChoice ToolUnion WebFetchTool20260318
                                           OutputConfig OutputTokensDetails
                                           ServerToolUsage Usage Usage$Builder
@@ -31,7 +32,12 @@
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
            (com.anthropic.models.beta.files BetaFileScope DeletedFile DeletedFile$Type
                                              FileMetadata)
-           (com.anthropic.models.beta.messages BetaTool BetaToolUnion)
+           (com.anthropic.models.beta.messages BetaTool BetaToolUnion
+                                               BetaWebSearchTool20260318
+                                               BetaWebFetchTool20260318
+                                               BetaToolBash20250124
+                                               BetaToolTextEditor20250728
+                                               BetaMemoryTool20250818)
            (com.anthropic.models.messages.batches BatchCreateParams$Request
                                                   BatchCreateParams$Request$Params
                                                   DeletedMessageBatch
@@ -245,6 +251,79 @@
         (.asWebFetchTool20260318 ^ToolUnion (->tool web-fetch-tool-spec))]
     (is (= true (when (.isPresent (.citations web-fetch))
                   (opt (.enabled (opt (.citations web-fetch)))))))))
+
+(deftest stable-web-tools-response-inclusion
+  (doseq [[type stable-accessor beta-accessor]
+          [[:web-search #(.webSearchTool20260318 ^ToolUnion %)
+           #(.webSearchTool20260318 ^BetaToolUnion %)]
+           [:web-fetch #(.webFetchTool20260318 ^ToolUnion %)
+           #(.webFetchTool20260318 ^BetaToolUnion %)]]]
+    (let [spec {:type type :response-inclusion :full}
+          stable-tool (opt (stable-accessor (->tool spec)))
+          beta-tool (opt (beta-accessor (beta->tool spec)))]
+      (is (= (case type
+               :web-search (str (opt (.responseInclusion ^BetaWebSearchTool20260318 beta-tool)))
+               :web-fetch (str (opt (.responseInclusion ^BetaWebFetchTool20260318 beta-tool))))
+             (case type
+               :web-search (str (opt (.responseInclusion ^com.anthropic.models.messages.WebSearchTool20260318 stable-tool)))
+               :web-fetch (str (opt (.responseInclusion ^WebFetchTool20260318 stable-tool)))))
+          (str type " stable and beta response-inclusion differ")))))
+
+(deftest stable-server-tool-input-examples
+  (let [specs [{:type :bash :input-examples [{:command "pwd"}]}
+               {:type :text-editor :input-examples [{:command "open"}]}
+               {:type :memory :input-examples [{:command "view"}]}]
+        stable-tools (mapv ->tool specs)
+        beta-tools (mapv beta->tool specs)]
+    (is (= 3 (count (filter some?
+                             [(opt (.inputExamples (opt (.bash20250124 ^ToolUnion (nth stable-tools 0)))))
+                              (opt (.inputExamples (opt (.textEditor20250728 ^ToolUnion (nth stable-tools 1)))))
+                              (opt (.inputExamples (opt (.memoryTool20250818 ^ToolUnion (nth stable-tools 2)))))]))))
+    (is (= (mapv count
+                 [(opt (.inputExamples (opt (.bash20250124 ^BetaToolUnion (nth beta-tools 0)))))
+                  (opt (.inputExamples (opt (.textEditor20250728 ^BetaToolUnion (nth beta-tools 1)))))
+                  (opt (.inputExamples (opt (.memoryTool20250818 ^BetaToolUnion (nth beta-tools 2)))))] )
+           [1 1 1]))))
+
+(deftest stable-versioned-tool-input-examples
+  (doseq [version [:20250124 :20250429]]
+    (is (case version
+          :20250124 (.isPresent
+                     (.inputExamples
+                      (opt (.textEditor20250124 ^ToolUnion
+                                                (->tool {:type :text-editor
+                                                         :version version
+                                                         :input-examples [{:command "open"}]})))))
+          :20250429 (.isPresent
+                     (.inputExamples
+                      (opt (.textEditor20250429 ^ToolUnion
+                                                (->tool {:type :text-editor
+                                                         :version version
+                                                         :input-examples [{:command "open"}]}))))))
+         (str "stable text-editor version " version))))
+
+(deftest stable-beta-response-inclusion-errors-match
+  (doseq [type [:web-search :web-fetch]]
+    (let [stable (opt (case type
+                        :web-search (.webSearchTool20260318 ^ToolUnion
+                                                          (->tool {:type type
+                                                                   :response-inclusion :invalid}))
+                        :web-fetch (.webFetchTool20260318 ^ToolUnion
+                                                         (->tool {:type type
+                                                                  :response-inclusion :invalid}))))
+          beta-tool (opt (case type
+                           :web-search (.webSearchTool20260318 ^BetaToolUnion
+                                                               (beta->tool {:type type
+                                                                            :response-inclusion :invalid}))
+                           :web-fetch (.webFetchTool20260318 ^BetaToolUnion
+                                                              (beta->tool {:type type
+                                                                           :response-inclusion :invalid}))))]
+      (is (= (case type
+               :web-search (str (opt (.responseInclusion ^com.anthropic.models.messages.WebSearchTool20260318 stable)))
+               :web-fetch (str (opt (.responseInclusion ^WebFetchTool20260318 stable))))
+             (case type
+               :web-search (str (opt (.responseInclusion ^BetaWebSearchTool20260318 beta-tool)))
+               :web-fetch (str (opt (.responseInclusion ^BetaWebFetchTool20260318 beta-tool)))))))))
 
 (deftest tool-choice-disable-parallel-tool-use
   (testing "disable-parallel-tool-use reaches all supported tool-choice variants"
