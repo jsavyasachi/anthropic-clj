@@ -5,11 +5,41 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [0.23.0] - 2026-08-07
 
-Closes the last known parity gaps against `anthropic-java` 2.53.0. Every
-non-deprecated operation, request field, and response field the SDK exposes is now
-reachable through a Clojure-shaped map.
+Closes every known parity gap against `anthropic-java` 2.53.0. Every non-deprecated
+operation, request field, and response field the SDK exposes is now reachable through
+a Clojure-shaped map, verified by repeated independent audits of the SDK jar rather
+than asserted.
 
 ### Added
+- Every list operation takes an options map exposing the filters, pagination, ordering,
+  and beta headers the SDK offers, and each still works with no options. This covers
+  skills, skill versions, memory stores, agents, sessions, deployments, deployment runs,
+  environments, vaults, tunnels, tunnel certificates, dreams, vault credentials, user
+  profiles, message batches, and files.
+- `:betas` on agent, session, deployment, environment, vault, model-list, and file
+  operations, accepting strings or keywords.
+- Server-tool specs take an optional `:version` selecting a dated variant of that tool
+  family, on both the stable and beta paths. Omitting it keeps the latest variant, so
+  existing specs are unchanged.
+- Beta tool builders reach their full option sets, including computer-use input examples,
+  advisor caching, web search and web fetch response inclusion, and eager input streaming.
+- Custom tools accept `:eager-input-streaming` and `:input-examples` on both paths.
+- Beta output config accepts `:task-budget`.
+- Session create accepts `:resources` and `:vault-ids`; session update accepts `:agent`
+  and `:vault-ids`. Resource specs accept `:checkout`, `:access`, and `:instructions`.
+- User profiles accept `:relationship`.
+- Model config carries `:speed` in and out, and session agents carry their effort,
+  inference geo, and speed.
+- Response maps carry every field the SDK returns, including session agent, metadata,
+  outcome evaluations, resources, stats, vault ids, and deployment id; thread
+  `:startup-seconds`; and the `:type` and `:metadata` of skills, memories, agents,
+  dreams, credentials, profiles, tunnels, and delete responses.
+- Session events, webhook payloads, agent tools, and message content map every variant
+  the SDK can send instead of collapsing unrecognized ones. Guards assert every variant
+  of every mapped union has a branch, so a variant added by a future SDK release fails
+  the suite rather than silently mapping to unknown.
+
+### Added, earlier in this release
 - Stable web fetch accepts `:use-cache` and `:citations`, matching the shapes the
   beta path already took.
 - Tool choice accepts `:disable-parallel-tool-use` on the auto, any, and tool
@@ -31,6 +61,11 @@ reachable through a Clojure-shaped map.
 - A deployment resource missing a field the API requires now reports
   `:anthropic/error :missing-key` with the offending key, instead of failing with a
   null pointer raised inside the SDK.
+- Beta tool choice `{:type :none}` builds the none variant. It previously returned nil,
+  which dropped the tool choice from the request without an error.
+- A beta `:tool-search` tool with an unknown or missing `:variant` reports
+  `:anthropic/error :unsupported-tool-search-variant` instead of escaping as a raw
+  `IllegalArgumentException`.
 
 ## [0.22.0] - 2026-08-07
 
