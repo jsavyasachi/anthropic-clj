@@ -461,12 +461,12 @@
     (when-let [v (:order opts)]
       (let [^com.anthropic.models.beta.sessions.SessionListParams$Order value
             (->enum-value v #{:asc :desc}
-                          com.anthropic.models.beta.sessions.SessionListParams$Order/of :order)]
+                          (fn [s#] (com.anthropic.models.beta.sessions.SessionListParams$Order/of s#)) :order)]
         (.order b value)))
     (when-let [values (:statuses opts)]
       (.statuses b ^java.util.List
                  (mapv #(->enum-value % #{:rescheduling :running :idle :terminated}
-                                      com.anthropic.models.beta.sessions.SessionListParams$Status/of :statuses)
+                                      (fn [s#] (com.anthropic.models.beta.sessions.SessionListParams$Status/of s#)) :statuses)
                        values)))
     (.build b)))
 
@@ -484,7 +484,7 @@
     (when-let [v (:status opts)]
       (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentStatus value
             (->enum-value v #{:active :paused}
-                          com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentStatus/of :status)]
+                          (fn [s#] (com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentStatus/of s#)) :status)]
         (.status b value)))
     (.build b)))
 
@@ -504,7 +504,7 @@
     (when-let [v (:trigger-type opts)]
       (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerType value
             (->enum-value v #{:schedule :manual}
-                          com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerType/of :trigger-type)]
+                          (fn [s#] (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerType/of s#)) :trigger-type)]
         (.triggerType b value)))
     (.build b)))
 
@@ -562,7 +562,7 @@
     (when-let [values (:statuses opts)]
       (.statuses b ^java.util.List
                  (mapv #(->enum-value % #{:pending :running :completed :failed :cancelled}
-                                      com.anthropic.models.beta.dreams.BetaDreamStatus/of :statuses)
+                                      (fn [s#] (com.anthropic.models.beta.dreams.BetaDreamStatus/of s#)) :statuses)
                        values)))
     (.build b)))
 
@@ -587,7 +587,7 @@
     (when-let [v (:order opts)]
       (let [^com.anthropic.models.beta.userprofiles.UserProfileListParams$Order value
             (->enum-value v #{:asc :desc}
-                          com.anthropic.models.beta.userprofiles.UserProfileListParams$Order/of :order)]
+                          (fn [s#] (com.anthropic.models.beta.userprofiles.UserProfileListParams$Order/of s#)) :order)]
         (.order b value)))
     (.build b)))
 
@@ -1200,7 +1200,7 @@
     (when speed
       (.speed b ^com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Speed
               (->enum-value speed #{:standard :fast}
-                            com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Speed/of :speed)))
+                            (fn [s#] (com.anthropic.models.beta.agents.BetaManagedAgentsModelConfigParams$Speed/of s#)) :speed)))
     (.build b)))
 
 (defn- ->agent-create-params ^AgentCreateParams
@@ -2459,7 +2459,7 @@
                     (when (:access resource)
                       (.access b ^com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam$Access
                                (->enum-value (:access resource) #{:read-write :read-only}
-                                             com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam$Access/of :access)))
+                                             (fn [s#] (com.anthropic.models.beta.sessions.BetaManagedAgentsMemoryStoreResourceParam$Access/of s#)) :access)))
                     (when (:instructions resource) (.instructions b ^String (:instructions resource)))
                     (.build b))
     (throw (ex-info (str "Unknown deployment resource type " (:type resource))
@@ -3481,7 +3481,7 @@
     (when metadata (.metadata b (->user-profile-create-metadata metadata)))
     (when relationship (.relationship b ^UserProfileCreateParams$Relationship
                                       (->enum-value relationship #{:external :resold :internal}
-                                                    UserProfileCreateParams$Relationship/of :relationship)))
+                                                    (fn [s#] (UserProfileCreateParams$Relationship/of s#)) :relationship)))
     (.build b)))
 
 (defn- ->user-profile-update-params ^UserProfileUpdateParams
@@ -3493,7 +3493,7 @@
     (when metadata (.metadata b (->user-profile-update-metadata metadata)))
     (when relationship (.relationship b ^UserProfileUpdateParams$Relationship
                                       (->enum-value relationship #{:external :resold :internal}
-                                                    UserProfileUpdateParams$Relationship/of :relationship)))
+                                                    (fn [s#] (UserProfileUpdateParams$Relationship/of s#)) :relationship)))
     (.build b)))
 
 (defn- ->user-profile-enrollment-url-params ^UserProfileCreateEnrollmentUrlParams

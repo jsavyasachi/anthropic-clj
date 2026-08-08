@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.23.2] - 2026-08-08
+
+### Fixed
+- The library compiles on Clojure 1.10 and 1.11 again. Ten enum helpers passed a
+  static method as a bare value, which only Clojure 1.12 accepts, so requiring
+  `anthropic.beta` threw "Unable to find static field: of" on older Clojure. The
+  test matrix caught it; the default 1.12 toolchain did not.
+
 ## [0.23.1] - 2026-08-08
 
 First release verified against the live API rather than against the SDK jar alone.

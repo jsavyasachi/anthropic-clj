@@ -41,13 +41,13 @@ Messages APIs both offer a capability, a request map moves between them unchange
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.23.1"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.23.2"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.23.1"]
+[net.clojars.savya/anthropic-clj "0.23.2"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
