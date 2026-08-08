@@ -955,10 +955,24 @@
 (defn- ->keyword [x]
   (-> x str str/lower-case (str/replace #"[._]" "-") keyword))
 
+(defn- keywordize-types
+  "Convert every nested `:type` string to a keyword, so a block's `:type` reads the
+   same here as on the stable path. `:input` is left alone: a tool call's arguments
+   are caller-defined JSON where a `type` key is data, not a discriminator."
+  [x]
+  (cond
+    (map? x) (reduce-kv (fn [m k v]
+                          (assoc m k (cond
+                                       (= :input k) v
+                                       (and (= :type k) (string? v)) (->keyword v)
+                                       :else (keywordize-types v))))
+                        {} x)
+    (sequential? x) (mapv keywordize-types x)
+    :else x))
+
 (defn- beta-message->map [^BetaMessage message]
-  (let [m (json->clj (JsonValue/from message))]
+  (let [m (keywordize-types (json->clj (JsonValue/from message)))]
     (cond-> m
-      (string? (:type m)) (update :type ->keyword)
       (string? (:role m)) (update :role ->keyword)
       (string? (:stop-reason m)) (update :stop-reason ->keyword))))
 

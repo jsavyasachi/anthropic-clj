@@ -879,3 +879,21 @@
     ;; The same spec must also build on the stable path, which is where this
     ;; mapping has always worked.
     (is (some? (stable->custom-tool spec)))))
+
+(deftest beta-block-types-are-keywords-like-the-stable-path
+  ;; A block's :type must read the same on both paths, so code dispatching on
+  ;; (= :text (:type block)) keeps working when a request moves to the beta API.
+  ;; A tool call's :input is caller-defined JSON and must be left untouched.
+  (let [f #'messages/keywordize-types
+        mapped (f {:type "message"
+                   :content [{:type "text" :text "hi"}
+                             {:type "tool_use" :id "tu_1" :name "get_weather"
+                              :input {:type "object" :city "Paris"}}
+                             {:type "tool_result"
+                              :content [{:type "text" :text "sunny"}]}]})]
+    (is (= :message (:type mapped)))
+    (is (= [:text :tool-use :tool-result] (mapv :type (:content mapped))))
+    (is (= :text (-> mapped :content (nth 2) :content first :type))
+        "nested block types are converted too")
+    (is (= {:type "object" :city "Paris"} (-> mapped :content second :input))
+        "tool input is caller data and must not be keywordized")))
