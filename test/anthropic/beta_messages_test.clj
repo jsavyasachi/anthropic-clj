@@ -5,12 +5,12 @@
             [anthropic.core])
   (:import (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
-           (com.anthropic.models.beta.messages BetaMessage BetaTextBlock BetaUsage
+           (com.anthropic.models.beta.messages BetaMessage BetaTextBlock BetaUsage BetaTool
                                                BetaMessageTokensCount MessageCountTokensParams
                                                MessageCreateParams BetaRawContentBlockDeltaEvent
                                                BetaRawMessageStreamEvent BetaToolUnion
                                                MessageCountTokensParams$Tool)
-           (com.anthropic.models.messages ToolUnion)
+           (com.anthropic.models.messages Tool ToolUnion)
            (com.anthropic.models.beta.messages.batches BatchCreateParams
                                                        BetaDeletedMessageBatch
                                                        BetaMessageBatch
@@ -33,6 +33,8 @@
 (def ->tool #'messages/->tool)
 (def ->server-tool #'messages/->server-tool)
 (def ->tool-choice #'messages/->tool-choice)
+(def ->custom-tool #'messages/->custom-tool)
+(def stable->custom-tool #'anthropic.core/->custom-tool)
 
 (defn- ex-data-for [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
@@ -88,6 +90,22 @@
   (json-value->clj (.convert (JsonValue/from value) Object)))
 
 (defn- opt [o] (when (.isPresent o) (.get o)))
+
+(defn- stable-custom-tool-shape [^Tool tool]
+  {:name (.name tool)
+   :description (opt (.description tool))
+   :input-schema (let [schema (json-roundtrip (.inputSchema tool))]
+                   (if (nil? (:properties schema))
+                     (dissoc schema :properties)
+                     schema))})
+
+(defn- beta-custom-tool-shape [^BetaTool tool]
+  {:name (.name tool)
+   :description (opt (.description tool))
+   :input-schema (let [schema (json-roundtrip (.inputSchema tool))]
+                   (if (nil? (:properties schema))
+                     (dissoc schema :properties)
+                     schema))})
 
 (deftest beta-server-tool-versions
   (doseq [{:keys [type versions]} server-tool-versions
@@ -300,6 +318,19 @@
               :input-schema {:type "object"}}]]
     (is (.isBetaTool ^BetaToolUnion (->tool t)) (str "routed wrong: " t))))
 
+(deftest beta-custom-tool-input-shape-matches-stable-tool
+  (doseq [spec [{:name "no-options"}
+                {:name "no-description" :input-schema {:type "object"}}
+                {:name "no-schema" :description "described"}
+                {:name "no-schema-type" :input-schema {:properties {}}}
+                {:name "complete" :description "described"
+                 :input-schema {:type "object" :properties {}
+                                :required ["city"]}}]]
+    (let [stable (.get (.tool ^ToolUnion (stable->tool spec)))
+          beta (.asBetaTool ^BetaToolUnion (->tool spec))]
+      (is (= (stable-custom-tool-shape stable) (beta-custom-tool-shape beta))
+          (str "stable and beta differ for " spec)))))
+
 (deftest beta-count-tool-unions
   (let [server (try
                  (first (opt (.tools (->count-params {:messages [{:role :user :content "hi"}]
@@ -509,7 +540,9 @@
     (is (= "claude-sonnet-4-6" (str (.model p))))
     (is (= 1 (count (opt (.tools p)))))
     (is (= ["token-efficient-tools-2025-02-19"] (mapv str (opt (.betas p)))))
-    (is (= {:input-tokens 37} (beta-tokens-count->map tokens-count)))))
+    (is (= {:input-tokens 37
+            :context-management {:original-input-tokens 37}}
+           (beta-tokens-count->map tokens-count)))))
 
 (deftest beta-batch-params-and-mapping
   (let [^BatchCreateParams p
@@ -700,3 +733,20 @@
     (is (= :unsupported-tool-search-variant
            (:anthropic/error (ex-data-for #(->tool t))))
         (str "for " t))))
+
+(deftest beta-custom-tool-schema-properties-reach-the-sdk
+  ;; A custom tool's own :name shadows clojure.core/name in the builder's scope, so
+  ;; mapping schema property keys through it used to call a String as a function.
+  ;; Any beta custom tool with schema properties failed at build time.
+  (let [spec {:name "get_weather"
+              :description "Look up weather"
+              :input-schema {:type "object"
+                             :properties {:city {:type "string"}
+                                          :units {:type "string"}}
+                             :required ["city"]}}
+        beta-tool (->custom-tool spec)
+        beta-props (-> beta-tool .inputSchema .properties opt ._additionalProperties keys set)]
+    (is (= #{"city" "units"} beta-props))
+    ;; The same spec must also build on the stable path, which is where this
+    ;; mapping has always worked.
+    (is (some? (stable->custom-tool spec)))))
