@@ -1787,21 +1787,26 @@
 (defn create-completion
   "Send a legacy Text Completions request and return its response map.
 
+  RETIRED. Anthropic has withdrawn the `/v1/complete` endpoint, which now answers
+  every request with a 400 surfaced here as `:anthropic/error :api-error`:
+  \"The /v1/complete endpoint has been deprecated. Please use the /v1/messages
+  endpoint instead.\" Verified against the live API on 2026-08-08. This fn is kept
+  so the SDK surface stays covered, but it cannot succeed. Use `create-message`.
+
   `req` requires `:prompt` and `:max-tokens-to-sample`, and accepts `:model`,
   `:stop-sequences`, `:temperature`, `:top-k`, `:top-p`, `:metadata`, and
-  free-form string or keyword `:betas`. The sampling controls are deprecated
-  by the SDK for models released after Claude Opus 4.6 and may cause a 400;
-  they remain available for parity with this operation. Use `create-message`
-  for new work."
+  free-form string or keyword `:betas`."
   [^AnthropicClient client req]
   (with-api-errors
     (completion->map (.create (.completions client) (->completion-params req)))))
 
 (defn stream-completion
   "Stream a legacy Text Completions request, calling `on-completion` with each
-  completion map and returning the fully concatenated completion text. The
-  sampling controls are deprecated by the SDK for models released after Claude
-  Opus 4.6 and may cause a 400. Use `create-message` for new work."
+  completion map and returning the fully concatenated completion text.
+
+  RETIRED, exactly as `create-completion` is: `/v1/complete` answers every request
+  with a 400 surfaced as `:anthropic/error :api-error`. Verified against the live
+  API on 2026-08-08. Use `stream-message` or `stream-text`."
   ^String [^AnthropicClient client req on-completion]
   (with-api-errors
     (with-open [^StreamResponse sr (.createStreaming (.completions client)

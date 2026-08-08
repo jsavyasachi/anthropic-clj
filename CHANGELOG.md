@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.23.1] - 2026-08-08
+
+First release verified against the live API rather than against the SDK jar alone.
+
+### Fixed
+- Beta content blocks report their `:type` as a keyword, matching the stable path.
+  Only the top-level type was converted before, so a block arrived with a string
+  type and code dispatching on `(= :text (:type block))` silently stopped matching
+  when a request moved to the beta API. A tool call's `:input` is left as-is: it is
+  caller-defined JSON where a `type` key is data, not a discriminator.
+
+### Changed
+- `create-completion` and `stream-completion` are documented as retired. Anthropic
+  has withdrawn the `/v1/complete` endpoint, which now answers every request with a
+  400 surfaced as `:anthropic/error :api-error`. The functions remain so the SDK
+  surface stays covered, but they cannot succeed. Use `create-message` and
+  `stream-message`.
+
 ## [0.23.0] - 2026-08-07
 
 Closes every known parity gap against `anthropic-java` 2.53.0. Every non-deprecated

@@ -41,13 +41,13 @@ Messages APIs both offer a capability, a request map moves between them unchange
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.23.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.23.1"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.23.0"]
+[net.clojars.savya/anthropic-clj "0.23.1"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -546,15 +546,18 @@ the blocking client (event maps keyed by `:type`, e.g. `:agent-message`,
 
 Beta endpoints may still change.
 
-## Text completions
+## Text completions (retired)
 
-The legacy Text Completions endpoint predates Messages. Use `create-message` for
-new work.
+`create-completion` and `stream-completion` cover the SDK's legacy Text
+Completions surface, but **Anthropic has withdrawn the `/v1/complete` endpoint**.
+Every request now returns a 400, surfaced as `:anthropic/error :api-error`:
 
-```clojure
-(anthropic/create-completion client {:prompt "Human: hello\n\nAssistant:"
-                                      :max-tokens-to-sample 128})
-```
+> The /v1/complete endpoint has been deprecated. Please use the /v1/messages
+> endpoint instead.
+
+Verified against the live API on 2026-08-08. The functions remain so the SDK
+surface stays covered, but they cannot succeed. Use `create-message` and
+`stream-message`.
 
 ## Bedrock and Vertex
 
