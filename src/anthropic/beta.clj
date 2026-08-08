@@ -921,7 +921,7 @@
   (cond-> {:id (.id r)
            :memory-store-id (.memoryStoreId r)
            :memory-id (.memoryId r)
-           :operation (keyword (str (.operation r)))
+           :operation (->keyword (.asString (.operation r)))
            :created-at (str (.createdAt r))}
     (unopt (.content r)) (assoc :content (unopt (.content r)))
     (unopt (.path r)) (assoc :path (unopt (.path r)))
@@ -1474,7 +1474,7 @@
 (defn- session->map [^BetaManagedAgentsSession r]
   (cond-> {:id (.id r)
            :agent (session-agent->map (.agent r))
-           :status (str (.status r))
+           :status (->keyword (.asString (.status r)))
            :stats (let [s (.stats r)] {:active-seconds (unopt (.activeSeconds s))
                                        :duration-seconds (unopt (.durationSeconds s))})
            :type (keyword (.asString (.type r)))
@@ -1708,6 +1708,18 @@
     (.isUrl source) {:type :url :url (.url (.asUrl source))}
     :else {:type :file :file-id (.fileId (.asFile source))}))
 
+(defn- document-source->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock$Source source]
+  (cond
+    (.isBase64 source) (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsBase64DocumentSource s
+                             (.asBase64 source)]
+                         {:type :base64 :media-type (.mediaType s) :data (.data s)})
+    (.isText source) (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsPlainTextDocumentSource s
+                           (.asText source)]
+                       {:type :text :media-type (.asString (.mediaType s)) :data (.data s)})
+    (.isUrl source) {:type :url :url (.url (.asUrl source))}
+    :else {:type :file :file-id (.fileId (.asFile source))}))
+
 (defn- user-content->map [^BetaManagedAgentsUserMessageEvent$Content c]
   (cond
     (.isText c) (.text ^BetaManagedAgentsTextBlock (.asText c))
@@ -1715,11 +1727,7 @@
                   :source (image-source->map (.source (.asImage c)))}
     (.isDocument c) (let [d (.asDocument c)]
                       (cond-> {:type :document
-                               :source (cond
-                                         (.isBase64 (.source d)) {:type :base64}
-                                         (.isText (.source d)) {:type :text}
-                                         (.isUrl (.source d)) {:type :url}
-                                         :else {:type :file})}
+                               :source (document-source->map (.source d))}
                         (unopt (.context d)) (assoc :context (unopt (.context d)))
                         (unopt (.title d)) (assoc :title (unopt (.title d)))))
     (.isRedacted c) {:type :redacted}
@@ -1828,22 +1836,20 @@
 
 (defn- send-data->map
   [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data d]
-  (cond
-    (.isUserMessage d)
-    {:type :user-message
-     :id (.id ^BetaManagedAgentsUserMessageEvent (unopt (.userMessage d)))}
-    (.isSystemMessage d)
-    {:type :system-message
-     :id (.id ^com.anthropic.models.beta.sessions.BetaManagedAgentsSystemMessageEvent
-              (unopt (.systemMessage d)))}
-    (.isUserDefineOutcome d)
-    {:type :user-define-outcome
-     :id (.id ^BetaManagedAgentsUserDefineOutcomeEvent (unopt (.userDefineOutcome d)))}
-    (.isUserInterrupt d) {:type :user-interrupt}
-    (.isUserToolConfirmation d) {:type :user-tool-confirmation}
-    (.isUserCustomToolResult d) {:type :user-custom-tool-result}
-    (.isUserToolResult d) {:type :user-tool-result}
-    :else {:type :unknown}))
+  (let [common (cond-> {:id (.id d)}
+                 (unopt (.processedAt d)) (assoc :processed-at (str (unopt (.processedAt d))))
+                 (unopt (.sessionThreadId d)) (assoc :session-thread-id (unopt (.sessionThreadId d)))
+                 (unopt (.toolUseId d)) (assoc :tool-use-id (unopt (.toolUseId d)))
+                 (unopt (.isError d)) (assoc :is-error (unopt (.isError d))))]
+    (cond
+      (.isUserMessage d) (assoc common :type :user-message)
+      (.isSystemMessage d) (assoc common :type :system-message)
+      (.isUserDefineOutcome d) (assoc common :type :user-define-outcome)
+      (.isUserInterrupt d) (assoc common :type :user-interrupt)
+      (.isUserToolConfirmation d) (assoc common :type :user-tool-confirmation)
+      (.isUserCustomToolResult d) (assoc common :type :user-custom-tool-result)
+      (.isUserToolResult d) (assoc common :type :user-tool-result)
+      :else (assoc common :type :unknown))))
 
 (defn- send-session-events->map [^BetaManagedAgentsSendSessionEvents r]
   {:data (mapv send-data->map (or (unopt (.data r)) []))})
@@ -1851,7 +1857,9 @@
 (defn send-session-events
   "Send a vector of session event maps to `session-id`. Event maps support
   `{:type :user-message :content ...}`, `{:type :system-message :content ...}`,
-  and `{:type :user-define-outcome :description ... :rubric ...}`."
+  and `{:type :user-define-outcome :description ... :rubric ...}`. Returns
+  `{:data [...]}` maps with common `:id`, `:processed-at`, `:session-thread-id`,
+  `:tool-use-id`, and `:is-error` fields when supplied by the SDK."
   [^AnthropicClient client ^String session-id events]
   (with-api-errors
     (send-session-events->map (-> (.beta client) (.sessions) (.events)
@@ -1991,7 +1999,7 @@
   (cond-> {:id (.id r)
            :session-id (.sessionId r)
            :agent (agent-ref->map (.agent r))
-           :status (str (.status r))
+           :status (->keyword (.asString (.status r)))
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))}
     (unopt (.parentThreadId r)) (assoc :parent-thread-id (unopt (.parentThreadId r)))
@@ -2386,11 +2394,7 @@
                   :source (image-source->map (.source (.asImage c)))}
     (.isDocument c) (let [d (.asDocument c)]
                       (cond-> {:type :document
-                               :source (cond
-                                         (.isBase64 (.source d)) {:type :base64}
-                                         (.isText (.source d)) {:type :text}
-                                         (.isUrl (.source d)) {:type :url}
-                                         :else {:type :file})}
+                               :source (document-source->map (.source d))}
                         (unopt (.context d)) (assoc :context (unopt (.context d)))
                         (unopt (.title d)) (assoc :title (unopt (.title d)))))
     (.isRedacted c) {:type :redacted}
@@ -2426,7 +2430,7 @@
            :agent (agent-ref->map (.agent r))
            :environment-id (.environmentId r)
            :name (.name r)
-           :status (str (.status r))
+           :status (->keyword (.asString (.status r)))
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))
            :vault-ids (vec (.vaultIds r))
@@ -2557,7 +2561,7 @@
            :agent (agent-ref->map (.agent r))
            :deployment-id (.deploymentId r)
            :created-at (str (.createdAt r))
-           :type (str (.type r))}
+           :type (->keyword (.asString (.type r)))}
     (unopt (.sessionId r)) (assoc :session-id (unopt (.sessionId r)))
     (unopt (.error r)) (assoc :error (deployment-run-error->map (unopt (.error r))))
     (.triggerContext r) (assoc :trigger-context (deployment-run-trigger-context->map (.triggerContext r)))))
@@ -2875,7 +2879,7 @@
            :data {:id (.id (.data r))}
            :environment-id (.environmentId r)
            :metadata (environment-work-metadata->map (.metadata r))
-           :state (str (.state r))}
+           :state (->keyword (.asString (.state r)))}
     (unopt (.acknowledgedAt r)) (assoc :acknowledged-at (unopt (.acknowledgedAt r)))
     (unopt (.latestHeartbeatAt r)) (assoc :latest-heartbeat-at (unopt (.latestHeartbeatAt r)))
     (unopt (.secret r)) (assoc :secret (unopt (.secret r)))
@@ -2887,7 +2891,7 @@
   [^com.anthropic.models.beta.environments.work.BetaSelfHostedWorkHeartbeatResponse r]
   {:last-heartbeat (.lastHeartbeat r)
    :lease-extended (.leaseExtended r)
-   :state (str (.state r))
+   :state (->keyword (.asString (.state r)))
    :ttl-seconds (.ttlSeconds r)})
 
 (defn- environment-work-stats->map
@@ -3179,9 +3183,9 @@
     (when instructions (.instructions b ^String instructions)) (.build b)))
 
 (defn- dream->map [^com.anthropic.models.beta.dreams.BetaDream r]
-  (cond-> {:id (.id r) :status (str (.status r)) :created-at (str (.createdAt r))
+  (cond-> {:id (.id r) :status (->keyword (.asString (.status r))) :created-at (str (.createdAt r))
            :inputs (vec (.inputs r)) :outputs (vec (.outputs r))
-           :type (keyword (str (.type r)))
+           :type (->keyword (.asString (.type r)))
            :model {:id (.id (.model r))}
            :usage {:cache-creation-input-tokens (.cacheCreationInputTokens (.usage r))
                    :cache-read-input-tokens (.cacheReadInputTokens (.usage r))
