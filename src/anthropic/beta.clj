@@ -1842,22 +1842,109 @@
             :type :id :processed-at :session-thread-id :tool-use-id :name
             :agent-name :iteration :outcome-id :is-error)))
 
+(defn- session-rubric->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserDefineOutcomeEvent$Rubric rubric]
+  (cond
+    (.isFile rubric) (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsFileRubric r (.asFile rubric)]
+                       {:type :file :file-id (.fileId r)})
+    (.isText rubric) (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsTextRubric r (.asText rubric)]
+                       {:type :text :text (.content r)})
+    :else {:type :unknown}))
+
+(defn- user-message-payload->map
+  [^BetaManagedAgentsUserMessageEvent event]
+  {:content (mapv user-content->map (.content event))})
+
+(defn- system-message-payload->map
+  [^BetaManagedAgentsSystemMessageEvent event]
+  {:content (mapv (fn [^BetaManagedAgentsSystemContentBlock block] (.text block))
+                  (.content event))})
+
+(defn- user-define-outcome-payload->map
+  [^BetaManagedAgentsUserDefineOutcomeEvent event]
+  (cond-> {:description (.description event)
+           :outcome-id (.outcomeId event)
+           :rubric (session-rubric->map (.rubric event))}
+    (unopt (.maxIterations event)) (assoc :max-iterations (unopt (.maxIterations event)))))
+
+(defn- user-interrupt-payload->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent event]
+  {})
+
+(declare ^:private search-result-block->map)
+
+(defn- user-tool-confirmation-payload->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent event]
+  (cond-> {:result (->keyword (.asString (.result event)))}
+    (unopt (.denyMessage event)) (assoc :deny-message (unopt (.denyMessage event)))))
+
+(defn- custom-tool-content->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent$Content content]
+  (cond
+    (.isText content) (cond-> (let [^BetaManagedAgentsTextBlock block (.asText content)]
+                                {:type :text :text (.text block)})
+                        (unopt (.title content)) (assoc :title (unopt (.title content))))
+    (.isImage content) (cond-> (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock block (.asImage content)]
+                                 {:type :image :source (image-source->map (.source block))})
+                         (unopt (.title content)) (assoc :title (unopt (.title content))))
+    (.isDocument content) (cond-> (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock block (.asDocument content)]
+                                    (cond-> {:type :document :source (document-source->map (.source block))}
+                                      (unopt (.context block)) (assoc :context (unopt (.context block)))
+                                      (unopt (.title block)) (assoc :title (unopt (.title block)))))
+                              (unopt (.title content)) (assoc :title (unopt (.title content))))
+    (.isSearchResult content) (cond-> (search-result-block->map (.asSearchResult content))
+                                (unopt (.title content)) (assoc :title (unopt (.title content))))
+    :else {:type :unknown}))
+
+(defn- search-result-block->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSearchResultBlock block]
+  {:type (->keyword (.asString (.type block)))
+   :source (.source block)
+   :title (.title block)
+   :citations {:enabled (.enabled (.citations block))}
+   :content (mapv (fn [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsSearchResultContent content]
+                    {:type (->keyword (.asString (.type content))) :text (.text content)})
+                  (.content block))})
+
+(defn- user-custom-tool-result-payload->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent event]
+  (cond-> {:custom-tool-use-id (.customToolUseId event)}
+    (unopt (.content event)) (assoc :content (mapv custom-tool-content->map (unopt (.content event))))))
+
+(defn- user-tool-result-payload->map
+  [^com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent event]
+  (cond-> {}
+    (unopt (.content event)) (assoc :content
+                                    (mapv (fn [^com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent$Content content]
+                                            (cond
+                                              (.isText content) (let [^BetaManagedAgentsTextBlock block (.asText content)]
+                                                                  (cond-> {:type :text :text (.text block)}
+                                                                    (unopt (.title content)) (assoc :title (unopt (.title content)))))
+                                              (.isImage content) (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock block (.asImage content)]
+                                                                   (cond-> {:type :image :source (image-source->map (.source block))}
+                                                                     (unopt (.title content)) (assoc :title (unopt (.title content)))))
+                                              (.isDocument content) (let [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock block (.asDocument content)]
+                                                                      (cond-> {:type :document :source (document-source->map (.source block))}
+                                                                        (unopt (.title content)) (assoc :title (unopt (.title content)))))
+                                              (.isSearchResult content) (cond-> (search-result-block->map (.asSearchResult content))
+                                                                          (unopt (.title content)) (assoc :title (unopt (.title content))))
+                                              :else {:type :unknown}))
+                                          (unopt (.content event))))))
+
 (defn- session-event->map [^BetaManagedAgentsSessionEvent e]
   (cond
     (.isUserMessage e)
     (let [^BetaManagedAgentsUserMessageEvent r (.asUserMessage e)]
       (merge (session-event-common->map e :user-message)
-             {:content (mapv user-content->map (.content r))}))
+             (user-message-payload->map r)))
     (.isSystemMessage e)
     (let [^BetaManagedAgentsSystemMessageEvent r (.asSystemMessage e)]
       (merge (session-event-common->map e :system-message)
-             {:content (mapv (fn [^BetaManagedAgentsSystemContentBlock b] (.text b))
-                             (.content r))}))
+             (system-message-payload->map r)))
     (.isUserDefineOutcome e)
     (let [^BetaManagedAgentsUserDefineOutcomeEvent r (.asUserDefineOutcome e)]
       (merge (session-event-common->map e :user-define-outcome)
-             (cond-> {:description (.description r)}
-               (unopt (.maxIterations r)) (assoc :max-iterations (unopt (.maxIterations r))))))
+             (user-define-outcome-payload->map r)))
     (.isSessionUsage e)
     (merge (session-event-common->map e :session-usage)
            (session-usage-event->map (.asSessionUsage e)))
@@ -1873,11 +1960,11 @@
                                                                          (unopt (.metadata r)))))
         )))
     (.isUserInterrupt e) (merge (session-event-common->map e :user-interrupt)
-                                (event-payload->map (.asUserInterrupt e)))
+                                (user-interrupt-payload->map (.asUserInterrupt e)))
     (.isUserToolConfirmation e) (merge (session-event-common->map e :user-tool-confirmation)
-                                      (event-payload->map (.asUserToolConfirmation e)))
+                                      (user-tool-confirmation-payload->map (.asUserToolConfirmation e)))
     (.isUserCustomToolResult e) (merge (session-event-common->map e :user-custom-tool-result)
-                                      (event-payload->map (.asUserCustomToolResult e)))
+                                      (user-custom-tool-result-payload->map (.asUserCustomToolResult e)))
     (.isAgentCustomToolUse e) (merge (session-event-common->map e :agent-custom-tool-use)
                                      (event-payload->map (.asAgentCustomToolUse e)))
     (.isAgentMessage e) (merge (session-event-common->map e :agent-message)
@@ -1911,7 +1998,7 @@
     (.isSessionThreadStatusIdle e) (merge (session-event-common->map e :session-thread-status-idle) (event-payload->map (.asSessionThreadStatusIdle e)))
     (.isSessionThreadStatusTerminated e) (merge (session-event-common->map e :session-thread-status-terminated) (event-payload->map (.asSessionThreadStatusTerminated e)))
     (.isUserToolResult e) (merge (session-event-common->map e :user-tool-result)
-                                 (event-payload->map (.asUserToolResult e)))
+                                 (user-tool-result-payload->map (.asUserToolResult e)))
     (.isSessionThreadStatusRescheduled e) (session-event-common->map e :session-thread-status-rescheduled)
     :else {:type :unknown}))
 
@@ -1923,13 +2010,20 @@
                  (unopt (.toolUseId d)) (assoc :tool-use-id (unopt (.toolUseId d)))
                  (unopt (.isError d)) (assoc :is-error (unopt (.isError d))))]
     (cond
-      (.isUserMessage d) (assoc common :type :user-message)
-      (.isSystemMessage d) (assoc common :type :system-message)
-      (.isUserDefineOutcome d) (assoc common :type :user-define-outcome)
-      (.isUserInterrupt d) (assoc common :type :user-interrupt)
-      (.isUserToolConfirmation d) (assoc common :type :user-tool-confirmation)
-      (.isUserCustomToolResult d) (assoc common :type :user-custom-tool-result)
-      (.isUserToolResult d) (assoc common :type :user-tool-result)
+      (.isUserMessage d) (merge (assoc common :type :user-message)
+                                (user-message-payload->map (.asUserMessage d)))
+      (.isSystemMessage d) (merge (assoc common :type :system-message)
+                                  (system-message-payload->map (.asSystemMessage d)))
+      (.isUserDefineOutcome d) (merge (assoc common :type :user-define-outcome)
+                                     (user-define-outcome-payload->map (.asUserDefineOutcome d)))
+      (.isUserInterrupt d) (merge (assoc common :type :user-interrupt)
+                                  (user-interrupt-payload->map (.asUserInterrupt d)))
+      (.isUserToolConfirmation d) (merge (assoc common :type :user-tool-confirmation)
+                                         (user-tool-confirmation-payload->map (.asUserToolConfirmation d)))
+      (.isUserCustomToolResult d) (merge (assoc common :type :user-custom-tool-result)
+                                         (user-custom-tool-result-payload->map (.asUserCustomToolResult d)))
+      (.isUserToolResult d) (merge (assoc common :type :user-tool-result)
+                                   (user-tool-result-payload->map (.asUserToolResult d)))
       :else (assoc common :type :unknown))))
 
 (defn- send-session-events->map [^BetaManagedAgentsSendSessionEvents r]
@@ -1939,8 +2033,9 @@
   "Send a vector of session event maps to `session-id`. Event maps support
   `{:type :user-message :content ...}`, `{:type :system-message :content ...}`,
   and `{:type :user-define-outcome :description ... :rubric ...}`. Returns
-  `{:data [...]}` maps with common `:id`, `:processed-at`, `:session-thread-id`,
-  `:tool-use-id`, and `:is-error` fields when supplied by the SDK."
+  `{:data [...]}` maps with common fields and each event variant's typed payload,
+  including user message content, outcome rubric, tool confirmation result, and
+  tool result content."
   [^AnthropicClient client ^String session-id events]
   (with-api-errors
     (send-session-events->map (-> (.beta client) (.sessions) (.events)

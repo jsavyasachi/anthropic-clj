@@ -1294,55 +1294,87 @@
     (is (= "evt_1" (:id m)))
     (is (= ["hello"] (:content m)))
     (is (= {:data []} (send-session-events->map sent)))
-    (is (= {:data [{:type :user-message :id "evt_2"}]}
+    (is (= {:data [{:type :user-message :id "evt_2" :content ["hi"]}]}
            (send-session-events->map sent-with-data)))))
 
 (deftest send-session-events-response-common-fields
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
-        variants [(com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserMessage
-                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent/builder)
-                       (.id "evt_1") (.addTextContent "hello")
-                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent$Type/of "user_message"))
-                       (.processedAt ts) (.build)))
-                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofSystemMessage
-                   (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSystemMessageEvent/builder)
-                       (.id "evt_1") (.content [])
-                       (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSystemMessageEvent$Type/of "system_message"))
-                       (.processedAt ts) (.build)))
-                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserDefineOutcome
-                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserDefineOutcomeEvent/builder)
-                       (.id "evt_1") (.description "done") (.maxIterations 1)
-                       (.outcomeId "outcome_1") (.textRubric "good")
-                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserDefineOutcomeEvent$Type/of "user_define_outcome"))
-                       (.processedAt ts) (.build)))
-                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserInterrupt
-                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent/builder)
-                       (.id "evt_1")
-                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent$Type/of "user_interrupt"))
-                       (.processedAt ts) (.build)))
-                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserToolConfirmation
-                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent/builder)
-                       (.id "evt_1") (.result com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent$Result/ALLOW)
-                       (.toolUseId "tool_1")
-                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent$Type/of "user_tool_confirmation"))
-                       (.processedAt ts) (.build)))
-                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserCustomToolResult
-                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent/builder)
-                       (.id "evt_1") (.customToolUseId "custom_1") (.addTextContent "ok")
-                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent$Type/of "user_custom_tool_result"))
-                       (.isError true) (.processedAt ts) (.build)))
-                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserToolResult
-                   (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent/builder)
-                       (.id "evt_1") (.toolUseId "tool_1") (.addTextContent "ok")
-                       (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent$Type/of "user_tool_result"))
-                       (.isError true) (.processedAt ts) (.build)))] ]
-    (doseq [data variants]
+        user-message (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent/builder)
+                         (.id "evt_1") (.addTextContent "hello")
+                         (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent$Type/of "user_message"))
+                         (.processedAt ts) (.build))
+        system-message (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSystemMessageEvent/builder)
+                           (.id "evt_1") (.content [])
+                           (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSystemMessageEvent$Type/of "system_message"))
+                           (.processedAt ts) (.build))
+        user-define-outcome (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserDefineOutcomeEvent/builder)
+                                (.id "evt_1") (.description "done") (.maxIterations 1)
+                                (.outcomeId "outcome_1") (.textRubric "good")
+                                (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserDefineOutcomeEvent$Type/of "user_define_outcome"))
+                                (.processedAt ts) (.build))
+        user-interrupt (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent/builder)
+                           (.id "evt_1")
+                           (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent$Type/of "user_interrupt"))
+                           (.processedAt ts) (.build))
+        user-tool-confirmation (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent/builder)
+                                   (.id "evt_1") (.result com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent$Result/ALLOW)
+                                   (.toolUseId "tool_1") (.denyMessage "no")
+                                   (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent$Type/of "user_tool_confirmation"))
+                                   (.processedAt ts) (.build))
+        user-custom-tool-result (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent/builder)
+                                    (.id "evt_1") (.customToolUseId "custom_1") (.addTextContent "ok")
+                                    (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent$Type/of "user_custom_tool_result"))
+                                    (.isError true) (.processedAt ts) (.build))
+        user-tool-result (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent/builder)
+                             (.id "evt_1") (.toolUseId "tool_1") (.addTextContent "ok")
+                             (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent$Type/of "user_tool_result"))
+                             (.isError true) (.processedAt ts) (.build))
+        variants [[:user-message
+                   (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserMessage user-message)
+                   (BetaManagedAgentsSessionEvent/ofUserMessage user-message)
+                   {:content ["hello"]}]
+                  [:system-message
+                   (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofSystemMessage system-message)
+                   (BetaManagedAgentsSessionEvent/ofSystemMessage system-message)
+                   {:content []}]
+                  [:user-define-outcome
+                   (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserDefineOutcome user-define-outcome)
+                   (BetaManagedAgentsSessionEvent/ofUserDefineOutcome user-define-outcome)
+                   {:description "done" :max-iterations 1 :outcome-id "outcome_1"
+                    :rubric {:type :text :text "good"}}]
+                  [:user-interrupt
+                   (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserInterrupt user-interrupt)
+                   (BetaManagedAgentsSessionEvent/ofUserInterrupt user-interrupt)
+                   {}]
+                  [:user-tool-confirmation
+                   (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserToolConfirmation user-tool-confirmation)
+                   (BetaManagedAgentsSessionEvent/ofUserToolConfirmation user-tool-confirmation)
+                   {:result :allow :deny-message "no"}]
+                  [:user-custom-tool-result
+                   (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserCustomToolResult user-custom-tool-result)
+                   (BetaManagedAgentsSessionEvent/ofUserCustomToolResult user-custom-tool-result)
+                   {:custom-tool-use-id "custom_1" :content [{:type :text :text "ok"}]}]
+                  [:user-tool-result
+                   (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserToolResult user-tool-result)
+                   (BetaManagedAgentsSessionEvent/ofUserToolResult user-tool-result)
+                   {:content [{:type :text :text "ok"}]}]]]
+    (doseq [[type data receive-event payload] variants]
       (let [response (-> (BetaManagedAgentsSendSessionEvents/builder)
                          (.data [data])
                          (.build))
-            mapped (first (:data (send-session-events->map response)))]
-        (is (= "evt_1" (:id mapped))
-            "every send response variant preserves id")))))
+            mapped (first (:data (send-session-events->map response)))
+            received (session-event->map receive-event)]
+        (is (= (merge {:type type :id "evt_1" :processed-at "2026-07-04T00:00Z"}
+                      (case type
+                        :user-tool-confirmation {:tool-use-id "tool_1"}
+                        :user-custom-tool-result {:is-error true}
+                        :user-tool-result {:tool-use-id "tool_1" :is-error true}
+                        {} )
+                      payload)
+               mapped)
+            (str type " send payload"))
+        (is (= received mapped)
+            (str type " send and receive shapes agree"))))))
 
 (deftest document-source-response-mapping
   (let [sources [(com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock$Source/ofBase64
@@ -2251,6 +2283,14 @@
                          com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent$Content))]
     (is (empty? missing)
         (str "user message content variants with no mapper branch: " (sort missing)))))
+
+(deftest every-send-session-event-variant-is-mapped
+  (let [src (mapper-source)
+        missing (remove #(clojure.string/includes? src (str "." %))
+                        (union-variant-predicates
+                         com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data))]
+    (is (empty? missing)
+        (str "send session event variants with no mapper branch: " (sort missing)))))
 
 (defn- assert-union-mapped [union-class label]
   (let [src (mapper-source)
