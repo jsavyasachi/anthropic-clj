@@ -22,7 +22,8 @@
                                           RawMessageStreamEvent
                                           RefusalStopDetails RefusalStopDetails$Category
                                           InputJsonDelta TextDelta ThinkingDelta
-                                          DirectCaller TextBlockParam Tool ToolTextEditor20250124
+                                          DirectCaller ServerToolCaller ServerToolCaller20260120
+                                          TextBlockParam Tool ToolTextEditor20250124
                                           ToolTextEditor20250429 ToolUseBlock ToolUseBlock$Caller
                                           ToolChoice ToolUnion WebFetchTool20260318
                                           OutputConfig OutputTokensDetails
@@ -790,6 +791,53 @@
                                                        :cache-control true})))]
       (is (= "file_123" (.fileId cu)))
       (is (.isPresent (.cacheControl cu))))))
+
+(deftest tool-use-caller-mapping
+  (testing "direct caller"
+    (let [block (-> (ToolUseBlock/builder)
+                    (.id "toolu_direct")
+                    (.name "direct")
+                    (.input (JsonValue/from {}))
+                    (.caller (ToolUseBlock$Caller/ofDirect
+                              (.build (DirectCaller/builder))))
+                    (.build))]
+      (is (= {:type :tool-use :id "toolu_direct" :name "direct" :input {}
+              :caller {:type :direct}}
+             (#'a/block->map (com.anthropic.models.messages.ContentBlock/ofToolUse block))))))
+  (testing "20250825 code execution caller"
+    (let [block (-> (ToolUseBlock/builder)
+                    (.id "toolu_50825")
+                    (.name "code")
+                    (.input (JsonValue/from {}))
+                    (.caller (ToolUseBlock$Caller/ofCodeExecution20250825
+                              (-> (ServerToolCaller/builder)
+                                  (.toolId "tool_50825")
+                                  (.build))))
+                    (.build))]
+      (is (= {:type :tool-use :id "toolu_50825" :name "code" :input {}
+              :caller {:type :code-execution-20250825 :tool-id "tool_50825"}}
+             (#'a/block->map (com.anthropic.models.messages.ContentBlock/ofToolUse block))))))
+  (testing "20260120 code execution caller"
+    (let [block (-> (ToolUseBlock/builder)
+                    (.id "toolu_60120")
+                    (.name "code")
+                    (.input (JsonValue/from {}))
+                    (.caller (ToolUseBlock$Caller/ofCodeExecution20260120
+                              (-> (ServerToolCaller20260120/builder)
+                                  (.toolId "tool_60120")
+                                  (.build))))
+                    (.build))]
+      (is (= {:type :tool-use :id "toolu_60120" :name "code" :input {}
+              :caller {:type :code-execution-20260120 :tool-id "tool_60120"}}
+             (#'a/block->map (com.anthropic.models.messages.ContentBlock/ofToolUse block))))))
+  (testing "unrecognized caller value throws anthropic error"
+    (let [error (try
+                  (when-let [f (ns-resolve 'anthropic.core 'caller->map)]
+                    (f nil))
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :unsupported-caller
+             (some-> error ex-data :anthropic/error))))))
 
 (deftest lossless-stable-content-blocks
   (testing "document sources include content strings, content blocks, and file ids"
