@@ -104,6 +104,7 @@
                                                MessageCountTokensParams
                                                MessageCountTokensParams$Tool
                                                MessageCountTokensParams$Builder
+                                               MessageCountTokensParams$Speed
                                                MessageCreateParams
                                                MessageCreateParams$Builder
                                                MessageCreateParams$ServiceTier
@@ -881,7 +882,9 @@
     (.build b)))
 
 (defn- ->count-params ^MessageCountTokensParams
-  [{:keys [model system messages tools thinking tool-choice betas]
+  [{:keys [model system messages tools thinking tool-choice betas cache-control context-management
+           mcp-servers response-format effort task-budget output-format speed user-profile-id
+           extra-headers extra-query extra-body]
     :or {model "claude-opus-4-8"}}]
   (let [^String model-name (if (keyword? model) (name model) model)
         b (doto (MessageCountTokensParams/builder)
@@ -895,8 +898,23 @@
     (doseq [beta betas]
       (let [^String beta-name (if (keyword? beta) (name beta) beta)]
         (.addBeta b beta-name)))
+    (when cache-control (.cacheControl b (->cache-control cache-control)))
+    (when user-profile-id (.userProfileId b ^String user-profile-id))
+    (when (or response-format effort task-budget) (.outputConfig b (->output-config response-format effort task-budget)))
+    (when output-format (.outputFormat b (->json-output-format output-format)))
+    (when context-management (.contextManagement b (->context-management context-management)))
+    (when speed
+      (.speed b (case (keyword speed)
+                  :standard MessageCountTokensParams$Speed/STANDARD
+                  :fast MessageCountTokensParams$Speed/FAST
+                  (throw (ex-info "Unsupported speed"
+                                  {:anthropic/error :unsupported-speed :speed speed})))))
+    (doseq [server mcp-servers] (.addMcpServer b (->mcp-server server)))
     (doseq [tool tools] (.addTool b (->count-tool tool)))
     (doseq [message messages] (add-count-message b message))
+    (doseq [[k v] extra-headers] (.putAdditionalHeader b ^String (name k) ^String v))
+    (doseq [[k v] extra-query] (.putAdditionalQueryParam b ^String (name k) ^String v))
+    (doseq [[k v] extra-body] (.putAdditionalBodyProperty b ^String (name k) (->json v)))
     (.build b)))
 
 (defn- java->clj [x]
@@ -1055,8 +1073,11 @@
    (run-beta-tools* (partial create-beta-message client) params opts)))
 
 (defn count-beta-tokens
-  "Count beta Messages input tokens without creating a message. Returns
-  :input-tokens and, when present, nested :context-management data."
+  "Count beta Messages input tokens without creating a message. Request maps
+  support cache-control, context-management, mcp-servers, response-format,
+  effort, task-budget, output-format, speed, user-profile-id, extra-headers,
+  extra-query, and extra-body. Returns :input-tokens and, when present, nested
+  :context-management data."
   ([^AnthropicClient client req] (count-beta-tokens client req {}))
   ([^AnthropicClient client req opts]
    (with-api-errors
