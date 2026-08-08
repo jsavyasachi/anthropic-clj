@@ -431,6 +431,46 @@
       (is (= "stable" (.text block)))
       (is (.isPresent (.cacheControl block)))
       (is (.isPresent (.cacheControl tool)))))
+  (testing "system text blocks carry every text citation variant"
+    (let [^MessageCreateParams p
+          (->params {:system [{:text "cited"
+                               :citations [{:type :char-location
+                                            :cited-text "chars"
+                                            :document-index 0
+                                            :start-char-index 0
+                                            :end-char-index 5}
+                                           {:type :page-location
+                                            :cited-text "pages"
+                                            :document-index 0
+                                            :start-page-number 1
+                                            :end-page-number 2}
+                                           {:type :content-block-location
+                                            :cited-text "blocks"
+                                            :document-index 0
+                                            :start-block-index 0
+                                            :end-block-index 1}
+                                           {:type :web-search-result-location
+                                            :cited-text "web"
+                                            :url "https://example.com"
+                                            :encrypted-index "encrypted"}
+                                           {:type :search-result-location
+                                            :cited-text "search"
+                                            :source "source"
+                                            :search-result-index 0
+                                            :start-block-index 0
+                                            :end-block-index 1}]}]
+                     :messages [{:role :user :content "hi"}]})
+          ^TextBlockParam block (first (.asTextBlockParams (opt (.system p))))
+          citations (opt (.citations block))]
+      (is (= [true true true true true]
+             (mapv (fn [citation predicate]
+                     (boolean (and citation (predicate citation))))
+                   citations
+                   [#(.isCharLocation ^com.anthropic.models.messages.TextCitationParam %)
+                    #(.isPageLocation ^com.anthropic.models.messages.TextCitationParam %)
+                    #(.isContentBlockLocation ^com.anthropic.models.messages.TextCitationParam %)
+                    #(.isWebSearchResultLocation ^com.anthropic.models.messages.TextCitationParam %)
+                    #(.isSearchResultLocation ^com.anthropic.models.messages.TextCitationParam %)])))))
   (testing "additional request properties reach create and count params"
     (let [req {:messages [{:role :user :content "hi"}]
                :extra-headers {"x-stable" "yes"}
@@ -720,11 +760,18 @@
                                :title "Example"
                                :citations true
                                :cache-control true
-                               :content [{:type :text :text "found text"}]})
+                               :content [{:type :text
+                                          :text "found text"
+                                          :citations [{:type :char-location
+                                                       :cited-text "found"
+                                                       :document-index 0
+                                                       :start-char-index 0
+                                                       :end-char-index 5}]}]})
           sr (.get (.searchResult cb))]
       (is (= "https://example.com/a" (.source sr)))
       (is (= "Example" (.title sr)))
       (is (= "found text" (.text (first (.content sr)))))
+      (is (= 1 (count (opt (.citations (first (.content sr)))))))
       (is (= true (opt (.enabled (.get (.citations sr))))))
       (is (.isPresent (.cacheControl sr)))))
   (testing "thinking block carries thinking and signature"

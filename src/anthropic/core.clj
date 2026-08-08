@@ -394,6 +394,14 @@
               (json/write-value-as-string (->wire-data blk))
               ContentBlockParam))
 
+(defn- ->text-citations ^java.util.List [text citations]
+  (.get ^java.util.Optional
+        (.citations ^TextBlockParam
+                    (.get ^java.util.Optional
+                          (.text ^ContentBlockParam
+                                 (->sdk-content-block
+                                  {:type :text :text text :citations citations}))))))
+
 (defn- configure-tool-builder
   [{:keys [allowed-callers cache-control defer-loading strict]}
    {:keys [add-allowed-caller cache-control! defer-loading! strict!]}]
@@ -830,14 +838,16 @@
                             "Unsupported document source type"
                             {:type type}))))
 
-(defn- ->search-result-text ^TextBlockParam [{:keys [text cache-control]}]
+(defn- ->search-result-text ^TextBlockParam [{:keys [text cache-control citations]}]
   (let [b (-> (TextBlockParam/builder) (.text ^String text))]
     (when cache-control (.cacheControl b (->cache-control cache-control)))
+    (when citations (.citations b (->text-citations text citations)))
     (.build b)))
 
-(defn- ->system-block ^TextBlockParam [{:keys [text cache-control]}]
+(defn- ->system-block ^TextBlockParam [{:keys [text cache-control citations]}]
   (let [b (-> (TextBlockParam/builder) (.text ^String text))]
     (when cache-control (.cacheControl b (->cache-control cache-control)))
+    (when citations (.citations b (->text-citations text citations)))
     (.build b)))
 
 (defn- ->content-block ^ContentBlockParam [{:keys [type cache-control] :as blk}]
@@ -1372,7 +1382,7 @@
 
   `req` keys: `:model` (string, defaults to \"claude-opus-4-8\"), `:max-tokens`
   (defaults to 1024), `:system` (a string or text-block maps supporting
-  `:cache-control`; system-block citations are not wrapped), `:messages` (a seq of
+  `:cache-control` and `:citations`), `:messages` (a seq of
   `{:role :user|:assistant :content \"...\"}`), `:tools`, and the optional
   controls `:temperature`, `:top-p`, `:top-k`, `:stop-sequences` (seq of
   strings), `:tool-choice` (`:auto`/`:any`/`:none` or a map with `:type`/`:name`
@@ -1429,7 +1439,7 @@
 (defn count-tokens
   "Count the input tokens a request would use, without sending it. Takes the same
   `req` map as `create-message` (sampling params and `:max-tokens` are ignored).
-  Shared system blocks, tool cache control, and `:extra-headers`/`:extra-query`/
+  Shared system blocks, including `:cache-control` and `:citations`, tool cache control, and `:extra-headers`/`:extra-query`/
   `:extra-body` request escape hatches are supported.
   An optional third `opts` map accepts `:timeout-ms`, `:response-validation`, and
   truthy `:include-response`; the latter adds raw HTTP response metadata.
