@@ -15,6 +15,7 @@
                                                BetaCacheControlEphemeral$Ttl
                                                BetaContentBlockParam
                                                BetaContextManagementConfig
+                                               BetaCountTokensContextManagementResponse
                                                BetaContextManagementConfig$Edit
                                                BetaClearThinking20251015Edit
                                                BetaClearToolUses20250919Edit
@@ -330,8 +331,10 @@
         b (-> (BetaTool/builder)
               (.name ^String name))]
     (doseq [[k v] (:properties schema)]
-      (.putAdditionalProperty properties ^String (name k) (->json v)))
-    (.properties schema-builder (.build properties))
+      ;; The tool's own `name` shadows `clojure.core/name` in this scope.
+      (.putAdditionalProperty properties ^String (clojure.core/name k) (->json v)))
+    (when (contains? schema :properties)
+      (.properties schema-builder (.build properties)))
     (when (seq (:required schema)) (.required schema-builder ^java.util.List (vec (:required schema))))
     (.inputSchema b (.build schema-builder))
     (when description (.description b ^String description))
@@ -922,7 +925,13 @@
       (string? (:stop-reason m)) (update :stop-reason ->keyword))))
 
 (defn- beta-tokens-count->map [^BetaMessageTokensCount result]
-  {:input-tokens (.inputTokens result)})
+  (let [^java.util.Optional context-management (.contextManagement result)]
+    (cond-> {:input-tokens (.inputTokens result)}
+      (.isPresent context-management)
+      (assoc :context-management
+             (json->clj
+              (JsonValue/from ^BetaCountTokensContextManagementResponse
+                             (.get context-management)))))))
 
 (defn- ->request-options ^RequestOptions [{:keys [timeout-ms response-validation] :as opts}]
   (if (or (contains? opts :timeout-ms) (contains? opts :response-validation))
@@ -957,7 +966,9 @@
 
   Request maps support context-management, diagnostics, speed, and tool-choice
   disable-parallel-tool-use options. Tool specs support response-inclusion,
-  input-examples, eager-input-streaming, caching, and dated :version options."
+  input-examples, eager-input-streaming, caching, and dated :version options.
+  Custom tools accept optional :description and :input-schema; an omitted schema
+  defaults to the SDK's object schema."
   ([^AnthropicClient client req] (create-beta-message client req {}))
   ([^AnthropicClient client req opts]
    (with-api-errors
@@ -1044,7 +1055,8 @@
    (run-beta-tools* (partial create-beta-message client) params opts)))
 
 (defn count-beta-tokens
-  "Count beta Messages input tokens without creating a message."
+  "Count beta Messages input tokens without creating a message. Returns
+  :input-tokens and, when present, nested :context-management data."
   ([^AnthropicClient client req] (count-beta-tokens client req {}))
   ([^AnthropicClient client req opts]
    (with-api-errors
