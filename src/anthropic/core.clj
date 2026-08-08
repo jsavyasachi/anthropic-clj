@@ -60,6 +60,7 @@
                                           MessageCreateParams$ServiceTier
                                           MessageTokensCount Metadata Model
                                           OutputConfig OutputConfig$Effort
+                                          RedactedThinkingBlock
                                           RawContentBlockDelta
                                           RawContentBlockDeltaEvent
                                           RawContentBlockStartEvent
@@ -1198,7 +1199,10 @@
       (.isPresent (.textEditorCodeExecutionToolResult b)) (server-block->map b :text-editor-code-execution-result)
       (.isPresent (.toolSearchToolResult b)) (server-block->map b :tool-search-result)
       (.isPresent (.containerUpload b)) (block-raw b :container-upload)
-      (.isPresent (.redactedThinking b)) {:type :redacted-thinking}
+      (.isPresent (.redactedThinking b)) (let [x ^RedactedThinkingBlock
+                                               (.get (.redactedThinking b))]
+                                           {:type :redacted-thinking
+                                            :data (.data x)})
       :else {:type :other})))
 
 (defn- cache-creation->map [^CacheCreation c]
@@ -1389,7 +1393,8 @@
   `:response-validation`, and truthy `:include-response`; the latter adds raw
   HTTP `:response` metadata (`:status`, `:request-id`, and lowercase headers).
   Returns
-  `{:id :model :role :stop-reason :content [...] :usage {...}}`. See also
+  `{:id :model :role :stop-reason :content [...] :usage {...}}`; redacted thinking
+  content blocks include `{:type :redacted-thinking :data \"...\"}`. See also
   `run-tools` for hand-rolled tool execution over this request shape."
   ([^AnthropicClient client req]
    (create-message client req {}))
