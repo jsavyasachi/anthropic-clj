@@ -99,6 +99,8 @@
 (def ->event-send-params #'beta/->event-send-params)
 (def session-event->map #'beta/session-event->map)
 (def send-session-events->map #'beta/send-session-events->map)
+(def user-content->map #'beta/user-content->map)
+(def image-source->map #'beta/image-source->map)
 (def ->thread-retrieve-params #'beta/->thread-retrieve-params)
 (def ->thread-list-params #'beta/->thread-list-params)
 (def ->thread-archive-params #'beta/->thread-archive-params)
@@ -117,6 +119,7 @@
 (def ->memory-version-list-params #'beta/->memory-version-list-params)
 (def ->memory-version-retrieve-params #'beta/->memory-version-retrieve-params)
 (def memory-version->map #'beta/memory-version->map)
+(def dream->map #'beta/dream->map)
 (def memory->map #'beta/memory->map)
 (def memory-delete->map #'beta/memory-delete->map)
 (def ->environment-create-params #'beta/->environment-create-params)
@@ -409,6 +412,27 @@
     (is (= "claude-opus-4-8" (.asString (.model p))))
     (is (= "dream" (opt (.instructions p))))))
 
+(deftest dream-response-enum-mapping
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        dream (-> (com.anthropic.models.beta.dreams.BetaDream/builder)
+                  (.id "dream_1") (.archivedAt (java.util.Optional/empty))
+                  (.endedAt (java.util.Optional/empty))
+                  (.error (java.util.Optional/empty))
+                  (.instructions (java.util.Optional/empty))
+                  (.sessionId (java.util.Optional/empty))
+                  (.createdAt ts) (.inputs []) (.outputs [])
+                  (.model (-> (com.anthropic.models.beta.dreams.BetaDreamModelConfig/builder)
+                              (.id "claude-opus-4-8") (.build)))
+                  (.status (com.anthropic.models.beta.dreams.BetaDreamStatus/of "running"))
+                  (.type (com.anthropic.models.beta.dreams.BetaDream$Type/of "dream"))
+                  (.usage (-> (com.anthropic.models.beta.dreams.BetaDreamUsage/builder)
+                              (.cacheCreationInputTokens 0) (.cacheReadInputTokens 0)
+                              (.inputTokens 0) (.outputTokens 0) (.build)))
+                  (.build))
+        mapped (dream->map dream)]
+    (is (= :running (:status mapped)))
+    (is (= :dream (:type mapped)))))
+
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))
         ^SkillCreateParams p (->skill-create-params {:display-title "My Skill"
@@ -650,6 +674,7 @@
     (is (every? #(contains? mapped %) [:id :agent :status :created-at :updated-at :stats :type
                                        :metadata :outcome-evaluations :resources :vault-ids
                                        :environment-id :budget :usage]))
+    (is (= :idle (:status mapped)))
     (is (= {:max-list-cost {:amount "1.25" :currency :usd} :type :limit} (:budget mapped)))
     (is (= "1.25" (.amount (.maxListCost (opt (.budget round-trip)))))))
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
@@ -669,6 +694,7 @@
         mapped (deployment->map deployment)
         round-trip (->deployment-update-params "dep_1" {:budget (:budget mapped)})]
     (is (= {:max-list-cost {:amount "2" :currency :usd} :type :limit} (:budget mapped)))
+    (is (= :running (:status mapped)))
     (is (= "2" (.amount (.maxListCost (opt (.budget round-trip))))))))
 
 (deftest beta-253-session-updated-budget-mapping
@@ -1181,6 +1207,110 @@
     (is (= {:data [{:type :user-message :id "evt_2"}]}
            (send-session-events->map sent-with-data)))))
 
+(deftest send-session-events-response-common-fields
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        variants [(com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserMessage
+                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent/builder)
+                       (.id "evt_1") (.addTextContent "hello")
+                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent$Type/of "user_message"))
+                       (.processedAt ts) (.build)))
+                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofSystemMessage
+                   (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsSystemMessageEvent/builder)
+                       (.id "evt_1") (.content [])
+                       (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsSystemMessageEvent$Type/of "system_message"))
+                       (.processedAt ts) (.build)))
+                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserDefineOutcome
+                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserDefineOutcomeEvent/builder)
+                       (.id "evt_1") (.description "done") (.maxIterations 1)
+                       (.outcomeId "outcome_1") (.textRubric "good")
+                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserDefineOutcomeEvent$Type/of "user_define_outcome"))
+                       (.processedAt ts) (.build)))
+                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserInterrupt
+                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent/builder)
+                       (.id "evt_1")
+                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent$Type/of "user_interrupt"))
+                       (.processedAt ts) (.build)))
+                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserToolConfirmation
+                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent/builder)
+                       (.id "evt_1") (.result com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent$Result/ALLOW)
+                       (.toolUseId "tool_1")
+                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEvent$Type/of "user_tool_confirmation"))
+                       (.processedAt ts) (.build)))
+                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserCustomToolResult
+                   (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent/builder)
+                       (.id "evt_1") (.customToolUseId "custom_1") (.addTextContent "ok")
+                       (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEvent$Type/of "user_custom_tool_result"))
+                       (.isError true) (.processedAt ts) (.build)))
+                  (com.anthropic.models.beta.sessions.events.BetaManagedAgentsSendSessionEvents$Data/ofUserToolResult
+                   (-> (com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent/builder)
+                       (.id "evt_1") (.toolUseId "tool_1") (.addTextContent "ok")
+                       (.type (com.anthropic.models.beta.sessions.BetaManagedAgentsUserToolResultEvent$Type/of "user_tool_result"))
+                       (.isError true) (.processedAt ts) (.build)))] ]
+    (doseq [data variants]
+      (let [response (-> (BetaManagedAgentsSendSessionEvents/builder)
+                         (.data [data])
+                         (.build))
+            mapped (first (:data (send-session-events->map response)))]
+        (is (= "evt_1" (:id mapped))
+            "every send response variant preserves id")))))
+
+(deftest document-source-response-mapping
+  (let [sources [(com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock$Source/ofBase64
+                  (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsBase64DocumentSource/builder)
+                      (.data "aGVsbG8=") (.mediaType "application/pdf")
+                      (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsBase64DocumentSource$Type/of "base64"))
+                      (.build)))
+                 (com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock$Source/ofText
+                  (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsPlainTextDocumentSource/builder)
+                      (.data "hello")
+                      (.mediaType (com.anthropic.models.beta.sessions.events.BetaManagedAgentsPlainTextDocumentSource$MediaType/of "text/plain"))
+                      (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsPlainTextDocumentSource$Type/of "text"))
+                      (.build)))
+                 (com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock$Source/ofUrl
+                  (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUrlDocumentSource/builder)
+                      (.url "https://example.test/doc.pdf")
+                      (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUrlDocumentSource$Type/of "url"))
+                      (.build)))
+                 (com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock$Source/ofFile
+                  (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsFileDocumentSource/builder)
+                      (.fileId "file_1")
+                      (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsFileDocumentSource$Type/of "file"))
+                      (.build)))]]
+    (doseq [[source expected] (map vector sources
+                                  [{:type :base64 :media-type "application/pdf" :data "aGVsbG8="}
+                                   {:type :text :media-type "text/plain" :data "hello"}
+                                   {:type :url :url "https://example.test/doc.pdf"}
+                                   {:type :file :file-id "file_1"}])]
+      (let [content (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserMessageEvent$Content/ofDocument
+                     (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock/builder)
+                         (.source source)
+                         (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsDocumentBlock$Type/of "document"))
+                         (.build)))]
+        (is (= {:type :document :source expected} (user-content->map content)))
+        ))))
+    (let [base64 (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsBase64ImageSource/builder)
+                     (.data "aGVsbG8=") (.mediaType "application/pdf")
+                     (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsBase64ImageSource$Type/of "base64"))
+                     (.build))
+          url (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUrlImageSource/builder)
+                  (.url "https://example.test/doc.pdf")
+                  (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUrlImageSource$Type/of "url"))
+                  (.build))
+          file (-> (com.anthropic.models.beta.sessions.events.BetaManagedAgentsFileImageSource/builder)
+                   (.fileId "file_1")
+                   (.type (com.anthropic.models.beta.sessions.events.BetaManagedAgentsFileImageSource$Type/of "file"))
+                   (.build))]
+      (is (= #{:type :media-type :data}
+             (set (keys (image-source->map
+                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofBase64 base64)))))
+      (is (= #{:type :url}
+             (set (keys (image-source->map
+                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofUrl url)))))
+      (is (= #{:type :file-id}
+             (set (keys (image-source->map
+                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofFile file)))))))
+      ))
+
 (deftest session-thread-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
         r (-> (BetaManagedAgentsSessionThread/builder)
@@ -1212,7 +1342,7 @@
         m (session-thread->map r)]
     (is (= "thread_1" (:id m)))
     (is (= "sess_1" (:session-id m)))
-    (is (= "idle" (:status m)))
+    (is (= :idle (:status m)))
     (is (= {:type :agent :id "agent_1" :version 2} (:agent m)))))
 
 (deftest session-thread-advisor-agent-mapping
@@ -1586,6 +1716,7 @@
         m (deployment-run->map r)]
     (is (= "dr_1" (:id m)))
     (is (= "dep_1" (:deployment-id m)))
+    (is (= :deployment-run (:type m)))
     (is (= "2026-07-04T00:00Z" (:created-at m)))
     (is (= {:type :manual} (:trigger-context m)))
     (is (not (instance? BetaManagedAgentsDeploymentRun (:trigger-context m)))))
@@ -1832,11 +1963,11 @@
             :metadata {:team "x"}
             :secret "secret_1"
             :started-at "2026-07-04T00:00:30Z"
-            :state "running"}
+            :state :running}
            (environment-work->map work)))
     (is (= {:last-heartbeat "2026-07-04T00:02:00Z"
             :lease-extended true
-            :state "running"
+            :state :running
             :ttl-seconds 30}
            (environment-work-heartbeat->map heartbeat)))
     (is (= {:depth 3
