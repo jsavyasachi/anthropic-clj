@@ -22,32 +22,22 @@ Build a request as a Clojure map, get a Clojure map back.
 
 ## Why
 
-Every other Clojure Anthropic library hand-rolls HTTP against the REST API, which
-means each one is perpetually chasing Anthropic's surface and tends to fall
-behind. This one wraps Anthropic's own actively-maintained Java SDK instead, so
-streaming, tool use, retries, and new model ids stay close to Anthropic's Java
-surface. The wrapper commits to idiomatic parity with the SDK: every
-non-deprecated operation gets a Clojure-shaped fn (maps in, maps out, keywords
-for roles and block types), every request field the SDK accepts is reachable from
-a map key, and every response field it returns comes back as plain data. A few
-Clojure-native conveniences (a native `run-tools` loop, model-id keyword aliases)
-are layered on top and marked as such.
-
-Parity is checked against the SDK jar, not asserted. Where the stable and beta
-Messages APIs both offer a capability, a request map moves between them unchanged.
+This library wraps Anthropic's official Java SDK rather than hand-rolling HTTP,
+and commits to idiomatic parity with that SDK: maps in, maps out, and keywords
+for roles and block types. Parity is checked against the SDK jar, not asserted.
 
 ## Installation
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.23.2"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.24.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.23.2"]
+[net.clojars.savya/anthropic-clj "0.24.0"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
@@ -94,6 +84,11 @@ Tracks [`com.anthropic/anthropic-java` 2.53.0](https://github.com/anthropics/ant
 - `:service-tier` - `:auto`/`:standard-only`
 - `:container`, `:inference-geo`, `:user-profile-id`
 - `:cache-control` - top-level prompt-cache breakpoint
+
+`create-message` and `count-tokens` accept a third `opts` map with `:timeout-ms`,
+`:response-validation`, and `:include-response`; the latter adds raw HTTP
+`:status`, `:request-id`, and headers. Request maps accept `:extra-headers`,
+`:extra-query`, and `:extra-body` as forward-compatibility escape hatches.
 
 For structured output, pass `:response-format` and/or `:effort`. Responses
 include newer `:usage` fields when present: cache creation/read tokens,
@@ -158,6 +153,48 @@ blocks and typed result blocks (`:web-search-result`, `:code-execution-result`,
             :allowed-callers [:direct]}]
    :messages [{:role :user :content "Search the web for today's Clojure news."}]})
 ```
+
+### Tool use
+
+Declare tools as maps; `tool_use` blocks come back parsed, and you complete the
+loop by echoing the assistant turn and sending a `:tool-result` block.
+
+```clojure
+(def weather-tool
+  {:name "get_weather"
+   :description "Get the current weather for a city"
+   :input-schema {:type "object"
+                  :properties {:city {:type "string"}}
+                  :required ["city"]}})
+
+(def ask {:role :user :content "What's the weather in Paris?"})
+(def r1 (anthropic/create-message client {:tools [weather-tool] :messages [ask]}))
+(def call (first (filter #(= :tool-use (:type %)) (:content r1))))
+
+(anthropic/create-message
+  client
+  {:tools [weather-tool]
+   :messages [ask
+              {:role :assistant :content (:content r1)}
+              {:role :user :content [{:type :tool-result
+                                      :tool-use-id (:id call)
+                                      :content "18°C and sunny"}]}]})
+```
+
+Or let `run-tools` drive the loop with a `:fn` for each tool:
+
+```clojure
+(anthropic/run-tools
+  client
+  {:messages [ask]
+   :tools [(assoc weather-tool :fn (fn [{:keys [city]}] (fetch-weather city)))]}
+  {:max-iterations 5 :on-message println})
+```
+
+A tool `:fn` that throws sends the exception message back as an `:is-error`
+tool result instead of aborting, so the model can recover. String returns are
+sent as-is; any other value is JSON-encoded. `:fn` is stripped before every
+API call.
 
 ### Structured output
 
@@ -303,24 +340,13 @@ streamed tool calls for you, so there's no accumulating `:input-json-delta`
 
 ## Concurrency
 
-This wrapper uses the SDK's blocking client. Every function takes the client
-first, so it composes with Clojure concurrency. There is deliberately no async
-namespace: the SDK async client returns `CompletableFuture`s, which are awkward
-to thread through Clojure and unnecessary on a modern JVM.
+This wrapper uses the SDK's blocking client. There is deliberately no async
+namespace because the SDK async client returns `CompletableFuture`s, which are
+awkward to thread through Clojure. Use `future`/`deref`, `pmap`, or `pcalls` for
+ordinary concurrency.
 
-- A few concurrent calls: `future` + `deref`.
-
-```clojure
-(let [requests [(future (anthropic/create-message client {:model :claude-opus-4-8 :max-tokens 64 :messages [{:role :user :content "Summarize Clojure in one sentence."}]}))
-                (future (anthropic/create-message client {:model :claude-opus-4-8 :max-tokens 64 :messages [{:role :user :content "Name three colors."}]}))]]
-  (mapv deref requests))
-```
-
-- Bounded batch fan-out: `pmap` or `pcalls`.
-- High concurrency on JDK 21+: a virtual-thread executor. A blocking call
-  parked on a virtual thread pins no OS thread, so tens of thousands of
-  in-flight requests cost little and return plain maps. This matches the async
-  client's non-blocking I/O without the `CompletableFuture` model.
+On JDK 21+, a virtual-thread executor supports high concurrency: blocking calls
+parked on virtual threads do not consume an OS thread.
 
 ```clojure
 (with-open [executor (java.util.concurrent.Executors/newVirtualThreadPerTaskExecutor)]
@@ -331,119 +357,34 @@ to thread through Clojure and unnecessary on a modern JVM.
     (mapv #(.get %) tasks)))
 ```
 
-- Do not put blocking calls inside a core.async `go` block: they park the fixed
-  dispatch pool. Use `thread` when working in core.async.
-
-On JDK < 21, if you need thousands of concurrent in-flight requests, use the
-SDK async client (`.async()`) through the `:configure` seam on `client`.
-
-### Tool use
-
-Declare tools as maps; `tool_use` blocks come back parsed, and you complete the
-loop by echoing the assistant turn and sending a `:tool-result` block.
-
-```clojure
-(def weather-tool
-  {:name "get_weather"
-   :description "Get the current weather for a city"
-   :input-schema {:type "object"
-                  :properties {:city {:type "string"}}
-                  :required ["city"]}})
-
-(def ask {:role :user :content "What's the weather in Paris?"})
-
-(def r1 (anthropic/create-message
-          client {:tools [weather-tool] :messages [ask]}))
-
-;; r1 :stop-reason is :tool-use; find the call:
-(def call (first (filter #(= :tool-use (:type %)) (:content r1))))
-;; => {:type :tool-use :id "toolu_..." :name "get_weather" :input {:city "Paris"}}
-
-;; Run the tool yourself, then send the result back:
-(anthropic/create-message
-  client
-  {:tools [weather-tool]
-   :messages [ask
-              {:role :assistant :content (:content r1)}
-              {:role :user :content [{:type :tool-result
-                                      :tool-use-id (:id call)
-                                      :content "18°C and sunny"}]}]})
-;; => {... :content [{:type :text :text "It's 18°C and sunny in Paris."}]}
-```
-
-Or let `run-tools` drive that loop: give each tool a `:fn` (a function of the
-parsed `:input` map) and it keeps calling `create-message`, executing every
-requested tool call (parallel calls included) and feeding results back, until
-the model stops asking for tools.
-
-```clojure
-(anthropic/run-tools
-  client
-  {:messages [ask]
-   :tools [(assoc weather-tool
-                  :fn (fn [{:keys [city]}] (fetch-weather city)))]}
-  {:max-iterations 5              ; create-message calls; default 10, exceeding throws
-   :on-message println})          ; optional: observe each API response
-;; => the final response map, plus :messages - the full accumulated
-;;    conversation, ready to continue from
-```
-
-A tool `:fn` that throws sends the exception message back as an `:is-error`
-tool result instead of aborting, so the model can recover. String returns are
-sent as-is; any other value is JSON-encoded. `:fn` is stripped before every
-API call.
+Do not put blocking calls inside a core.async `go` block: it parks the fixed
+dispatch pool. Use `thread` instead. On JDK < 21, use the SDK async client
+through the `:configure` seam when thousands of in-flight requests are needed.
 
 ## What's covered
 
-- `create-message` - request map ↔ response map, with the full set of request
-  controls (sampling, stop sequences, tool-choice, thinking, metadata,
-  service-tier), cache-token usage, and **structured output** (`:response-format`
-  → `:parsed`, plus `:effort`). `:system` takes a string or text blocks (with
-  `:cache-control`); a third `opts` map adds per-call `:timeout-ms`,
-  `:response-validation`, and `:include-response` (raw HTTP `:status`,
-  `:request-id`, headers); `:extra-headers`/`:extra-query`/`:extra-body` are
-  forward-compat escape hatches
-- **Content blocks** - text, `tool_use`/`tool_result`, images (base64/url),
-  documents/PDFs (base64/url/text), search results, thinking/redacted-thinking
-  round-trips, container uploads, and `:cache-control` breakpoints where supported
-- **Tools** - custom tools, plus **server-side tools** (web search, web fetch,
-  code execution, bash, text editor, memory, tool-search bm25/regex), with
-  `:server-tool-use` and typed result blocks parsed back out
-- **Citations** - text blocks carry `:citations` (char/page/content-block/
-  web-search/search-result locations) when present
-- `count-tokens` - input-token count without sending (same `opts` third arg as
-  `create-message`)
-- `stream-text` - incremental text deltas
-- `stream` - every normalized stream event (message + content-block lifecycle,
-  text/thinking/tool-use/signature deltas)
-- `stream-message` - stream events plus the fully reconstructed response map
-- `list-models` / `get-model` - Models API
-- Message Batches - `create-batch`, `get-batch`, `list-batches`, `cancel-batch`,
-  `delete-batch`, `batch-results`, `reduce-batch-results`
-- Files (beta) - `upload-file`, `get-file`, `list-files`, `download-file`, `delete-file`
+- Messages: `create-message`
+- Content blocks: images, PDFs, documents, citations, thinking, caching
+- Tools: custom and server-side tools, `run-tools`
+- Counting: `count-tokens`
+- Streaming: `stream-text`, `stream`, `stream-message`
+- Models: `list-models`, `get-model`
+- Message Batches: create, get, list, cancel, delete, results, reduce
+- Files (beta): upload, get, list, download, delete
+- Beta agents platform: `anthropic.beta`
+- Beta Messages API: `anthropic.beta.messages`
 
-Wrapped surfaces: Messages, streaming, tool use including server tools, Message
-Batches, Files beta, Models, and count-tokens - plus the beta agents platform in
-`anthropic.beta` and the beta Messages API in `anthropic.beta.messages` (create,
-count-tokens, batches, streaming, and a native `run-beta-tools` loop; request
-maps mirror `create-message` plus `:betas`/`:mcp-servers`, responses are
-converted generically). Async clients, raw-response accessors, and per-call
-`RequestOptions` are transport and accessor variants rather than endpoints; they
-are reached through the client's `:configure` seam and the `opts`/
-`:include-response` args, not duplicated as separate fns. For anything not
-wrapped, reach for the
-[Java SDK](https://github.com/anthropics/anthropic-sdk-java) directly.
+Async clients, raw-response accessors, and per-call `RequestOptions` are
+transport and accessor variants reached through the `:configure` seam and the
+`opts`/`:include-response` args, not duplicated as fns. For anything unwrapped,
+use the [Java SDK](https://github.com/anthropics/anthropic-sdk-java).
 
 ### Beta Messages
 
-`anthropic.beta.messages` supports fallback request params and dynamic tool
-changes. Use `:fallbacks :default` or a vector of fallback maps with
-`:model`/`:max-tokens`, and pass `:fallback-credit-token` when applicable.
-Content blocks accept `:tool-addition` and `:tool-removal` with `:reference`,
-`:mcp-tool-reference`, or `:mcp-toolset-reference` tools. `run-beta-tools`
-accepts `:on-turn`, called with `(response params)` after each assistant turn;
-its returned params control the next iteration. Tool specs support custom and
-server-side tools, including beta-only server tools.
+`anthropic.beta.messages` supports fallback params, dynamic tool changes, and
+beta-only server tools. `run-beta-tools` accepts `:on-turn`, called with
+`(response params)` after each assistant turn; its returned params control the
+next iteration.
 
 ## Errors
 
@@ -487,24 +428,13 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 ```clojure
 (require '[anthropic.beta :as beta])
 
-(beta/create-skill client {:display-title "Summarizer" :files ["SKILL.md"]})
-(beta/list-skill-versions client "skill_123")
-(beta/download-skill-version client "skill_123" "2") ;; => byte[]
-
-(beta/create-memory-store client {:name "notes" :description "team notes"})
-(beta/create-memory client "ms_123" {:path "/notes/prefs"
-                                     :content "prefers tables"})
-
 (def agent (beta/create-agent
             client
             {:name "helper"
              :model "claude-opus-4-8"
-             :effort :high ;; managed-agent model effort: :low :medium :high :xhigh :max
+             :effort :high
              :system "be helpful"
-             :skills [{:type :anthropic :skill-id "skill_123" :version "2"}]
-             :mcp-servers [{:name "github" :url "https://mcp.example.test"}]
-             :tools [{:type :mcp-toolset :mcp-server-name "github"}]}))
-(beta/update-agent client (:id agent) {:version (:version agent) :system "new"})
+             :skills [{:type :anthropic :skill-id "skill_123" :version "2"}]}))
 
 (def session (beta/create-session
               client
@@ -512,31 +442,9 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
                :initial-events [{:type :user-message :content "hello"}]}))
 (beta/send-session-events client (:id session)
                           [{:type :user-message :content "hello"}])
-(beta/list-session-events client (:id session))
-(beta/list-session-threads client (:id session))
-
-(beta/create-environment client {:name "prod"})
-(beta/create-vault client {:display-name "secrets"})
-(beta/create-user-profile client {:name "Ada" :external-id "u-1"})
-(beta/create-enrollment-url client "up_123")
-
-(beta/create-deployment client {:name "nightly"
-                                :agent (:id agent)
-                                :environment-id "env_123"
-                                :initial-events [{:type :user-message
-                                                  :content "run the report"}]})
-(beta/run-deployment client "deploy_123")
-(beta/list-deployment-runs client)
-
 (beta/unwrap-webhook client payload) ;; parse a webhook payload string
-(beta/unwrap-webhook client payload {:headers headers :secret secret}) ;; verify
-
-;; SSE event streams: on-event fires per event; returns the vector of event maps.
 (beta/stream-session-events client (:id session) {}
                             (fn [ev] (println (:type ev))))
-(beta/stream-thread-events client (:id session) "thread_123"
-                           {:event-deltas [:agent-message :agent-thinking]}
-                           (fn [ev] (println (:type ev))))
 ```
 
 Webhook parsing covers agent, deployment, session, environment, and memory-store
@@ -545,19 +453,6 @@ the blocking client (event maps keyed by `:type`, e.g. `:agent-message`,
 `:session-status-running`), matching `anthropic.core`'s `stream`.
 
 Beta endpoints may still change.
-
-## Text completions (retired)
-
-`create-completion` and `stream-completion` cover the SDK's legacy Text
-Completions surface, but **Anthropic has withdrawn the `/v1/complete` endpoint**.
-Every request now returns a 400, surfaced as `:anthropic/error :api-error`:
-
-> The /v1/complete endpoint has been deprecated. Please use the /v1/messages
-> endpoint instead.
-
-Verified against the live API on 2026-08-08. The functions remain so the SDK
-surface stays covered, but they cannot succeed. Use `create-message` and
-`stream-message`.
 
 ## Bedrock and Vertex
 

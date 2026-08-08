@@ -44,16 +44,10 @@
                                                   DeletedMessageBatch
                                                   MessageBatchCanceledResult
                                                   MessageBatchIndividualResponse)
-           (com.anthropic.models.completions Completion CompletionCreateParams)))
+           ))
 
 (def ->params #'a/->params)
 (def ->tool-choice #'a/->tool-choice)
-(def ->completion-params
-  #(when-let [v (ns-resolve 'anthropic.core '->completion-params)]
-     ((deref v) %)))
-(def completion->map
-  #(when-let [v (ns-resolve 'anthropic.core 'completion->map)]
-     ((deref v) %)))
 (def ->count-params #'a/->count-params)
 (def usage->map #'a/usage->map)
 (def message->map #'a/message->map)
@@ -111,66 +105,6 @@
                                  (._additionalProperties properties))))
      :required (when (.isPresent (.required schema))
                  (vec (.get (.required schema))))}))
-
-(deftest completion-request-translation
-  (let [^CompletionCreateParams p
-        (->completion-params {:prompt "Human: hello"
-                              :max-tokens-to-sample 128
-                              :model :claude-opus-4-8
-                              :stop-sequences ["\n\nHuman:"]
-                              :temperature 0.5
-                              :top-k 12
-                              :top-p 0.9
-                              :metadata {:user-id "user_123"}
-                              :betas ["beta-one" :beta-two]})
-        ^CompletionCreateParams string-model-p
-        (->completion-params {:prompt "Human: hello"
-                              :max-tokens-to-sample 128
-                              :model "claude-opus-4-8"})]
-    (is (= "Human: hello" (.prompt p)))
-    (is (= 128 (.maxTokensToSample p)))
-    (is (= (str (.model string-model-p)) (str (.model p))))
-    (is (= ["\n\nHuman:"] (opt (.stopSequences p))))
-    (is (= 0.5 (double (opt (.temperature p)))))
-    (is (= 12 (long (opt (.topK p)))))
-    (is (= 0.9 (double (opt (.topP p)))))
-    (is (= "user_123" (opt (.userId (opt (.metadata p))))))
-    (is (= ["beta-one" "beta-two"] (mapv str (opt (.betas p)))))))
-
-(deftest completion-response-mapping
-  (let [^Completion complete
-        (-> (Completion/builder)
-            (.id "cmp_123")
-            (.completion "Hello")
-            (.model "claude-opus-4-8")
-            (.stopReason "stop_sequence")
-            (.build))
-        ^Completion incomplete
-        (-> (Completion/builder)
-            (.id "cmp_456")
-            (.completion "Hi")
-            (.model "claude-opus-4-8")
-            (.stopReason (java.util.Optional/empty))
-            (.build))]
-    (is (= {:id "cmp_123" :completion "Hello" :model "claude-opus-4-8"
-            :stop-reason "stop_sequence"}
-           (completion->map complete)))
-    (is (= {:id "cmp_456" :completion "Hi" :model "claude-opus-4-8"}
-           (completion->map incomplete)))))
-
-(deftest completion-required-keys
-  (doseq [[req key] [[{:max-tokens-to-sample 1} :prompt]
-                     [{:prompt "x"} :max-tokens-to-sample]]]
-    (try
-      (->completion-params req)
-      (is false (str "expected missing " key))
-      (catch clojure.lang.ExceptionInfo e
-        (is (= {:anthropic/error :missing-key :key key} (ex-data e)))))))
-
-(deftest completion-streaming-api
-  (let [v (ns-resolve 'anthropic.core 'stream-completion)]
-    (is (some #{'[client req on-completion]} (:arglists (meta v))))
-    (is (re-find #"legacy" (or (:doc (meta v)) "")))))
 
 (deftest request-translation
   (testing "a request map becomes MessageCreateParams with the given model + max-tokens"

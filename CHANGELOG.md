@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.24.0] - 2026-08-08
+
+### Removed
+- Breaking: `create-completion` and `stream-completion`. Anthropic has withdrawn
+  `/v1/complete`, which now returns HTTP 400 pointing callers at `/v1/messages`.
+  Use `create-message` and `stream-message`.
+
 ## [0.23.2] - 2026-08-08
 
 ### Fixed
