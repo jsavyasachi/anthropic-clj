@@ -422,6 +422,98 @@
     (is (= {:type "object" :properties {}}
            (get-in body [:output-format :schema])))))
 
+(deftest beta-count-context-management-request-translation
+  (let [^MessageCountTokensParams p
+        (->count-params {:messages [{:role :user :content "hi"}]
+                         :context-management {:edits [{:type :compact-20260112
+                                                       :instructions "summarize"}]}})]
+    (is (some? (opt (.contextManagement p))))
+    (when-let [context-management (opt (.contextManagement p))]
+      (is (= 1 (count (opt (.edits context-management))))))))
+
+(deftest beta-count-mcp-servers-request-translation
+  (let [^MessageCountTokensParams p
+        (->count-params {:messages [{:role :user :content "hi"}]
+                         :mcp-servers [{:name "docs" :url "https://example.test/mcp"}]})]
+    (is (some? (opt (.mcpServers p))))
+    (when-let [servers (opt (.mcpServers p))]
+      (is (= "docs" (.name (first servers)))))))
+
+(deftest beta-count-output-config-request-translation
+  (let [^MessageCountTokensParams p
+        (->count-params {:messages [{:role :user :content "hi"}]
+                         :response-format {:type "object"}
+                         :effort :high
+                         :task-budget {:total 4096 :remaining 1024}})
+        config (opt (.outputConfig p))]
+    (is (some? config))
+    (when config
+      (is (= "high" (str (opt (.effort config)))))
+      (is (= 4096 (.total (opt (.taskBudget config))))))))
+
+(deftest beta-count-output-format-request-translation
+  (let [^MessageCountTokensParams p
+        (->count-params {:messages [{:role :user :content "hi"}]
+                         :output-format {:type "object" :properties {}}})
+        body (json-roundtrip (._body p))]
+    (is (= {:type "object" :properties {}}
+           (get-in body [:output-format :schema])))))
+
+(deftest beta-count-speed-request-translation
+  (let [^MessageCountTokensParams p
+        (->count-params {:messages [{:role :user :content "hi"}]
+                         :speed :fast})]
+    (is (= "fast" (str (opt (.speed p)))))))
+
+(deftest beta-count-user-profile-id-request-translation
+  (let [^MessageCountTokensParams p
+        (->count-params {:messages [{:role :user :content "hi"}]
+                         :user-profile-id "user_123"})]
+    (is (= "user_123" (opt (.userProfileId p))))))
+
+(deftest beta-count-shared-request-map-parity
+  (let [request {:model "claude-sonnet-4-6"
+                 :system "be terse"
+                 :messages [{:role :user :content "hi"}]
+                 :tools [{:name "weather" :input-schema {:type "object"}}]
+                 :thinking {:type :enabled :budget-tokens 2048}
+                 :tool-choice :auto
+                 :betas ["token-efficient-tools-2025-02-19"]
+                 :cache-control true
+                 :context-management {:edits [{:type :compact-20260112
+                                               :instructions "summarize"}]}
+                 :mcp-servers [{:name "docs" :url "https://example.test/mcp"}]
+                 :response-format {:type "object"}
+                 :effort :high
+                 :task-budget {:total 4096}
+                 :output-format {:type "object"}
+                 :speed :fast
+                 :user-profile-id "user_123"
+                 :extra-headers {:x-trace "trace-1"}
+                 :extra-query {:x-mode "test"}
+                 :extra-body {:x-extra true}}]
+    (let [^MessageCreateParams create (->params request)
+          ^MessageCountTokensParams count (->count-params request)]
+      (is (some? create))
+      (is (some? count))
+      (is (= #{"x-extra"} (set (keys (._additionalBodyProperties count)))))
+      (is (contains? (.names (._headers count)) "x-trace"))
+      (is (contains? (.keys (._queryParams count)) "x-mode"))
+      (is (= {:context-management true
+              :cache-control true
+              :mcp-servers true
+              :output-config true
+              :output-format true
+              :speed true
+              :user-profile-id true}
+             {:context-management (some? (opt (.contextManagement count)))
+              :cache-control (some? (opt (.cacheControl count)))
+              :mcp-servers (some? (opt (.mcpServers count)))
+              :output-config (some? (opt (.outputConfig count)))
+              :output-format (some? (opt (.outputFormat count)))
+              :speed (some? (opt (.speed count)))
+              :user-profile-id (some? (opt (.userProfileId count)))})))))
+
 (deftest beta-message-tool-choice-disable-parallel-tool-use
   (doseq [[choice expected]
           [[{:type :auto :disable-parallel-tool-use true} true]
