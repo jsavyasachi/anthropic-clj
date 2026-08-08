@@ -70,6 +70,7 @@
                                           InputJsonDelta
                                           RedactedThinkingBlockParam
                                           SearchResultBlockParam SearchResultBlockParam$Builder
+                                          ServerToolCaller ServerToolCaller20260120
                                           TextBlock TextBlockParam TextCitation
                                           TextDelta
                                           ThinkingBlock ThinkingConfigAdaptive
@@ -97,7 +98,7 @@
                                           ToolResultBlockParam ToolResultBlockParam$Builder
                                           ToolTextEditor20250728
                                           ToolTextEditor20250728$AllowedCaller
-                                          ToolUnion ToolUseBlock
+                                          ToolUnion ToolUseBlock ToolUseBlock$Caller
                                           ToolUseBlockParam
                                           MemoryTool20250818 MemoryTool20250818$AllowedCaller
                                           PlainTextSource UrlImageSource UrlPdfSource
@@ -1181,6 +1182,24 @@
 (defn- compact-map [m]
   (into {} (remove (comp nil? val)) m))
 
+(defn- caller->map [^ToolUseBlock$Caller caller]
+  (cond
+    (nil? caller) (throw (anthropic-error :unsupported-caller
+                                          "Unsupported tool-use caller"
+                                          {}))
+    (.isDirect caller) {:type :direct}
+    (.isCodeExecution20250825 caller)
+    (let [^ServerToolCaller value (.asCodeExecution20250825 caller)]
+      {:type :code-execution-20250825
+       :tool-id (.toolId value)})
+    (.isCodeExecution20260120 caller)
+    (let [^ServerToolCaller20260120 value (.asCodeExecution20260120 caller)]
+      {:type :code-execution-20260120
+       :tool-id (.toolId value)})
+    :else (throw (anthropic-error :unsupported-caller
+                                  "Unsupported tool-use caller"
+                                  {}))))
+
 (defn- block->map [^ContentBlock b]
   (let [txt (.text b)
         tu (.toolUse b)
@@ -1196,7 +1215,8 @@
                         {:type :tool-use
                          :id (.id x)
                          :name (.name x)
-                         :input (json->clj (._input x))})
+                         :input (json->clj (._input x))
+                         :caller (caller->map (.caller x))})
       (.isPresent th) (let [x ^ThinkingBlock (.get th)]
                         {:type :thinking
                          :thinking (.thinking x)
@@ -1403,8 +1423,10 @@
   `:response-validation`, and truthy `:include-response`; the latter adds raw
   HTTP `:response` metadata (`:status`, `:request-id`, and lowercase headers).
   Returns
-  `{:id :model :role :stop-reason :content [...] :usage {...}}`; redacted thinking
-  content blocks include `{:type :redacted-thinking :data \"...\"}`. See also
+  `{:id :model :role :stop-reason :content [...] :usage {...}}`; tool-use content
+  blocks include a plain-data `:caller` map with a `:type` discriminator, and
+  redacted thinking content blocks include `{:type :redacted-thinking :data \"...\"}`.
+  See also
   `run-tools` for hand-rolled tool execution over this request shape."
   ([^AnthropicClient client req]
    (create-message client req {}))
@@ -1750,7 +1772,8 @@
   and `:message-stop`. `:message-start` includes `:message`; block starts include
   the complete initial content block. To
   reconstruct a streamed tool call, accumulate `:input-json-delta` `:partial-json`
-  per `:index` (the matching `:content-block-start` carries the tool `:id`/`:name`)."
+  per `:index` (the matching `:content-block-start` carries the tool `:id`, `:name`,
+  and `:caller`)."
   ^String [^AnthropicClient client req on-event]
   (with-api-errors
     (with-open [^StreamResponse sr (.createStreaming (.messages client) (->params req))]
