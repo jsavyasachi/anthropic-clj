@@ -1586,7 +1586,175 @@
         m (deployment-run->map r)]
     (is (= "dr_1" (:id m)))
     (is (= "dep_1" (:deployment-id m)))
-    (is (= "2026-07-04T00:00Z" (:created-at m)))))
+    (is (= "2026-07-04T00:00Z" (:created-at m)))
+    (is (= {:type :manual} (:trigger-context m)))
+    (is (not (instance? BetaManagedAgentsDeploymentRun (:trigger-context m)))))
+
+(defn- deployment-run-error-union [error]
+  (cond
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentArchivedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofEnvironmentArchived error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsAgentArchivedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofAgentArchived error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentNotFoundRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofEnvironmentNotFound error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultNotFoundRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofVaultNotFound error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultArchivedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofVaultArchived error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsFileNotFoundRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofFileNotFound error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMemoryStoreArchivedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofMemoryStoreArchived error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSkillNotFoundRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofSkillNotFound error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionResourceNotFoundRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofSessionResourceNotFound error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsWorkspaceArchivedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofWorkspaceArchived error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsOrganizationDisabledRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofOrganizationDisabled error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionRateLimitedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofSessionRateLimited error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionCreationRejectedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofSessionCreationRejected error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsUnknownRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofUnknown error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSelfHostedResourcesUnsupportedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofSelfHostedResourcesUnsupported error)
+    (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMcpEgressBlockedRunError error)
+    (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error/ofMcpEgressBlocked error)))
+
+(defn- deployment-run-with-error [error]
+  (-> (BetaManagedAgentsDeploymentRun/builder)
+      (.id "dr_1")
+      (.agent (agent-ref))
+      (.deploymentId "dep_1")
+      (.createdAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+      (.error (deployment-run-error-union error))
+      (.sessionId (java.util.Optional/empty))
+      (.triggerContext
+       (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsManualTriggerContext/builder)
+           (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsManualTriggerContext$Type/of "manual"))
+           (.build)))
+      (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Type/of "deployment_run"))
+      (.build)))
+
+(deftest deployment-run-error-variants-map-to-plain-data
+  (doseq [[type error]
+          [[:environment_archived
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentArchivedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentArchivedRunError$Type/of "environment_archived"))
+                (.build))]
+           [:agent_archived
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsAgentArchivedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsAgentArchivedRunError$Type/of "agent_archived"))
+                (.build))]
+           [:environment_not_found
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentNotFoundRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentNotFoundRunError$Type/of "environment_not_found"))
+                (.build))]
+           [:vault_not_found
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultNotFoundRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultNotFoundRunError$Type/of "vault_not_found"))
+                (.build))]
+           [:vault_archived
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultArchivedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultArchivedRunError$Type/of "vault_archived"))
+                (.build))]
+           [:file_not_found
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsFileNotFoundRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsFileNotFoundRunError$Type/of "file_not_found"))
+                (.build))]
+           [:memory_store_archived
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMemoryStoreArchivedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMemoryStoreArchivedRunError$Type/of "memory_store_archived"))
+                (.build))]
+           [:skill_not_found
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSkillNotFoundRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSkillNotFoundRunError$Type/of "skill_not_found"))
+                (.build))]
+           [:session_resource_not_found
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionResourceNotFoundRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionResourceNotFoundRunError$Type/of "session_resource_not_found"))
+                (.build))]
+           [:workspace_archived
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsWorkspaceArchivedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsWorkspaceArchivedRunError$Type/of "workspace_archived"))
+                (.build))]
+           [:organization_disabled
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsOrganizationDisabledRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsOrganizationDisabledRunError$Type/of "organization_disabled"))
+                (.build))]
+           [:session_rate_limited
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionRateLimitedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionRateLimitedRunError$Type/of "session_rate_limited"))
+                (.build))]
+           [:session_creation_rejected
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionCreationRejectedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionCreationRejectedRunError$Type/of "session_creation_rejected"))
+                (.build))]
+           [:unknown
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsUnknownRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsUnknownRunError$Type/of "unknown"))
+                (.build))]
+           [:self_hosted_resources_unsupported
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSelfHostedResourcesUnsupportedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSelfHostedResourcesUnsupportedRunError$Type/of "self_hosted_resources_unsupported"))
+                (.build))]
+           [:mcp_egress_blocked
+            (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMcpEgressBlockedRunError/builder)
+                (.message "message")
+                (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMcpEgressBlockedRunError$Type/of "mcp_egress_blocked"))
+                (.build))]]]
+    (is (= {:type type :message "message"}
+           (select-keys (:error (deployment-run->map (deployment-run-with-error error)))
+                        [:type :message])))))
+  (let [m (deployment-run->map (deployment-run-with-error
+                                (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentArchivedRunError/builder)
+                                    (.message "message")
+                                    (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentArchivedRunError$Type/of "environment_archived"))
+                                    (.build))))]
+    (is (not (re-find #"BetaManagedAgents" (pr-str m))))
+    (is (not (instance? BetaManagedAgentsDeploymentRun (:error m))))))
+
+(deftest deployment-run-schedule-trigger-context-maps-to-plain-data
+  (let [scheduled-at (java.time.OffsetDateTime/parse "2026-07-04T01:00:00Z")
+        r (-> (BetaManagedAgentsDeploymentRun/builder)
+              (.id "dr_1")
+              (.agent (agent-ref))
+              (.deploymentId "dep_1")
+              (.createdAt scheduled-at)
+              (.error (java.util.Optional/empty))
+              (.sessionId (java.util.Optional/empty))
+              (.triggerContext
+               (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerContext/ofSchedule
+                (-> (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsScheduleTriggerContext/builder)
+                    (.scheduledAt scheduled-at)
+                    (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsScheduleTriggerContext$Type/of "schedule"))
+                    (.build))))
+              (.type (com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Type/of "deployment_run"))
+              (.build))
+        m (deployment-run->map r)]
+    (is (= {:type :schedule :scheduled-at "2026-07-04T01:00Z"}
+           (:trigger-context m)))
+    (is (not (re-find #"BetaManagedAgents" (pr-str m))))
+    (is (not (instance? BetaManagedAgentsDeploymentRun (:trigger-context m))))))
 
 (deftest environment-response-mapping
   (let [r (-> (BetaEnvironment/builder)
@@ -1713,6 +1881,7 @@
                              (.build)))
               (.relationship (com.anthropic.models.beta.userprofiles.BetaUserProfile$Relationship/of "external"))
               (.trustGrants (-> (com.anthropic.models.beta.userprofiles.BetaUserProfile$TrustGrants/builder)
+                                (.putAdditionalProperty "source" (JsonValue/from "admin"))
                                 (.build)))
               (.name "Ada")
               (.externalId "ada-1")
@@ -1730,6 +1899,7 @@
     (is (= "Ada" (:name m)))
     (is (= "ada-1" (:external-id m)))
     (is (= :external (:relationship m)))
+    (is (= {:source "admin"} (:trust-grants m)))
     (is (= {:url "https://example.test/enroll"
             :expires-at "2026-07-04T00:00Z"}
            (enrollment-url->map u)))))
@@ -1894,3 +2064,19 @@
 (deftest every-deployment-initial-event-variant-is-mapped
   (assert-union-mapped com.anthropic.models.beta.deployments.BetaManagedAgentsDeploymentInitialEventParams
                        "deployment initial event"))
+
+(deftest every-deployment-run-error-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error
+                       "deployment run error"))
+
+(deftest every-deployment-run-trigger-context-variant-is-mapped
+  (assert-union-mapped com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerContext
+                       "deployment run trigger context"))
+
+(deftest deployment-run-unknown-union-variants-throw
+  (is (= :unknown-deployment-run-error-type
+         (:anthropic/error
+          (ex-data-for #((private-fn 'deployment-run-error->map) (Object.))))))
+  (is (= :unknown-deployment-run-trigger-context-type
+         (:anthropic/error
+          (ex-data-for #((private-fn 'deployment-run-trigger-context->map) (Object.)))))))
