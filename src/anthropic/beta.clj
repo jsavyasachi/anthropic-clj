@@ -2496,6 +2496,62 @@
   (with-api-errors
     (deployment->map (-> (.beta client) (.deployments) (.archive deployment-id)))))
 
+(defn- deployment-run-error->map
+  [e]
+  (if-not (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error e)
+    (throw (ex-info "Unsupported deployment run error"
+                    {:anthropic/error :unknown-deployment-run-error-type}))
+    (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsDeploymentRun$Error e e]
+      (cond
+    (.isEnvironmentArchived e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentArchivedRunError x (.asEnvironmentArchived e)]
+                                  {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isAgentArchived e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsAgentArchivedRunError x (.asAgentArchived e)]
+                           {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isEnvironmentNotFound e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsEnvironmentNotFoundRunError x (.asEnvironmentNotFound e)]
+                                 {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isVaultNotFound e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultNotFoundRunError x (.asVaultNotFound e)]
+                          {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isVaultArchived e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsVaultArchivedRunError x (.asVaultArchived e)]
+                           {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isFileNotFound e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsFileNotFoundRunError x (.asFileNotFound e)]
+                         {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isMemoryStoreArchived e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMemoryStoreArchivedRunError x (.asMemoryStoreArchived e)]
+                                 {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isSkillNotFound e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSkillNotFoundRunError x (.asSkillNotFound e)]
+                          {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isSessionResourceNotFound e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionResourceNotFoundRunError x (.asSessionResourceNotFound e)]
+                                    {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isWorkspaceArchived e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsWorkspaceArchivedRunError x (.asWorkspaceArchived e)]
+                               {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isOrganizationDisabled e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsOrganizationDisabledRunError x (.asOrganizationDisabled e)]
+                                  {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isSessionRateLimited e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionRateLimitedRunError x (.asSessionRateLimited e)]
+                                {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isSessionCreationRejected e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSessionCreationRejectedRunError x (.asSessionCreationRejected e)]
+                                    {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isUnknown e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsUnknownRunError x (.asUnknown e)]
+                     {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isSelfHostedResourcesUnsupported e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsSelfHostedResourcesUnsupportedRunError x (.asSelfHostedResourcesUnsupported e)]
+                                           {:type (->keyword (.asString (.type x))) :message (.message x)})
+    (.isMcpEgressBlocked e) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsMcpEgressBlockedRunError x (.asMcpEgressBlocked e)]
+                              {:type (->keyword (.asString (.type x))) :message (.message x)})
+    :else (throw (ex-info "Unsupported deployment run error"
+                          {:anthropic/error :unknown-deployment-run-error-type}))))))
+
+(defn- deployment-run-trigger-context->map
+  [context]
+  (if-not (instance? com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerContext context)
+    (throw (ex-info "Unsupported deployment run trigger context"
+                    {:anthropic/error :unknown-deployment-run-trigger-context-type}))
+    (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsTriggerContext context context]
+      (cond
+    (.isManual context) {:type :manual}
+    (.isSchedule context) (let [^com.anthropic.models.beta.deploymentruns.BetaManagedAgentsScheduleTriggerContext schedule
+                                (.asSchedule context)]
+                            {:type :schedule :scheduled-at (str (.scheduledAt schedule))})
+    :else (throw (ex-info "Unsupported deployment run trigger context"
+                          {:anthropic/error :unknown-deployment-run-trigger-context-type}))))))
+
 (defn- deployment-run->map [^BetaManagedAgentsDeploymentRun r]
   (cond-> {:id (.id r)
            :agent (agent-ref->map (.agent r))
@@ -2503,11 +2559,12 @@
            :created-at (str (.createdAt r))
            :type (str (.type r))}
     (unopt (.sessionId r)) (assoc :session-id (unopt (.sessionId r)))
-    (unopt (.error r)) (assoc :error (str (unopt (.error r))))
-    (.triggerContext r) (assoc :trigger-context (str (.triggerContext r)))))
+    (unopt (.error r)) (assoc :error (deployment-run-error->map (unopt (.error r))))
+    (.triggerContext r) (assoc :trigger-context (deployment-run-trigger-context->map (.triggerContext r)))))
 
 (defn run-deployment
-  "Run a deployment manually by id. Returns the deployment run map."
+  "Run a deployment manually by id. Returns the deployment run map, with nested
+  `:error` and `:trigger-context` plain-data maps when present."
   [^AnthropicClient client ^String deployment-id]
   (with-api-errors
     (deployment-run->map (-> (.beta client) (.deployments)
@@ -2516,7 +2573,8 @@
 ;; ---- Deployment runs -------------------------------------------------------
 
 (defn get-deployment-run
-  "Retrieve a deployment run by id."
+  "Retrieve a deployment run by id. Returns a deployment run map, with nested
+  `:error` and `:trigger-context` plain-data maps when present."
   [^AnthropicClient client ^String deployment-run-id]
   (with-api-errors
     (deployment-run->map (-> (.beta client) (.deploymentRuns)
@@ -2524,7 +2582,9 @@
 
 (defn list-deployment-runs
   "List deployment runs with optional timestamps, `:deployment-id`,
-  `:has-error`, `:limit`, `:page`, `:trigger-type`, and `:betas`."
+  `:has-error`, `:limit`, `:page`, `:trigger-type`, and `:betas`. Returns
+  deployment run maps, with nested `:error` and `:trigger-context` plain-data
+  maps when present."
   ([^AnthropicClient client] (list-deployment-runs client {}))
   ([^AnthropicClient client opts]
    (with-api-errors
@@ -3255,7 +3315,10 @@
     (unopt (.name r)) (assoc :name (unopt (.name r)))
     (unopt (.externalId r)) (assoc :external-id (unopt (.externalId r)))
     (.relationship r) (assoc :relationship (->keyword (.asString (.relationship r))))
-    (.trustGrants r) (assoc :trust-grants (str (.trustGrants r)))))
+    (.trustGrants r) (assoc :trust-grants
+                             (additional-properties->map
+                              (._additionalProperties ^com.anthropic.models.beta.userprofiles.BetaUserProfile$TrustGrants
+                                                       (.trustGrants r))))))
 
 (defn- enrollment-url->map [^BetaUserProfileEnrollmentUrl r]
   {:url (.url r)
@@ -3264,7 +3327,7 @@
 (defn create-user-profile
   "Create a user profile with optional `:name`, `:external-id`, `:metadata`,
   and `:relationship` (`:external`, `:resold`, or `:internal`). Returns the
-  profile map, including `:relationship`."
+  profile map, including `:relationship` and `:trust-grants`."
   [^AnthropicClient client req]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles)
