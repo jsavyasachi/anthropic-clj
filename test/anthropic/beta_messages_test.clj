@@ -375,6 +375,43 @@
     (is (= 1 (count (opt (.tools p)))))
     (is (.isPresent (.thinking p)))))
 
+(deftest beta-system-text-block-citations
+  (doseq [[citations expected]
+          [[{:type :char-location :cited-text "quote"
+             :document-index 0 :start-char-index 0 :end-char-index 5}
+            :char-location]
+           [{:type :page-location :cited-text "quote"
+             :document-index 0 :start-page-number 1 :end-page-number 2}
+            :page-location]]]
+    (let [^MessageCreateParams p
+          (->params {:system [{:text "be precise" :citations [citations]}]
+                     :messages [{:role :user :content "hi"}]})
+          block (first (.asBetaTextBlockParams (opt (.system p))))]
+      (is (= true
+             (if (= expected :char-location)
+               (.isCharLocation (first (opt (.citations block))))
+               (.isPageLocation (first (opt (.citations block))))))
+          (str "citations shape: " citations)))))
+
+(deftest beta-content-block-citations
+  (testing "text blocks carry citations"
+    (is (= {:type "text" :text "cited"
+            :citations [{:type "char_location" :cited-text "quote"
+                         :document-index 0 :start-char-index 0 :end-char-index 5}]}
+           (json-roundtrip
+            (->content-block {:type :text :text "cited"
+                              :citations [{:type :char-location :cited-text "quote"
+                                           :document-index 0 :start-char-index 0
+                                           :end-char-index 5}]})))))
+  (testing "document blocks carry citations"
+    (is (= {:type "document"
+            :source {:type "text" :data "source" :media-type "text/plain"}
+            :citations {:enabled true}}
+           (json-roundtrip
+            (->content-block {:type :document
+                              :source {:type :text :data "source"}
+                              :citations true}))))))
+
 (deftest beta-message-context-management-request-translation
   (let [^MessageCreateParams p
         (->params {:messages [{:role :user :content "hi"}]

@@ -132,6 +132,13 @@
 (defn- ->json ^JsonValue [x]
   (JsonValue/from (walk/stringify-keys x)))
 
+(defn- ->wire-data [x]
+  (cond
+    (map? x) (into {} (map (fn [[k v]] [(name k) (->wire-data v)])) x)
+    (sequential? x) (mapv ->wire-data x)
+    (keyword? x) (str/replace (name x) "-" "_")
+    :else x))
+
 (defn- ->cache-control ^BetaCacheControlEphemeral [cc]
   (let [b (BetaCacheControlEphemeral/builder)]
     (when-let [ttl (and (map? cc) (:ttl cc))]
@@ -161,10 +168,19 @@
     (throw (ex-info "Unsupported document source type"
                     {:anthropic/error :unsupported-content-source :type type}))))
 
-(defn- ->system-block ^BetaTextBlockParam [{:keys [text cache-control]}]
-  (let [b (-> (BetaTextBlockParam/builder) (.text ^String text))]
-    (when cache-control (.cacheControl b (->cache-control cache-control)))
-    (.build b)))
+(declare ->citations)
+
+(defn- ->sdk-text-block ^BetaTextBlockParam [blk]
+  (.readValue (JsonValue/access$getJSON_MAPPER$cp)
+              (json/write-value-as-string (->wire-data blk))
+              BetaTextBlockParam))
+
+(defn- ->system-block ^BetaTextBlockParam [{:keys [text cache-control] :as blk}]
+  (if (contains? blk :citations)
+    (->sdk-text-block blk)
+    (let [b (-> (BetaTextBlockParam/builder) (.text ^String text))]
+      (when cache-control (.cacheControl b (->cache-control cache-control)))
+      (.build b))))
 
 (defn- ->tool-input ^BetaToolUseBlockParam$Input [input]
   (let [b (BetaToolUseBlockParam$Input/builder)]
@@ -202,9 +218,11 @@
 
 (defn- ->content-block ^BetaContentBlockParam [{:keys [type cache-control] :as blk}]
   (case (keyword type)
-    :text (let [b (-> (BetaTextBlockParam/builder) (.text ^String (:text blk)))]
-            (when cache-control (.cacheControl b (->cache-control cache-control)))
-            (BetaContentBlockParam/ofText (.build b)))
+    :text (if (contains? blk :citations)
+            (BetaContentBlockParam/ofText (->sdk-text-block blk))
+            (let [b (-> (BetaTextBlockParam/builder) (.text ^String (:text blk)))]
+              (when cache-control (.cacheControl b (->cache-control cache-control)))
+              (BetaContentBlockParam/ofText (.build b))))
     :image (let [b (-> (BetaImageBlockParam/builder)
                         (.source ^BetaImageBlockParam$Source (->image-source (:source blk))))]
              (when cache-control (.cacheControl b (->cache-control cache-control)))
@@ -214,6 +232,8 @@
                 (when cache-control (.cacheControl b (->cache-control cache-control)))
                 (when-let [title (:title blk)] (.title b ^String title))
                 (when-let [context (:context blk)] (.context b ^String context))
+                (when (contains? blk :citations)
+                  (.citations b ^BetaCitationsConfigParam (->citations (:citations blk))))
                 (BetaContentBlockParam/ofDocument (.build b)))
     :thinking (BetaContentBlockParam/ofThinking
                (-> (BetaThinkingBlockParam/builder)
@@ -985,6 +1005,8 @@
   Request maps support context-management, diagnostics, speed, and tool-choice
   disable-parallel-tool-use options. Tool specs support response-inclusion,
   input-examples, eager-input-streaming, caching, and dated :version options.
+  System text and text content blocks accept citation-list `:citations`; document
+  content blocks accept boolean or `{:enabled ...}` citation configuration.
   Custom tools accept optional :description and :input-schema; an omitted schema
   defaults to the SDK's object schema."
   ([^AnthropicClient client req] (create-beta-message client req {}))
