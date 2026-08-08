@@ -84,6 +84,27 @@
   (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)]))
         (._additionalProperties example)))
 
+(defn- stable-custom-tool-schema-shape [^Tool tool]
+  (let [schema (.inputSchema tool)
+        properties (when (.isPresent (.properties schema))
+                     (.get (.properties schema)))]
+    {:type (.convert ^JsonValue (._type schema) Object)
+     :properties (when properties
+                   (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)])
+                                 (._additionalProperties properties))))
+     :required (when (.isPresent (.required schema))
+                 (vec (.get (.required schema))))}))
+
+(defn- beta-custom-tool-schema-shape [^BetaTool tool]
+  (let [schema (.inputSchema tool)
+        properties (opt (.properties schema))]
+    {:type (.convert ^JsonValue (._type schema) Object)
+     :properties (when properties
+                   (into {} (map (fn [[k v]] [k (.convert ^JsonValue v Object)])
+                                 (._additionalProperties properties))))
+     :required (when (.isPresent (.required schema))
+                 (vec (.get (.required schema))))}))
+
 (deftest completion-request-translation
   (let [^CompletionCreateParams p
         (->completion-params {:prompt "Human: hello"
@@ -529,6 +550,21 @@
       (is (.isPresent (.cacheControl configured)))
       (is (= true (opt (.deferLoading configured))))
       (is (= true (opt (.strict configured)))))))
+
+(deftest stable-and-beta-custom-tool-schemas-match
+  (doseq [spec [{:name "no-schema"}
+                {:name "empty-schema" :input-schema {}}
+                {:name "typed" :input-schema {:type "array"}}
+                {:name "with-properties"
+                 :input-schema {:properties {:city {:type "string"}}}}
+                {:name "with-properties-and-required"
+                 :input-schema {:properties {:city {:type "string"}}
+                                :required ["city"]}}]]
+    (let [stable (.get (.tool ^ToolUnion (->tool spec)))
+          beta-tool (.asBetaTool ^BetaToolUnion (beta->tool spec))]
+      (is (= (stable-custom-tool-schema-shape stable)
+             (beta-custom-tool-schema-shape beta-tool))
+          (str "stable and beta differ for " spec)))))
 
 (deftest count-token-tools
   (testing "custom and server tools are both present in count-token params"

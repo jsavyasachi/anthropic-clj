@@ -77,7 +77,9 @@
                                           ThinkingConfigParam ThinkingDelta
                                           ThinkingBlockParam
                                           Tool Tool$AllowedCaller Tool$InputExample Tool$InputExample$Builder
-                                          Tool$InputSchema ToolBash20250124
+                                          Tool$InputSchema Tool$InputSchema$Properties
+                                          Tool$InputSchema$Properties$Builder Tool$InputSchema$Builder
+                                          ToolBash20250124
                                           ToolBash20250124$AllowedCaller
                                           ToolSearchToolBm25_20251119
                                           ToolSearchToolBm25_20251119$AllowedCaller
@@ -405,26 +407,32 @@
     (.build b)))
 
 (defn- ->custom-tool ^Tool [{:keys [name description input-schema] :as t}]
-  (let [required (:required input-schema)
-        isb (Tool$InputSchema/builder)
-        tb (Tool/builder)]
-    (.properties isb (->json (:properties input-schema)))
-    (when (seq required) (.required isb ^java.util.List (vec required)))
-    (.name tb ^String name)
-    (.inputSchema tb (.build isb))
-    (when description (.description tb ^String description))
+  (let [schema (or input-schema {})
+        ^Tool$InputSchema$Properties$Builder properties (Tool$InputSchema$Properties/builder)
+        ^Tool$InputSchema$Builder schema-builder (-> (Tool$InputSchema/builder)
+                                                     (.type ^JsonValue (->json (or (:type schema) "object"))))
+        ^com.anthropic.models.messages.Tool$Builder b (-> (Tool/builder)
+                                                          (.name ^String name))]
+    (doseq [[k v] (:properties schema)]
+      (.putAdditionalProperty properties ^String (clojure.core/name k) (->json v)))
+    (when (contains? schema :properties)
+      (.properties schema-builder (.build properties)))
+    (when (seq (:required schema))
+      (.required schema-builder ^java.util.List (vec (:required schema))))
+    (.inputSchema b (.build schema-builder))
+    (when description (.description b ^String description))
     (when (some? (:eager-input-streaming t))
-      (.eagerInputStreaming tb (boolean (:eager-input-streaming t))))
+      (.eagerInputStreaming b (boolean (:eager-input-streaming t))))
     (when (seq (:input-examples t))
-      (.inputExamples tb ^java.util.List (mapv ->custom-input-example (:input-examples t))))
+      (.inputExamples b ^java.util.List (mapv ->custom-input-example (:input-examples t))))
     (configure-tool-builder
      t
-     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.Tool$Builder tb
+     {:add-allowed-caller #(.addAllowedCaller ^com.anthropic.models.messages.Tool$Builder b
                                                (Tool$AllowedCaller/of (clojure.core/name %)))
-      :cache-control! #(.cacheControl ^com.anthropic.models.messages.Tool$Builder tb ^CacheControlEphemeral %)
-      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.Tool$Builder tb (boolean %))
-      :strict! #(.strict ^com.anthropic.models.messages.Tool$Builder tb (boolean %))})
-    (.build tb)))
+      :cache-control! #(.cacheControl ^com.anthropic.models.messages.Tool$Builder b ^CacheControlEphemeral %)
+      :defer-loading! #(.deferLoading ^com.anthropic.models.messages.Tool$Builder b (boolean %))
+      :strict! #(.strict ^com.anthropic.models.messages.Tool$Builder b (boolean %))})
+    (.build b)))
 
 (defn- ->user-location ^UserLocation [{:keys [city region country timezone]}]
   (let [b (UserLocation/builder)]
@@ -734,6 +742,8 @@
 
 (defn- ->tool
   "A tool spec -> ToolUnion. Custom tools are `{:name :description :input-schema}`;
+  input schemas support optional `:type` (defaulting to `\"object\"`),
+  `:properties`, and `:required` keys;
   server tools are `{:type :web-search|:web-fetch|:code-execution|:bash|
   :text-editor|:memory ...}`."
   ^ToolUnion [t]
@@ -1320,8 +1330,9 @@
   `:thinking` (`{:type :enabled :budget-tokens N}` / `{:type :adaptive}` /
   `{:type :disabled}`), `:metadata` (`{:user-id \"...\"}`), and `:service-tier`
   (`:auto`/`:standard-only`). Web-fetch tools accept `:use-cache` and
-  `:citations`; custom tools accept `:cache-control`, `:eager-input-streaming`,
-  and `:input-examples`. The request
+  `:citations`; custom tools accept `:input-schema` with optional `:type`,
+  `:properties`, and `:required` keys, plus `:cache-control`,
+  `:eager-input-streaming`, and `:input-examples`. The request
   escape hatches `:extra-headers`, `:extra-query`, and `:extra-body` pass
   unwrapped values to the SDK builder. For structured output, pass
   `:response-format` (a
