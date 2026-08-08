@@ -756,6 +756,38 @@
          (ex-data-for #(->session-event {:type :user-define-outcome
                                          :rubric {:type :text :text "ok"}})))))
 
+(deftest beta5-request-field-parity
+  (let [hb ((ns-resolve 'anthropic.beta '->environment-work-heartbeat-params)
+            "env" "work" {:desired-ttl-seconds 30 :expected-last-heartbeat "t"})
+        poll ((ns-resolve 'anthropic.beta '->environment-work-poll-params)
+              "env" {:block-ms 10 :reclaim-older-than-ms 20 :anthropic-worker-id "worker"})
+        mv ((ns-resolve 'anthropic.beta '->memory-version-list-params)
+            "store" {:api-key-id "key" :created-at-gte "2026-01-01T00:00:00Z"
+                      :created-at-lte "2026-01-02T00:00:00Z" :session-id "session"})
+        update ((ns-resolve 'anthropic.beta '->memory-update-params)
+                "store" "memory" {:precondition {:type :if-unmodified
+                                                   :content-sha256 "sha"}})]
+    (is (= 30 (opt (.desiredTtlSeconds hb))))
+    (is (= "t" (opt (.expectedLastHeartbeat hb))))
+    (is (= 10 (opt (.blockMs poll))))
+    (is (= 20 (opt (.reclaimOlderThanMs poll))))
+    (is (= "worker" (opt (.anthropicWorkerId poll))))
+    (is (= "key" (opt (.apiKeyId mv))))
+    (is (= "session" (opt (.sessionId mv))))
+    (is (= "sha" (opt (.contentSha256 (opt (.precondition update))))))
+    (doseq [[type predicate]
+            [[:user-interrupt #(.isUserInterrupt %)]
+             [:user-tool-confirmation #(.isUserToolConfirmation %)]
+             [:user-custom-tool-result #(.isUserCustomToolResult %)]
+             [:user-tool-result #(.isUserToolResult %)]]]
+      (is (predicate (->session-event
+                      (merge {:type type}
+                             (case type
+                               :user-tool-confirmation {:tool-use-id "tool" :result :allow}
+                               :user-custom-tool-result {:custom-tool-use-id "custom" :content [{:type :text :text "ok"}]}
+                               :user-tool-result {:tool-use-id "tool" :content [{:type :text :text "ok"}]}
+                               {}))))))))
+
 (deftest deployment-params
   (let [^DeploymentCreateParams p (->deployment-create-params
                                    {:name "nightly"
@@ -1067,8 +1099,8 @@
     (is (= :agent (:type m)))
     (is (= [{:type :custom :skill-id "skill_1" :version "2"}] (:skills m)))
     (is (= [{:name "github" :url "https://mcp.example.test"}] (:mcp-servers m)))
-    (is (= [{:type :agent-toolset-20260401}
-            {:type :mcp-toolset :mcp-server-name "github"}] (:tools m)))
+    (is (= [{:type :agent-toolset-20260401 :configs [] :default-config {:enabled true}}
+            {:type :mcp-toolset :mcp-server-name "github" :configs [] :default-config {:enabled true}}] (:tools m)))
     (is (= :high (:effort m)))
     (is (= :fast (:speed m)))
     (is (= {:type :coordinator

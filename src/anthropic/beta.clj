@@ -792,13 +792,20 @@
     (.build b)))
 
 (defn- ->memory-update-params ^MemoryUpdateParams
-  [memory-store-id memory-id {:keys [path content view]}]
+  [memory-store-id memory-id {:keys [path content view precondition]}]
   (let [b (MemoryUpdateParams/builder)]
     (.memoryStoreId b ^String memory-store-id)
     (.memoryId b ^String memory-id)
     (when path (.path b ^String path))
     (when content (.content b ^String content))
     (when view (.view b (memory-view view)))
+    (when precondition
+      (let [pb (com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsPrecondition/builder)]
+        (when (:type precondition)
+          (.type pb (com.anthropic.models.beta.memorystores.memories.BetaManagedAgentsPrecondition$Type/of
+                     (name (:type precondition)))))
+        (when (:content-sha256 precondition) (.contentSha256 pb ^String (:content-sha256 precondition)))
+        (.precondition b (.build pb))))
     (.build b)))
 
 (defn- ->memory-list-params ^MemoryListParams
@@ -888,10 +895,14 @@
 ;; ---- Memory versions ------------------------------------------------------
 
 (defn- ->memory-version-list-params ^MemoryVersionListParams
-  [memory-store-id {:keys [memory-id limit page view operation]}]
+  [memory-store-id {:keys [memory-id api-key-id created-at-gte created-at-lte session-id limit page view operation]}]
   (let [b (MemoryVersionListParams/builder)]
     (.memoryStoreId b ^String memory-store-id)
     (when memory-id (.memoryId b ^String memory-id))
+    (when api-key-id (.apiKeyId b ^String api-key-id))
+    (when created-at-gte (.createdAtGte b (->offset-date-time created-at-gte)))
+    (when created-at-lte (.createdAtLte b (->offset-date-time created-at-lte)))
+    (when session-id (.sessionId b ^String session-id))
     (when limit (.limit b (int limit)))
     (when page (.page b ^String page))
     (when view (.view b (memory-view view)))
@@ -1017,10 +1028,19 @@
     (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsCustomToolParams$Type/of "custom"))
     (.build b)))
 
-(defn- ->mcp-toolset ^BetaManagedAgentsMcpToolsetParams [{:keys [mcp-server-name]}]
+(defn- ->mcp-toolset ^BetaManagedAgentsMcpToolsetParams [{:keys [mcp-server-name configs default-config]}]
   (when-not mcp-server-name (missing-key! :mcp-server-name))
   (let [b (BetaManagedAgentsMcpToolsetParams/builder)]
     (.mcpServerName b ^String mcp-server-name)
+    (doseq [config configs]
+      (.addConfig b (-> (com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolConfigParams/builder)
+                        (.name ^String (:name config))
+                        (.enabled (boolean (:enabled config)))
+                        (.build))))
+    (when default-config
+      (.defaultConfig b (-> (com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetDefaultConfigParams/builder)
+                            (.enabled (boolean (:enabled default-config)))
+                            (.build))))
     (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetParams$Type/of "mcp_toolset"))
     (.build b)))
 
@@ -1028,6 +1048,12 @@
   (case type
     :custom (AgentCreateParams$Tool/ofCustom (->custom-tool tool))
     :mcp-toolset (AgentCreateParams$Tool/ofMcpToolset (->mcp-toolset tool))
+    :agent-toolset-20260401
+    (AgentCreateParams$Tool/ofAgentToolset20260401
+     (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params/builder)
+         (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params$Type/of
+                 "agent_toolset_20260401"))
+         (.build)))
     (throw (ex-info (str "Unknown tool type " type)
                     {:anthropic/error :unknown-tool-type :type type}))))
 
@@ -1035,6 +1061,12 @@
   (case type
     :custom (AgentUpdateParams$Tool/ofCustom (->custom-tool tool))
     :mcp-toolset (AgentUpdateParams$Tool/ofMcpToolset (->mcp-toolset tool))
+    :agent-toolset-20260401
+    (AgentUpdateParams$Tool/ofAgentToolset20260401
+     (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params/builder)
+         (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params$Type/of
+                 "agent_toolset_20260401"))
+         (.build)))
     (throw (ex-info (str "Unknown tool type " type)
                     {:anthropic/error :unknown-tool-type :type type}))))
 
@@ -1154,12 +1186,22 @@
   (cond
     (.isCustom t)
     (let [^BetaManagedAgentsCustomTool tool (.asCustom t)]
-      {:type :custom :name (.name tool)})
+      {:type :custom :name (.name tool) :description (.description tool)
+       :input-schema (let [s (.inputSchema tool)]
+                       (cond-> {:type (json->clj (._type s))}
+                         (unopt (.required s)) (assoc :required (unopt (.required s)))))} )
     (.isMcpToolset t)
     (let [^BetaManagedAgentsMcpToolset tool (.asMcpToolset t)]
-      {:type :mcp-toolset :mcp-server-name (.mcpServerName tool)})
+      {:type :mcp-toolset :mcp-server-name (.mcpServerName tool)
+       :configs (mapv (fn [^com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolConfig c]
+                        {:name (.name c) :enabled (.enabled c)}) (.configs tool))
+       :default-config {:enabled (.enabled (.defaultConfig tool))}})
     (.isAgentToolset20260401 t)
-    {:type :agent-toolset-20260401}
+    (let [tool (.asAgentToolset20260401 t)]
+      {:type :agent-toolset-20260401
+       :configs (mapv (fn [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig c]
+                        {:name (.name c) :enabled (.enabled c)}) (.configs tool))
+       :default-config {:enabled (.enabled (.defaultConfig tool))}})
     :else {:type :unknown}))
 
 (defn- model-effort->keyword [^BetaManagedAgentsModelConfig$Effort effort]
@@ -1537,6 +1579,39 @@
     :user-message (BetaManagedAgentsEventParams/ofUserMessage (->user-message-event event))
     :system-message (BetaManagedAgentsEventParams/ofSystemMessage (->system-message-event event))
     :user-define-outcome (BetaManagedAgentsEventParams/ofUserDefineOutcome (->user-define-outcome-event event))
+    :user-interrupt
+    (BetaManagedAgentsEventParams/ofUserInterrupt
+     (let [b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEventParams/builder)]
+       (.type b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEventParams$Type/of "user_interrupt"))
+       (when (:session-thread-id event) (.sessionThreadId b ^String (:session-thread-id event)))
+       (.build b)))
+    :user-tool-confirmation
+    (BetaManagedAgentsEventParams/ofUserToolConfirmation
+     (let [b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEventParams/builder)]
+       (.toolUseId b ^String (:tool-use-id event))
+       (.result b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEventParams$Result/of
+                   (name (:result event))))
+       (.type b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolConfirmationEventParams$Type/of "user_tool_confirmation"))
+       (when (:deny-message event) (.denyMessage b ^String (:deny-message event)))
+       (.build b)))
+    :user-custom-tool-result
+    (BetaManagedAgentsEventParams/ofUserCustomToolResult
+     (let [b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEventParams/builder)]
+       (.customToolUseId b ^String (:custom-tool-use-id event))
+       (.type b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserCustomToolResultEventParams$Type/of "user_custom_tool_result"))
+       (when (contains? event :is-error) (.isError b (boolean (:is-error event))))
+       (doseq [content (:content event)]
+         (when (= :text (:type content)) (.addTextContent b ^String (:text content))))
+       (.build b)))
+    :user-tool-result
+    (BetaManagedAgentsEventParams/ofUserToolResult
+     (let [b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolResultEventParams/builder)]
+       (.toolUseId b ^String (:tool-use-id event))
+       (.type b (com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserToolResultEventParams$Type/of "user_tool_result"))
+       (when (contains? event :is-error) (.isError b (boolean (:is-error event))))
+       (doseq [content (:content event)]
+         (when (= :text (:type content)) (.addTextContent b ^String (:text content))))
+       (.build b)))
     (throw (ex-info (str "Unknown event type " type)
                     {:anthropic/error :unknown-event-type :type type}))))
 
@@ -1563,14 +1638,18 @@
     (doseq [event events] (.addEvent b (->session-event event)))
     (.build b)))
 
+(defn- image-source->map
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source source]
+  (cond
+    (.isBase64 source) {:type :base64 :media-type (.mediaType (.asBase64 source)) :data (.data (.asBase64 source))}
+    (.isUrl source) {:type :url :url (.url (.asUrl source))}
+    :else {:type :file :file-id (.fileId (.asFile source))}))
+
 (defn- user-content->map [^BetaManagedAgentsUserMessageEvent$Content c]
   (cond
     (.isText c) (.text ^BetaManagedAgentsTextBlock (.asText c))
     (.isImage c) {:type :image
-                  :source (cond
-                            (.isBase64 (.source (.asImage c))) {:type :base64}
-                            (.isUrl (.source (.asImage c))) {:type :url}
-                            :else {:type :file})}
+                  :source (image-source->map (.source (.asImage c)))}
     (.isDocument c) (let [d (.asDocument c)]
                       (cond-> {:type :document
                                :source (cond
@@ -1602,6 +1681,15 @@
     (unopt (.outcomeId e)) (assoc :outcome-id (unopt (.outcomeId e)))
     (unopt (.isError e)) (assoc :is-error (unopt (.isError e)))))
 
+(defn- event-payload->map [^BetaManagedAgentsSessionEvent event]
+  (let [m (json->clj (._json event))]
+    (dissoc (walk/postwalk (fn [x]
+                             (if (keyword? x)
+                               (keyword (str/replace (name x) "_" "-"))
+                               x)) m)
+            :type :id :processed-at :session-thread-id :tool-use-id :name
+            :agent-name :iteration :outcome-id :is-error)))
+
 (defn- session-event->map [^BetaManagedAgentsSessionEvent e]
   (cond
     (.isUserMessage e)
@@ -1632,35 +1720,46 @@
                                                 (._additionalProperties ^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionUpdatedEvent$Metadata
                                                                          (unopt (.metadata r)))))
         )))
-    (.isUserInterrupt e) (session-event-common->map e :user-interrupt)
-    (.isUserToolConfirmation e) (session-event-common->map e :user-tool-confirmation)
-    (.isUserCustomToolResult e) (session-event-common->map e :user-custom-tool-result)
-    (.isAgentCustomToolUse e) (session-event-common->map e :agent-custom-tool-use)
-    (.isAgentMessage e) (session-event-common->map e :agent-message)
-    (.isAgentThinking e) (session-event-common->map e :agent-thinking)
-    (.isAgentMcpToolUse e) (session-event-common->map e :agent-mcp-tool-use)
-    (.isAgentMcpToolResult e) (session-event-common->map e :agent-mcp-tool-result)
-    (.isAgentToolUse e) (session-event-common->map e :agent-tool-use)
-    (.isAgentToolResult e) (session-event-common->map e :agent-tool-result)
-    (.isAgentThreadMessageReceived e) (session-event-common->map e :agent-thread-message-received)
-    (.isAgentThreadMessageSent e) (session-event-common->map e :agent-thread-message-sent)
-    (.isAgentThreadContextCompacted e) (session-event-common->map e :agent-thread-context-compacted)
-    (.isSessionError e) (session-event-common->map e :session-error)
-    (.isSessionStatusRescheduled e) (session-event-common->map e :session-status-rescheduled)
-    (.isSessionStatusRunning e) (session-event-common->map e :session-status-running)
-    (.isSessionStatusIdle e) (session-event-common->map e :session-status-idle)
-    (.isSessionStatusTerminated e) (session-event-common->map e :session-status-terminated)
-    (.isSessionThreadCreated e) (session-event-common->map e :session-thread-created)
-    (.isSpanOutcomeEvaluationStart e) (session-event-common->map e :span-outcome-evaluation-start)
-    (.isSpanOutcomeEvaluationEnd e) (session-event-common->map e :span-outcome-evaluation-end)
-    (.isSpanModelRequestStart e) (session-event-common->map e :span-model-request-start)
-    (.isSpanModelRequestEnd e) (session-event-common->map e :span-model-request-end)
-    (.isSpanOutcomeEvaluationOngoing e) (session-event-common->map e :span-outcome-evaluation-ongoing)
-    (.isSessionDeleted e) (session-event-common->map e :session-deleted)
-    (.isSessionThreadStatusRunning e) (session-event-common->map e :session-thread-status-running)
-    (.isSessionThreadStatusIdle e) (session-event-common->map e :session-thread-status-idle)
-    (.isSessionThreadStatusTerminated e) (session-event-common->map e :session-thread-status-terminated)
-    (.isUserToolResult e) (session-event-common->map e :user-tool-result)
+    (.isUserInterrupt e) (merge (session-event-common->map e :user-interrupt)
+                                (event-payload->map (.asUserInterrupt e)))
+    (.isUserToolConfirmation e) (merge (session-event-common->map e :user-tool-confirmation)
+                                      (event-payload->map (.asUserToolConfirmation e)))
+    (.isUserCustomToolResult e) (merge (session-event-common->map e :user-custom-tool-result)
+                                      (event-payload->map (.asUserCustomToolResult e)))
+    (.isAgentCustomToolUse e) (merge (session-event-common->map e :agent-custom-tool-use)
+                                     (event-payload->map (.asAgentCustomToolUse e)))
+    (.isAgentMessage e) (merge (session-event-common->map e :agent-message)
+                               (event-payload->map (.asAgentMessage e)))
+    (.isAgentThinking e) (merge (session-event-common->map e :agent-thinking)
+                                (event-payload->map (.asAgentThinking e)))
+    (.isAgentMcpToolUse e) (merge (session-event-common->map e :agent-mcp-tool-use)
+                                  (event-payload->map (.asAgentMcpToolUse e)))
+    (.isAgentMcpToolResult e) (merge (session-event-common->map e :agent-mcp-tool-result)
+                                    (event-payload->map (.asAgentMcpToolResult e)))
+    (.isAgentToolUse e) (merge (session-event-common->map e :agent-tool-use)
+                               (event-payload->map (.asAgentToolUse e)))
+    (.isAgentToolResult e) (merge (session-event-common->map e :agent-tool-result)
+                                  (event-payload->map (.asAgentToolResult e)))
+    (.isAgentThreadMessageReceived e) (merge (session-event-common->map e :agent-thread-message-received) (event-payload->map (.asAgentThreadMessageReceived e)))
+    (.isAgentThreadMessageSent e) (merge (session-event-common->map e :agent-thread-message-sent) (event-payload->map (.asAgentThreadMessageSent e)))
+    (.isAgentThreadContextCompacted e) (merge (session-event-common->map e :agent-thread-context-compacted) (event-payload->map (.asAgentThreadContextCompacted e)))
+    (.isSessionError e) (merge (session-event-common->map e :session-error) (event-payload->map (.asSessionError e)))
+    (.isSessionStatusRescheduled e) (merge (session-event-common->map e :session-status-rescheduled) (event-payload->map (.asSessionStatusRescheduled e)))
+    (.isSessionStatusRunning e) (merge (session-event-common->map e :session-status-running) (event-payload->map (.asSessionStatusRunning e)))
+    (.isSessionStatusIdle e) (merge (session-event-common->map e :session-status-idle) (event-payload->map (.asSessionStatusIdle e)))
+    (.isSessionStatusTerminated e) (merge (session-event-common->map e :session-status-terminated) (event-payload->map (.asSessionStatusTerminated e)))
+    (.isSessionThreadCreated e) (merge (session-event-common->map e :session-thread-created) (event-payload->map (.asSessionThreadCreated e)))
+    (.isSpanOutcomeEvaluationStart e) (merge (session-event-common->map e :span-outcome-evaluation-start) (event-payload->map (.asSpanOutcomeEvaluationStart e)))
+    (.isSpanOutcomeEvaluationEnd e) (merge (session-event-common->map e :span-outcome-evaluation-end) (event-payload->map (.asSpanOutcomeEvaluationEnd e)))
+    (.isSpanModelRequestStart e) (merge (session-event-common->map e :span-model-request-start) (event-payload->map (.asSpanModelRequestStart e)))
+    (.isSpanModelRequestEnd e) (merge (session-event-common->map e :span-model-request-end) (event-payload->map (.asSpanModelRequestEnd e)))
+    (.isSpanOutcomeEvaluationOngoing e) (merge (session-event-common->map e :span-outcome-evaluation-ongoing) (event-payload->map (.asSpanOutcomeEvaluationOngoing e)))
+    (.isSessionDeleted e) (merge (session-event-common->map e :session-deleted) (event-payload->map (.asSessionDeleted e)))
+    (.isSessionThreadStatusRunning e) (merge (session-event-common->map e :session-thread-status-running) (event-payload->map (.asSessionThreadStatusRunning e)))
+    (.isSessionThreadStatusIdle e) (merge (session-event-common->map e :session-thread-status-idle) (event-payload->map (.asSessionThreadStatusIdle e)))
+    (.isSessionThreadStatusTerminated e) (merge (session-event-common->map e :session-thread-status-terminated) (event-payload->map (.asSessionThreadStatusTerminated e)))
+    (.isUserToolResult e) (merge (session-event-common->map e :user-tool-result)
+                                 (event-payload->map (.asUserToolResult e)))
     (.isSessionThreadStatusRescheduled e) (session-event-common->map e :session-thread-status-rescheduled)
     :else {:type :unknown}))
 
@@ -1696,11 +1795,28 @@
                                   (.send (->event-send-params session-id events))))))
 
 (defn list-session-events
-  "List session events (pages followed) as normalized event maps."
-  [^AnthropicClient client ^String session-id]
+  "List session events (pages followed) as normalized event maps. Options include
+  `:created-at-gt`, `:created-at-gte`, `:created-at-lt`, `:created-at-lte`, `:limit`,
+  `:order`, `:page`, `:types`, and `:betas`."
+  ([^AnthropicClient client ^String session-id]
+   (list-session-events client session-id {}))
+  ([^AnthropicClient client ^String session-id opts]
   (with-api-errors
-    (let [^EventListPage p (-> (.beta client) (.sessions) (.events) (.list session-id))]
-      (mapv session-event->map (.autoPager p)))))
+    (let [b (com.anthropic.models.beta.sessions.events.EventListParams/builder)]
+      (.sessionId b ^String session-id)
+      (when (:created-at-gt opts) (.createdAtGt b (->offset-date-time (:created-at-gt opts))))
+      (when (:created-at-gte opts) (.createdAtGte b (->offset-date-time (:created-at-gte opts))))
+      (when (:created-at-lt opts) (.createdAtLt b (->offset-date-time (:created-at-lt opts))))
+      (when (:created-at-lte opts) (.createdAtLte b (->offset-date-time (:created-at-lte opts))))
+      (when (:limit opts) (.limit b (int (:limit opts))))
+      (when (:order opts) (.order b (com.anthropic.models.beta.sessions.events.EventListParams$Order/of
+                                     (if (keyword? (:order opts)) (name (:order opts)) (:order opts)))))
+      (when (:page opts) (.page b ^String (:page opts)))
+      (when (:types opts) (.types b ^java.util.List
+                                   (mapv #(if (keyword? %) (name %) %) (:types opts))))
+      (doseq [beta (->beta-names (:betas opts))] (.addBeta b ^String beta))
+      (let [^EventListPage p (-> (.beta client) (.sessions) (.events) (.list (.build b)))]
+        (mapv session-event->map (.autoPager p)))))))
 
 ;; ---- Event streams --------------------------------------------------------
 
@@ -1847,12 +1963,13 @@
 
 (defn- ->thread-event-list-params
   ^com.anthropic.models.beta.sessions.threads.events.EventListParams
-  [session-id thread-id {:keys [limit page]}]
+  [session-id thread-id {:keys [limit page betas]}]
   (let [b (com.anthropic.models.beta.sessions.threads.events.EventListParams/builder)]
     (.sessionId b ^String session-id)
     (.threadId b ^String thread-id)
     (when limit (.limit b (int limit)))
     (when page (.page b ^String page))
+    (doseq [beta (->beta-names betas)] (.addBeta b ^String beta))
     (.build b)))
 
 (defn list-thread-events
@@ -2186,10 +2303,7 @@
   (cond
     (.isText c) (.text ^com.anthropic.models.beta.sessions.events.BetaManagedAgentsTextBlock (.asText c))
     (.isImage c) {:type :image
-                  :source (cond
-                            (.isBase64 (.source (.asImage c))) {:type :base64}
-                            (.isUrl (.source (.asImage c))) {:type :url}
-                            :else {:type :file})}
+                  :source (image-source->map (.source (.asImage c)))}
     (.isDocument c) (let [d (.asDocument c)]
                       (cond-> {:type :document
                                :source (cond
@@ -2566,18 +2680,29 @@
 
 (defn- ->environment-work-heartbeat-params
   ^com.anthropic.models.beta.environments.work.WorkHeartbeatParams
-  [environment-id work-id]
+  (^com.anthropic.models.beta.environments.work.WorkHeartbeatParams [environment-id work-id]
+   (->environment-work-heartbeat-params environment-id work-id {}))
+  (^com.anthropic.models.beta.environments.work.WorkHeartbeatParams
+   [environment-id work-id {:keys [desired-ttl-seconds expected-last-heartbeat]}]
   (let [b (com.anthropic.models.beta.environments.work.WorkHeartbeatParams/builder)]
     (.environmentId b ^String environment-id)
     (.workId b ^String work-id)
-    (.build b)))
+    (when desired-ttl-seconds (.desiredTtlSeconds b (long desired-ttl-seconds)))
+    (when expected-last-heartbeat (.expectedLastHeartbeat b ^String expected-last-heartbeat))
+    (.build b))))
 
 (defn- ->environment-work-poll-params
   ^com.anthropic.models.beta.environments.work.WorkPollParams
-  [environment-id]
+  (^com.anthropic.models.beta.environments.work.WorkPollParams [environment-id]
+   (->environment-work-poll-params environment-id {}))
+  (^com.anthropic.models.beta.environments.work.WorkPollParams
+   [environment-id {:keys [block-ms reclaim-older-than-ms anthropic-worker-id]}]
   (let [b (com.anthropic.models.beta.environments.work.WorkPollParams/builder)]
     (.environmentId b ^String environment-id)
-    (.build b)))
+    (when block-ms (.blockMs b (long block-ms)))
+    (when reclaim-older-than-ms (.reclaimOlderThanMs b (long reclaim-older-than-ms)))
+    (when anthropic-worker-id (.anthropicWorkerId b ^String anthropic-worker-id))
+    (.build b))))
 
 (defn- ->environment-work-stats-params
   ^com.anthropic.models.beta.environments.work.WorkStatsParams
@@ -2656,15 +2781,21 @@
     (environment-work->map (-> (.beta client) (.environments) (.work)
                              (.ack (->environment-work-ack-params environment-id work-id))))))
 
-(defn heartbeat-environment-work [^AnthropicClient client ^String environment-id ^String work-id]
-  (with-api-errors
-    (environment-work-heartbeat->map (-> (.beta client) (.environments) (.work)
-                                       (.heartbeat (->environment-work-heartbeat-params environment-id work-id))))))
+(defn heartbeat-environment-work
+  ([^AnthropicClient client ^String environment-id ^String work-id]
+   (heartbeat-environment-work client environment-id work-id {}))
+  ([^AnthropicClient client ^String environment-id ^String work-id opts]
+   (with-api-errors
+     (environment-work-heartbeat->map (-> (.beta client) (.environments) (.work)
+                                        (.heartbeat (->environment-work-heartbeat-params environment-id work-id opts)))))))
 
-(defn poll-environment-work [^AnthropicClient client ^String environment-id]
-  (with-api-errors
-    (environment-work-optional->map (-> (.beta client) (.environments) (.work)
-                                        (.poll (->environment-work-poll-params environment-id))))))
+(defn poll-environment-work
+  ([^AnthropicClient client ^String environment-id]
+   (poll-environment-work client environment-id {}))
+  ([^AnthropicClient client ^String environment-id opts]
+   (with-api-errors
+     (environment-work-optional->map (-> (.beta client) (.environments) (.work)
+                                         (.poll (->environment-work-poll-params environment-id opts)))))))
 
 (defn environment-work-stats [^AnthropicClient client ^String environment-id]
   (with-api-errors
