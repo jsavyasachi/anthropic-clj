@@ -179,6 +179,10 @@
                                                BetaWebhookSessionCreatedEventData
                                                BetaWebhookSessionBudgetReachedEventData
                                                UnwrapWebhookEvent)
+           (com.anthropic.models.beta.models BetaModelInfo
+                                             ModelListPage
+                                             ModelListParams
+                                             ModelRetrieveParams)
            (java.util Optional)))
 
 (set! *warn-on-reflection* true)
@@ -292,6 +296,19 @@
 (defn- json->clj [^JsonValue jv]
   (java->clj (.convert jv java.lang.Object)))
 
+(defn- normalize-model-data [x]
+  (cond
+    (map? x) (reduce-kv (fn [m k v]
+                          (let [k' (-> (name k)
+                                       (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
+                                       (str/replace "_" "-")
+                                       str/lower-case
+                                       keyword)]
+                            (assoc m k' (normalize-model-data v))))
+                        {} x)
+    (sequential? x) (mapv normalize-model-data x)
+    :else x))
+
 (defn- ->keyword [x]
   (-> x str str/lower-case (str/replace #"[._]" "-") keyword))
 
@@ -307,6 +324,70 @@
   (when-let [limit (:limit opts)] (set-limit limit))
   (when-let [page (:page opts)] (set-page page))
   (doseq [beta (->beta-names (:betas opts))] (add-beta beta)))
+
+(defn- ->beta-model-list-params
+  ^ModelListParams
+  ([opts]
+   (let [opts (or opts {})
+         b (ModelListParams/builder)]
+     (when-let [limit (:limit opts)] (.limit b (long limit)))
+     (when-let [before-id (:before-id opts)] (.beforeId b ^String before-id))
+     (when-let [after-id (:after-id opts)] (.afterId b ^String after-id))
+     (doseq [beta (->beta-names (:betas opts))]
+       (.addBeta b ^String beta))
+     (.build b))))
+
+(defn- ->beta-model-retrieve-params
+  ^ModelRetrieveParams
+  ([model-id] (->beta-model-retrieve-params model-id {}))
+  ([model-id opts]
+   (let [opts (or opts {})
+         b (ModelRetrieveParams/builder)]
+     (.modelId b ^String model-id)
+     (doseq [beta (->beta-names (:betas opts))]
+       (.addBeta b ^String beta))
+     (.build b))))
+
+(defn- beta-model->map
+  ^clojure.lang.IPersistentMap
+  [^BetaModelInfo m]
+  (let [fallbacks (.allowedFallbackModels m)
+        caps (.capabilities m)
+        mit (.maxInputTokens m)
+        mt (.maxTokens m)]
+    (cond-> {:id (.id m)
+             :display-name (.displayName m)
+             :created-at (str (.createdAt m))
+             :type (->keyword (json->clj (._type m)))}
+      (.isPresent fallbacks) (assoc :allowed-fallback-models (.get fallbacks))
+      (.isPresent mit) (assoc :max-input-tokens (.get mit))
+      (.isPresent mt) (assoc :max-tokens (.get mt))
+      (.isPresent caps) (assoc :capabilities
+                               (normalize-model-data
+                                (json->clj (JsonValue/from ^com.anthropic.models.beta.models.BetaModelCapabilities
+                                                           (.get caps))))))))
+
+(defn list-beta-models
+  "List beta models as maps, newest first. Optional `opts` accepts `:limit`,
+  `:before-id`, `:after-id`, and free-form string or keyword `:betas`. Each map
+  includes the stable model keys plus `:allowed-fallback-models` and `:type`
+  when the API reports them. Pages are followed automatically."
+  ([^AnthropicClient client]
+   (list-beta-models client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^ModelListParams params (->beta-model-list-params opts)
+           ^ModelListPage p (-> (.beta client) (.models) (.list params))]
+       (mapv beta-model->map (.autoPager p))))))
+
+(defn get-beta-model
+  "Retrieve one beta model's info by id as a map shaped like `list-beta-models`' entries."
+  ([^AnthropicClient client ^String model-id]
+   (get-beta-model client model-id {}))
+  ([^AnthropicClient client ^String model-id opts]
+   (with-api-errors
+     (let [^ModelRetrieveParams params (->beta-model-retrieve-params model-id opts)]
+       (beta-model->map (-> (.beta client) (.models) (.retrieve params)))))))
 
 (defn- ->enum-value [value allowed constructor key]
   (let [value (if (keyword? value) value (->keyword value))]

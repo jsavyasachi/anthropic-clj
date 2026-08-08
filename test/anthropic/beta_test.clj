@@ -85,7 +85,15 @@
                                                BetaWebhookMemoryStoreCreatedEventData
                                                BetaWebhookMemoryStoreDeletedEventData
                                                BetaWebhookSessionCreatedEventData
-                                               UnwrapWebhookEvent)))
+                                               UnwrapWebhookEvent)
+           (com.anthropic.models.beta.models BetaCapabilitySupport
+                                             BetaContextManagementCapability
+                                             BetaEffortCapability
+                                             BetaModelCapabilities
+                                             BetaModelInfo
+                                             BetaThinkingCapability
+                                             BetaThinkingTypes)
+           (java.util Optional)))
 
 (def ->skill-create-params #'beta/->skill-create-params)
 (def ->memory-store-create-params #'beta/->memory-store-create-params)
@@ -190,6 +198,88 @@
 
 (defn- ex-data-for [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(deftest beta-model-list-params-are-wired
+  (let [f (private-fn '->beta-model-list-params)
+        p (when f (f {:limit 7 :before-id "before" :after-id "after"
+                      :betas [:beta-one "beta-two"]}))]
+    (is (some? p) "beta model list params must be built")
+    (when p
+      (is (= 7 (opt (.limit p))))
+      (is (= "before" (opt (.beforeId p))))
+      (is (= "after" (opt (.afterId p))))
+      (is (= ["beta-one" "beta-two"]
+             (mapv #(.asString %) (opt (.betas p))))))))
+
+(deftest beta-model-params-accept-no-options
+  (doseq [[name args] [['->beta-model-list-params [{}]]
+                       ['->beta-model-retrieve-params ["model_1" {}]]]]
+    (let [f (private-fn (symbol name))]
+      (is (some? (when f (apply f args)))
+          (str name " must support omitted opts")))))
+
+(deftest beta-model-response-maps-all-fields
+  (let [support (-> (BetaCapabilitySupport/builder) (.supported true) (.build))
+        context (-> (BetaContextManagementCapability/builder)
+                    (.clearThinking20251015 support)
+                    (.clearToolUses20250919 support)
+                    (.compact20260112 support)
+                    (.supported true)
+                    (.build))
+        effort (-> (BetaEffortCapability/builder)
+                   (.high support) (.low support) (.max support)
+                   (.medium support) (.xhigh (Optional/of support))
+                   (.supported true) (.build))
+        thinking-types (-> (BetaThinkingTypes/builder)
+                           (.adaptive support) (.enabled support) (.build))
+        thinking (-> (BetaThinkingCapability/builder)
+                     (.supported true) (.types thinking-types) (.build))
+        capabilities (-> (BetaModelCapabilities/builder)
+                         (.batch support) (.citations support)
+                         (.codeExecution support) (.contextManagement context)
+                         (.effort effort) (.imageInput support)
+                         (.pdfInput support) (.structuredOutputs support)
+                         (.thinking thinking)
+                         (.build))
+        model (-> (BetaModelInfo/builder)
+                  (.id "model_1")
+                  (.displayName "Beta Model")
+                  (.createdAt (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z"))
+                  (.allowedFallbackModels ["fallback_1"])
+                  (.capabilities capabilities)
+                  (.maxInputTokens 200000)
+                  (.maxTokens 64000)
+                  (.type (JsonValue/from "model"))
+                  (.build))
+        f (private-fn 'beta-model->map)
+        actual (when f (f model))]
+    (is (= {:id "model_1"
+            :display-name "Beta Model"
+            :created-at "2026-07-04T00:00Z"
+            :allowed-fallback-models ["fallback_1"]
+            :max-input-tokens 200000
+            :max-tokens 64000
+            :capabilities {:batch {:supported true}
+                           :citations {:supported true}
+                           :code-execution {:supported true}
+                           :context-management {:clear-thinking-20251015 {:supported true}
+                                                 :clear-tool-uses-20250919 {:supported true}
+                                                 :compact-20260112 {:supported true}
+                                                 :supported true}
+                           :effort {:high {:supported true}
+                                    :low {:supported true}
+                                    :max {:supported true}
+                                    :medium {:supported true}
+                                    :xhigh {:supported true}
+                                    :supported true}
+                           :image-input {:supported true}
+                           :pdf-input {:supported true}
+                           :structured-outputs {:supported true}
+                           :thinking {:supported true
+                                      :types {:adaptive {:supported true}
+                                              :enabled {:supported true}}}}
+            :type :model}
+           actual))))
 
 (deftest every-beta-list-builder-is-wired
   (doseq [name '[->skill-list-params ->version-list-params
