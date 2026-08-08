@@ -1031,6 +1031,14 @@
     (is (some? (#'a/->params {:model "m"
                               :messages [{:role :assistant :content [m]}]})))))
 
+(deftest redacted-thinking-block-round-trips-with-data
+  (let [blk (com.anthropic.models.messages.ContentBlock/ofRedactedThinking
+             (-> (com.anthropic.models.messages.RedactedThinkingBlock/builder)
+                 (.data "encrypted")
+                 (.build)))
+        m (#'a/block->map blk)]
+    (is (= {:type :redacted-thinking :data "encrypted"} m))))
+
 (defn- model-info
   "Build a ModelInfo with required fields; token limits optional."
   ^ModelInfo [id display-name mit mt]
