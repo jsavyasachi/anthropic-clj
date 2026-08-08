@@ -7,8 +7,9 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 Closes every known parity gap against `anthropic-java` 2.53.0. Every non-deprecated
 operation, request field, and response field the SDK exposes is now reachable through
-a Clojure-shaped map, verified by repeated independent audits of the SDK jar rather
-than asserted.
+a Clojure-shaped map. This was verified by repeated independent audits of the SDK jar
+rather than asserted: the final audit reports no unreachable operation and no dropped
+field.
 
 ### Added
 - Every list operation takes an options map exposing the filters, pagination, ordering,
@@ -38,6 +39,15 @@ than asserted.
   the SDK can send instead of collapsing unrecognized ones. Guards assert every variant
   of every mapped union has a branch, so a variant added by a future SDK release fails
   the suite rather than silently mapping to unknown.
+- The beta model service, through `list-beta-models` and `get-beta-model`. It is not the
+  stable model service: it reports the allowed fallback models the stable one does not.
+- Citations on system, text, document, and search-result blocks, on both paths.
+- Token counting takes every param message creation takes.
+- Tool use blocks carry their `:caller`, and session event send responses carry each
+  variant's typed payload.
+- Enum-valued response fields are keywords throughout, matching how the rest of the
+  library represents them. Model ids stay strings: they are opaque identifiers the API
+  accepts back verbatim, not a closed set.
 
 ### Added, earlier in this release
 - Stable web fetch accepts `:use-cache` and `:citations`, matching the shapes the

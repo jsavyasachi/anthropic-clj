@@ -28,21 +28,26 @@ behind. This one wraps Anthropic's own actively-maintained Java SDK instead, so
 streaming, tool use, retries, and new model ids stay close to Anthropic's Java
 surface. The wrapper commits to idiomatic parity with the SDK: every
 non-deprecated operation gets a Clojure-shaped fn (maps in, maps out, keywords
-for roles and block types), with a few Clojure-native conveniences (a native
-`run-tools` loop, model-id keyword aliases) layered on top and marked as such.
+for roles and block types), every request field the SDK accepts is reachable from
+a map key, and every response field it returns comes back as plain data. A few
+Clojure-native conveniences (a native `run-tools` loop, model-id keyword aliases)
+are layered on top and marked as such.
+
+Parity is checked against the SDK jar, not asserted. Where the stable and beta
+Messages APIs both offer a capability, a request map moves between them unchanged.
 
 ## Installation
 
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.22.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.23.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.22.0"]
+[net.clojars.savya/anthropic-clj "0.23.0"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
