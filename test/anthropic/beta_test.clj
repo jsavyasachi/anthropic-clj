@@ -1215,7 +1215,7 @@
         m (agent->map r)]
     (is (= :agent (:type m)))
     (is (= [{:type :custom :skill-id "skill_1" :version "2"}] (:skills m)))
-    (is (= [{:name "github" :url "https://mcp.example.test"}] (:mcp-servers m)))
+    (is (= [{:name "github" :url "https://mcp.example.test" :type :url}] (:mcp-servers m)))
     (is (= [{:type :agent-toolset-20260401 :configs [] :default-config {:enabled true :permission-policy {:type :always-ask}}}
             {:type :mcp-toolset :mcp-server-name "github" :configs [] :default-config {:enabled true :permission-policy {:type :always-ask}}}] (:tools m)))
     (is (= :high (:effort m)))
@@ -1726,7 +1726,8 @@
     (is (ifn? f))
     (when f
       (is (= {:credential-id "cred_1" :vault-id "vault_1" :has-refresh-token true
-              :status :valid :validated-at "2026-07-22T00:00Z"}
+              :status :valid :type :vault-credential-validation
+              :validated-at "2026-07-22T00:00Z"}
              (f r))))))
 
 (deftest skill-version-response-mapping
@@ -2301,3 +2302,26 @@
   (is (= :unknown-deployment-run-trigger-context-type
          (:anthropic/error
           (ex-data-for #((private-fn 'deployment-run-trigger-context->map) (Object.)))))))
+
+(deftest credential-validation-carries-nested-http-responses
+  ;; The probe and refresh objects each carry an HTTP response whose body, content
+  ;; type, status code, and truncation flag were dropped.
+  (let [http (-> (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsRefreshHttpResponse/builder)
+                 (.body "{\"ok\":true}") (.bodyTruncated false)
+                 (.contentType "application/json") (.statusCode 200) (.build))
+        probe (-> (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsMcpProbe/builder)
+                  (.method "POST") (.httpResponse http) (.build))
+        refresh (-> (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsRefreshObject/builder)
+                    (.status (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsRefreshObject$Status/of "succeeded"))
+                    (.httpResponse http) (.build))
+        ts (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z")
+        r (-> (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidation/builder)
+              (.credentialId "cred_1") (.vaultId "vault_1") (.hasRefreshToken true)
+              (.status (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidationStatus/of "valid"))
+              (.type (com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidation$Type/of "vault_credential_validation"))
+              (.mcpProbe probe) (.refresh refresh) (.validatedAt ts) (.build))
+        m ((ns-resolve 'anthropic.beta 'credential-validation->map) r)
+        expected {:body "{\"ok\":true}" :body-truncated false
+                  :content-type "application/json" :status-code 200}]
+    (is (= expected (get-in m [:mcp-probe :http-response])))
+    (is (= expected (get-in m [:refresh :http-response])))))

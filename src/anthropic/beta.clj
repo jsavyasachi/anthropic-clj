@@ -1261,7 +1261,7 @@
     :else {:type :unknown}))
 
 (defn- mcp-server->map [^BetaManagedAgentsMcpServerUrlDefinition s]
-  {:name (.name s) :url (.url s)})
+  {:name (.name s) :url (.url s) :type (->keyword (.asString (.type s)))})
 
 (defn- permission-policy->map [p]
   (cond
@@ -3320,14 +3320,30 @@
 (defn- ->credential-mcp-oauth-validate-params [vault-id credential-id]
   (let [b (com.anthropic.models.beta.vaults.credentials.CredentialMcpOAuthValidateParams/builder)]
     (.vaultId b ^String vault-id) (.credentialId b ^String credential-id) (.build b)))
+(defn- refresh-http-response->map
+  [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsRefreshHttpResponse h]
+  {:body (.body h)
+   :body-truncated (.bodyTruncated h)
+   :content-type (.contentType h)
+   :status-code (.statusCode h)})
+
 (defn- credential-validation->map [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsCredentialValidation r]
   (let [^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsMcpProbe probe (unopt (.mcpProbe r))
         ^com.anthropic.models.beta.vaults.credentials.BetaManagedAgentsRefreshObject refresh (unopt (.refresh r))]
     (cond-> {:credential-id (.credentialId r) :vault-id (.vaultId r)
              :has-refresh-token (.hasRefreshToken r) :status (keyword (str (.status r)))
+             :type (->keyword (.asString (.type r)))
              :validated-at (str (.validatedAt r))}
-      probe (assoc :mcp-probe {:method (.method probe)})
-      refresh (assoc :refresh {:status (keyword (str (.status refresh)))}))))
+      probe (assoc :mcp-probe
+                   (cond-> {:method (.method probe)}
+                     (unopt (.httpResponse probe))
+                     (assoc :http-response (refresh-http-response->map
+                                            (unopt (.httpResponse probe))))))
+      refresh (assoc :refresh
+                     (cond-> {:status (keyword (str (.status refresh)))}
+                       (unopt (.httpResponse refresh))
+                       (assoc :http-response (refresh-http-response->map
+                                              (unopt (.httpResponse refresh)))))))))
 (defn create-vault-credential [^AnthropicClient client ^String vault-id req] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.create (->credential-create-params vault-id req))))))
 (defn get-vault-credential [^AnthropicClient client ^String vault-id ^String credential-id] (with-api-errors (credential->map (-> (.beta client) (.vaults) (.credentials) (.retrieve (->credential-retrieve-params vault-id credential-id))))))
 (defn list-vault-credentials
