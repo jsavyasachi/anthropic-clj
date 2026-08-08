@@ -1182,26 +1182,80 @@
 (defn- mcp-server->map [^BetaManagedAgentsMcpServerUrlDefinition s]
   {:name (.name s) :url (.url s)})
 
+(defn- permission-policy->map [p]
+  (cond
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetDefaultConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetDefaultConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    :else {:type :unknown}))
+
+(defn- custom-tool->map [^BetaManagedAgentsCustomTool tool]
+  {:type :custom :name (.name tool) :description (.description tool)
+   :input-schema (let [^BetaManagedAgentsCustomToolInputSchema s (.inputSchema tool)]
+                   (cond-> {:type (json->clj (._type s))}
+                     (unopt (.properties s))
+                     (assoc :properties
+                            (additional-properties->map
+                             (._additionalProperties
+                              ^com.anthropic.models.beta.agents.BetaManagedAgentsCustomToolInputSchema$Properties
+                              (unopt (.properties s)))))
+                     (unopt (.required s)) (assoc :required (unopt (.required s)))))} )
+
+(defn- mcp-tool-config->map
+  [^com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolConfig c]
+  {:name (.name c) :enabled (.enabled c) :permission-policy (permission-policy->map (.permissionPolicy c))})
+
+(defn- mcp-default-config->map
+  [^com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetDefaultConfig c]
+  {:enabled (.enabled c) :permission-policy (permission-policy->map (.permissionPolicy c))})
+
+(defn- agent-tool-config->map
+  [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig c]
+  {:name (->keyword (.asString (.name c))) :enabled (.enabled c)
+   :permission-policy (permission-policy->map (.permissionPolicy c))})
+
+(defn- agent-default-config->map
+  [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig c]
+  {:enabled (.enabled c) :permission-policy (permission-policy->map (.permissionPolicy c))})
+
+(defn- agent-tool-payload->map [t]
+  (cond
+    (instance? BetaManagedAgentsCustomTool t)
+    (custom-tool->map t)
+    (instance? BetaManagedAgentsMcpToolset t)
+    (let [^BetaManagedAgentsMcpToolset tool t]
+      {:type :mcp-toolset :mcp-server-name (.mcpServerName tool)
+       :configs (mapv mcp-tool-config->map (.configs tool))
+       :default-config (mcp-default-config->map (.defaultConfig tool))})
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401 t)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401 tool t]
+      {:type :agent-toolset-20260401
+       :configs (mapv agent-tool-config->map (.configs tool))
+       :default-config (agent-default-config->map (.defaultConfig tool))})
+    :else {:type :unknown}))
+
 (defn- agent-tool->map [^BetaManagedAgentsAgent$Tool t]
   (cond
-    (.isCustom t)
-    (let [^BetaManagedAgentsCustomTool tool (.asCustom t)]
-      {:type :custom :name (.name tool) :description (.description tool)
-       :input-schema (let [s (.inputSchema tool)]
-                       (cond-> {:type (json->clj (._type s))}
-                         (unopt (.required s)) (assoc :required (unopt (.required s)))))} )
-    (.isMcpToolset t)
-    (let [^BetaManagedAgentsMcpToolset tool (.asMcpToolset t)]
-      {:type :mcp-toolset :mcp-server-name (.mcpServerName tool)
-       :configs (mapv (fn [^com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolConfig c]
-                        {:name (.name c) :enabled (.enabled c)}) (.configs tool))
-       :default-config {:enabled (.enabled (.defaultConfig tool))}})
-    (.isAgentToolset20260401 t)
-    (let [tool (.asAgentToolset20260401 t)]
-      {:type :agent-toolset-20260401
-       :configs (mapv (fn [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig c]
-                        {:name (.name c) :enabled (.enabled c)}) (.configs tool))
-       :default-config {:enabled (.enabled (.defaultConfig tool))}})
+    (.isCustom t) (agent-tool-payload->map (.asCustom t))
+    (.isMcpToolset t) (agent-tool-payload->map (.asMcpToolset t))
+    (.isAgentToolset20260401 t) (agent-tool-payload->map (.asAgentToolset20260401 t))
     :else {:type :unknown}))
 
 (defn- model-effort->keyword [^BetaManagedAgentsModelConfig$Effort effort]
@@ -1252,14 +1306,16 @@
   `:multiagent`, `:betas`, `:inference-geo`, and `:speed` when using model config.
   Returns the agent as a map (`:id`, `:name`, `:model`, `:version`,
   `:system`, `:description`, `:skills`, `:mcp-servers`, `:tools`, `:multiagent`,
-  `:created-at`, `:updated-at`)."
+  `:created-at`, `:updated-at`). Tool maps include custom input-schema
+  `:properties`, and tool config `:permission-policy` values."
   [^AnthropicClient client req]
   (with-api-errors
     (agent->map (-> (.beta client) (.agents) (.create (->agent-create-params req))))))
 
 (defn get-agent
   "Retrieve an agent by id, as a map like `create-agent`'s return, including
-  `:multiagent` when present."
+  `:multiagent` when present. Tool maps include custom input-schema
+  `:properties` and tool config `:permission-policy` values."
   [^AnthropicClient client ^String agent-id]
   (with-api-errors
     (agent->map (-> (.beta client) (.agents) (.retrieve agent-id)))))
@@ -1279,7 +1335,8 @@
   for optimistic concurrency - see `:version` in `get-agent`'s return) plus
   `:name`, `:model`, `:inference-geo`, `:system`, `:description`, `:metadata`, or
   `:multiagent` and `:betas`. Returns the updated agent map, including
-  `:multiagent` when present."
+  `:multiagent` when present. Tool maps include custom input-schema
+  `:properties` and tool config `:permission-policy` values."
   [^AnthropicClient client ^String agent-id changes]
   (with-api-errors
     (agent->map (-> (.beta client) (.agents)
@@ -1383,9 +1440,9 @@
                          (.skills r))
            :tools (mapv (fn [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent$Tool t]
                           (cond
-                            (.isCustom t) {:type :custom :name (.name (.asCustom t))}
-                            (.isMcpToolset t) {:type :mcp-toolset :mcp-server-name (.mcpServerName (.asMcpToolset t))}
-                            (.isAgentToolset20260401 t) {:type :agent-toolset-20260401}
+                            (.isCustom t) (agent-tool-payload->map (.asCustom t))
+                            (.isMcpToolset t) (agent-tool-payload->map (.asMcpToolset t))
+                            (.isAgentToolset20260401 t) (agent-tool-payload->map (.asAgentToolset20260401 t))
                             :else {:type :unknown}))
                         (.tools r))}
     (unopt (.effort ^BetaManagedAgentsModelConfig (.model r)))
@@ -1473,13 +1530,16 @@
   via `:agent` with `:mcp-servers` and `:tools`. Returns the
   session as a map (`:id`, `:status`, `:title`, `:environment-id`,
   `:created-at`, `:updated-at`, `:budget`, and `:usage`). Resource maps may
-  include GitHub `:checkout` and memory-store `:access` and `:instructions`."
+  include GitHub `:checkout` and memory-store `:access`, `:description`,
+  `:instructions`, and `:name`. Session agent tool maps match agent tool maps,
+  including custom input-schema `:properties` and config `:permission-policy`."
   [^AnthropicClient client req]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions) (.create (->session-create-params req))))))
 
 (defn get-session
-  "Retrieve a session by id, as a map like `create-session`'s return."
+  "Retrieve a session by id, as a map like `create-session`'s return, including
+  resource GitHub `:checkout`, memory-store fields, and complete agent tool maps."
   [^AnthropicClient client ^String session-id]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions) (.retrieve session-id)))))
@@ -1487,7 +1547,8 @@
 (defn list-sessions
   "List sessions with optional `:agent-id`, `:agent-version`, timestamp
   filters, `:deployment-id`, `:include-archived`, `:limit`, `:memory-store-id`,
-  `:order`, `:page`, `:statuses`, and `:betas`."
+  `:order`, `:page`, `:statuses`, and `:betas`. Returned resource maps include
+  GitHub `:checkout`, memory-store fields, and complete agent tool maps."
   ([^AnthropicClient client] (list-sessions client {}))
   ([^AnthropicClient client opts]
    (with-api-errors
@@ -1498,14 +1559,16 @@
 (defn update-session
   "Update a session's `:title`, `:metadata`, `:budget`, `:agent`, `:vault-ids`,
   or `:betas`. Budget uses the `{:max-list-cost {:amount '...' :currency :usd}
-  :type :limit}` shape. Returns the updated session map."
+  :type :limit}` shape. Returns the updated session map with complete resource
+  and agent tool maps."
   [^AnthropicClient client ^String session-id changes]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions)
                       (.update (->session-update-params session-id changes))))))
 
 (defn archive-session
-  "Archive a session by id. Returns the archived session map."
+  "Archive a session by id. Returns the archived session map with complete
+  resource and agent tool maps."
   [^AnthropicClient client ^String session-id]
   (with-api-errors
     (session->map (-> (.beta client) (.sessions) (.archive session-id)))))
@@ -2091,6 +2154,26 @@
   (resource-as-github [r] (.asGitHubRepository ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r))
   (resource-as-memory-store [r] (.asMemoryStore ^com.anthropic.models.beta.sessions.resources.ResourceUpdateResponse r)))
 
+(defn- session-github-resource->map
+  [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x id mount-path created-at updated-at]
+  (cond-> {:type :github-repository :id (or id (.id x)) :url (.url x)
+           :mount-path mount-path}
+    (unopt (.checkout x)) (assoc :checkout (github-checkout->map (unopt (.checkout x))))
+    created-at (assoc :created-at (str created-at))
+    updated-at (assoc :updated-at (str updated-at))))
+
+(defn- session-memory-resource->map
+  [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x id mount-path created-at updated-at]
+  (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)
+           :mount-path mount-path}
+    id (assoc :id id)
+    created-at (assoc :created-at (str created-at))
+    updated-at (assoc :updated-at (str updated-at))
+    (unopt (.access x)) (assoc :access (memory-access->keyword (unopt (.access x))))
+    (unopt (.description x)) (assoc :description (unopt (.description x)))
+    (unopt (.instructions x)) (assoc :instructions (unopt (.instructions x)))
+    (unopt (.name x)) (assoc :name (unopt (.name x)))))
+
 (defn- session-resource->map [r]
   (cond
     (instance? com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource r)
@@ -2100,18 +2183,10 @@
         (.updatedAt x) (assoc :updated-at (str (.updatedAt x)))))
     (instance? com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource r)
     (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x r]
-      (cond-> {:type :github-repository :id (.id x) :url (.url x) :mount-path (.mountPath x)}
-        (unopt (.checkout x)) (assoc :checkout (github-checkout->map (unopt (.checkout x))))
-        (.createdAt x) (assoc :created-at (str (.createdAt x)))
-        (.updatedAt x) (assoc :updated-at (str (.updatedAt x)))))
+      (session-github-resource->map x (.id x) (.mountPath x) (.createdAt x) (.updatedAt x)))
     (instance? com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource r)
     (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x r]
-      (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)
-               :mount-path (unopt (.mountPath x))}
-        (unopt (.access x)) (assoc :access (memory-access->keyword (unopt (.access x))))
-        (unopt (.description x)) (assoc :description (unopt (.description x)))
-        (unopt (.instructions x)) (assoc :instructions (unopt (.instructions x)))
-        (unopt (.name x)) (assoc :name (unopt (.name x)))))
+      (session-memory-resource->map x nil (unopt (.mountPath x)) nil nil))
     (resource-is-file r)
     (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsFileResource x (resource-as-file r)]
       (cond-> {:type :file :id (resource-id r) :file-id (.fileId x)
@@ -2119,17 +2194,13 @@
         (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
         (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))
     (resource-is-github r)
-    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsGitHubRepositoryResource x (resource-as-github r)]
-      (cond-> {:type :github-repository :id (resource-id r) :url (.url x)
-               :mount-path (resource-mount-path r)}
-        (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
-        (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))
+    (session-github-resource->map (resource-as-github r) (resource-id r)
+                                  (resource-mount-path r) (resource-created-at r)
+                                  (resource-updated-at r))
     (resource-is-memory-store r)
-    (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsMemoryStoreResource x (resource-as-memory-store r)]
-      (cond-> {:type :memory-store :id (resource-id r) :memory-store-id (.memoryStoreId x)
-               :mount-path (resource-mount-path r)}
-        (resource-created-at r) (assoc :created-at (str (resource-created-at r)))
-        (resource-updated-at r) (assoc :updated-at (str (resource-updated-at r)))))
+    (session-memory-resource->map (resource-as-memory-store r) (resource-id r)
+                                  (resource-mount-path r) (resource-created-at r)
+                                  (resource-updated-at r))
     :else
     (throw (ex-info "Unsupported session resource"
                     {:anthropic/error :unknown-resource-type}))))
@@ -2142,12 +2213,21 @@
   (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources)
                                                (.add (->session-resource-add-params session-id req))))))
 
-(defn list-session-resources [^AnthropicClient client ^String session-id opts]
+(defn list-session-resources
+  "List session resources, including GitHub `:checkout` and all returned
+  memory-store fields."
+  [^AnthropicClient client ^String session-id opts]
   (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.ResourceListPage p (-> (.beta client) (.sessions) (.resources) (.list (->session-resource-list-params session-id opts)))]
                      (mapv session-resource->map (.autoPager p)))))
-(defn get-session-resource [^AnthropicClient client ^String session-id ^String resource-id]
+(defn get-session-resource
+  "Retrieve a session resource, including GitHub `:checkout` and all returned
+  memory-store fields."
+  [^AnthropicClient client ^String session-id ^String resource-id]
   (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources) (.retrieve (->session-resource-retrieve-params session-id resource-id))))))
-(defn update-session-resource [^AnthropicClient client ^String session-id ^String resource-id changes]
+(defn update-session-resource
+  "Update a session resource and return its complete mapped representation,
+  including GitHub `:checkout` and all returned memory-store fields."
+  [^AnthropicClient client ^String session-id ^String resource-id changes]
   (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources) (.update (->session-resource-update-params session-id resource-id changes))))))
 (defn delete-session-resource [^AnthropicClient client ^String session-id ^String resource-id]
   (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.BetaManagedAgentsDeleteSessionResource r (-> (.beta client) (.sessions) (.resources) (.delete (->session-resource-delete-params session-id resource-id)))] {:id (.id r) :deleted true})))
