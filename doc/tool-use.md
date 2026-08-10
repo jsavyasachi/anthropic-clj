@@ -64,13 +64,13 @@ You run the tool yourself. Then send the next message with:
                           :content "18C and sunny"}]}]})
 ```
 
-`:tool-result` `:content` can be a string or any Clojure value. Non-string
-values are JSON-encoded when converted to the SDK content block. Add
+`:tool-result` `:content` can be a string or any Clojure value. The wrapper
+JSON-encodes a non-string value when it builds the SDK content block. Add
 `:is-error true` when the tool failed.
 
 ## `run-tools`
 
-`run-tools` drives the manual loop for local functions.
+`run-tools` does the manual loop for you with local functions.
 
 ```clojure
 (def weather-tool-with-fn
@@ -94,28 +94,28 @@ returns the tool result content.
 
 Behavior:
 
-- `:fn` is stripped from tools before every API call.
-- If the request's `:messages` is a string, it is normalized to one user turn.
-- If a response stops with `:stop-reason :tool-use`, every `:tool-use` block in
-  that response is executed.
-- Parallel tool calls become one user turn containing ordered `:tool-result`
-  blocks.
+- `run-tools` removes `:fn` from the tools before every API call.
+- If the request `:messages` is a string, `run-tools` makes it one user turn.
+- If a response stops with `:stop-reason :tool-use`, `run-tools` executes every
+  `:tool-use` block in that response.
+- Parallel tool calls become one user turn with ordered `:tool-result` blocks.
 - If a tool `:fn` throws, the exception message becomes a `:tool-result` with
-  `:is-error true`; the loop continues.
+  `:is-error true`. The loop continues.
 - If the model calls a tool that has no matching `:fn`, `run-tools` throws
   `ex-info` with `{:anthropic/error :no-tool-fn :name "..."}`.
 - `:max-iterations` defaults to `10`. Exceeding it throws `ex-info` with
   `{:anthropic/error :max-iterations-exceeded :iterations n :messages [...]}`.
-- `:on-message`, when supplied, is called with each response map in order.
-- The returned value is the final response map plus `:messages`, the accumulated
-  conversation including the final assistant turn.
+- If you supply `:on-message`, `run-tools` calls it with each response map in
+  order.
+- The return value is the final response map plus `:messages`. `:messages` is
+  the accumulated conversation, with the final assistant turn.
 
-The returned `:messages` can be passed into a later `create-message` call to
+You can pass the returned `:messages` into a later `create-message` call to
 continue the conversation.
 
 ## Server-side Tools
 
-Server-side tools are declared in `:tools` and executed by Anthropic. The model
+You declare server-side tools in `:tools`, and Anthropic runs them. The model
 returns `:server-tool-use` blocks and typed result blocks.
 
 Supported server tool `:type` values:
@@ -168,7 +168,7 @@ Supported server-tool options:
 `:user-location` supports `:city`, `:region`, `:country`, and `:timezone`.
 `:allowed-callers` values are keywords such as `:direct`.
 
-Server-side result block types parsed by the wrapper include:
+The server-side result block types that the wrapper parses include:
 
 - `:web-search-result`
 - `:web-fetch-result`
@@ -177,8 +177,8 @@ Server-side result block types parsed by the wrapper include:
 - `:text-editor-code-execution-result`
 - `:tool-search-result`
 
-The beta agents platform in `anthropic.beta` is a separate surface. See the
-README for that API.
+The beta agents platform in `anthropic.beta` is a separate API. See the README
+for it.
 
 ## Counting Tokens With Tools
 

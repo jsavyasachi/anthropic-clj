@@ -968,8 +968,8 @@
                           :resources [{:type :unknown}]}))))))
 
 (deftest deployment-resource-required-keys
-  ;; The SDK rejects a null on these fields, so a missing key must surface as the
-  ;; library's :missing-key error and never as a null pointer from inside the SDK.
+  ;; The SDK rejects a null on these fields. A missing key must produce the
+  ;; library's :missing-key error, not a null pointer from the SDK.
   (doseq [[resource k] [[{:type :file} :file-id]
                         [{:type :github-repository :authorization-token "t"} :url]
                         [{:type :github-repository :url "https://x.test"} :authorization-token]
@@ -2258,9 +2258,9 @@
   (slurp "src/anthropic/beta.clj"))
 
 (deftest every-session-event-variant-is-mapped
-  ;; A variant the SDK can send but the mapper has no branch for falls through to
-  ;; {:type :unknown}, silently dropping the event. This guards the whole union,
-  ;; including variants a future SDK release adds.
+  ;; A variant with no mapper branch becomes {:type :unknown}. The mapper then
+  ;; drops the event. This guards the whole union, including variants a future
+  ;; SDK release adds.
   (let [src (mapper-source)
         missing (remove #(clojure.string/includes? src (str "." %))
                         (union-variant-predicates

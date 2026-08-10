@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-This is a community-maintained library. Security fixes are applied to the
-**latest released version** on Clojars. Please upgrade to the latest release
-before reporting an issue.
+This is a community-maintained library. The maintainer applies security fixes to
+the **latest released version** on Clojars. Please upgrade to the latest release
+before you report an issue.
 
 ## Reporting a vulnerability
 

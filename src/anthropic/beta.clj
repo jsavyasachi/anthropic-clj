@@ -381,7 +381,7 @@
        (mapv beta-model->map (.autoPager p))))))
 
 (defn get-beta-model
-  "Retrieve one beta model's info by id as a map shaped like `list-beta-models`' entries."
+  "Get one beta model's info by id as a map shaped like `list-beta-models`' entries."
   ([^AnthropicClient client ^String model-id]
    (get-beta-model client model-id {}))
   ([^AnthropicClient client ^String model-id opts]
@@ -638,7 +638,7 @@
     (skill-create->map (-> (.beta client) (.skills) (.create (->skill-create-params req))))))
 
 (defn get-skill
-  "Retrieve one skill by id, as a map shaped like `create-skill`'s return."
+  "Get one skill by id, as a map shaped like `create-skill`'s return."
   [^AnthropicClient client ^String skill-id]
   (with-api-errors
     (skill-retrieve->map (-> (.beta client) (.skills) (.retrieve skill-id)))))
@@ -725,7 +725,7 @@
                             (.create (->version-create-params skill-id req))))))
 
 (defn get-skill-version
-  "Retrieve one skill version."
+  "Get one skill version."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
     (skill-version->map (-> (.beta client) (.skills) (.versions)
@@ -813,7 +813,7 @@
                            (.create (->memory-store-create-params req))))))
 
 (defn get-memory-store
-  "Retrieve a memory store by id, as a map like `create-memory-store`'s return."
+  "Get a memory store by id, as a map like `create-memory-store`'s return."
   [^AnthropicClient client ^String memory-store-id]
   (with-api-errors
     (memory-store->map (-> (.beta client) (.memoryStores) (.retrieve memory-store-id)))))
@@ -941,7 +941,7 @@
                      (.create (->memory-create-params memory-store-id req))))))
 
 (defn get-memory
-  "Retrieve a memory by id."
+  "Get a memory by id."
   [^AnthropicClient client ^String memory-store-id ^String memory-id]
   (with-api-errors
     (memory->map (-> (.beta client) (.memoryStores) (.memories)
@@ -1022,7 +1022,7 @@
        (mapv memory-version->map (.autoPager p))))))
 
 (defn get-memory-version
-  "Retrieve one memory version. `opts` may include `:view`."
+  "Get one memory version. `opts` may include `:view`."
   ([^AnthropicClient client ^String memory-store-id ^String memory-version-id]
    (get-memory-version client memory-store-id memory-version-id {}))
   ([^AnthropicClient client ^String memory-store-id ^String memory-version-id opts]
@@ -1394,7 +1394,7 @@
     (agent->map (-> (.beta client) (.agents) (.create (->agent-create-params req))))))
 
 (defn get-agent
-  "Retrieve an agent by id, as a map like `create-agent`'s return, including
+  "Get an agent by id, as a map like `create-agent`'s return, including
   `:multiagent` when present. Tool maps include custom input-schema
   `:properties` and tool config `:permission-policy` values."
   [^AnthropicClient client ^String agent-id]
@@ -1619,7 +1619,7 @@
     (session->map (-> (.beta client) (.sessions) (.create (->session-create-params req))))))
 
 (defn get-session
-  "Retrieve a session by id, as a map like `create-session`'s return, including
+  "Get a session by id, as a map like `create-session`'s return, including
   resource GitHub `:checkout`, memory-store fields, and complete agent tool maps."
   [^AnthropicClient client ^String session-id]
   (with-api-errors
@@ -2185,7 +2185,7 @@
     (.type r) (assoc :type (->keyword (.asString (.type r))))))
 
 (defn get-session-thread
-  "Retrieve a session thread by session id and thread id."
+  "Get a session thread by session id and thread id."
   [^AnthropicClient client ^String session-id ^String thread-id]
   (with-api-errors
     (session-thread->map (-> (.beta client) (.sessions) (.threads)
@@ -2404,7 +2404,7 @@
   (with-api-errors (let [^com.anthropic.models.beta.sessions.resources.ResourceListPage p (-> (.beta client) (.sessions) (.resources) (.list (->session-resource-list-params session-id opts)))]
                      (mapv session-resource->map (.autoPager p)))))
 (defn get-session-resource
-  "Retrieve a session resource, including GitHub `:checkout` and all returned
+  "Get a session resource, including GitHub `:checkout` and all returned
   memory-store fields."
   [^AnthropicClient client ^String session-id ^String resource-id]
   (with-api-errors (session-resource->map (-> (.beta client) (.sessions) (.resources) (.retrieve (->session-resource-retrieve-params session-id resource-id))))))
@@ -2633,7 +2633,7 @@
                          (.create (->deployment-create-params req))))))
 
 (defn get-deployment
-  "Retrieve a deployment by id."
+  "Get a deployment by id."
   [^AnthropicClient client ^String deployment-id]
   (with-api-errors
     (deployment->map (-> (.beta client) (.deployments) (.retrieve deployment-id)))))
@@ -2753,7 +2753,7 @@
 ;; ---- Deployment runs -------------------------------------------------------
 
 (defn get-deployment-run
-  "Retrieve a deployment run by id. Returns a deployment run map, with nested
+  "Get a deployment run by id. Returns a deployment run map, with nested
   `:error` and `:trigger-context` plain-data maps when present."
   [^AnthropicClient client ^String deployment-run-id]
   (with-api-errors
@@ -2916,7 +2916,7 @@
                           (.create (->environment-create-params req))))))
 
 (defn get-environment
-  "Retrieve an environment by id."
+  "Get an environment by id."
   [^AnthropicClient client ^String environment-id]
   (with-api-errors
     (environment->map (-> (.beta client) (.environments) (.retrieve environment-id)))))
@@ -3183,7 +3183,7 @@
     (vault->map (-> (.beta client) (.vaults) (.create (->vault-create-params req))))))
 
 (defn get-vault
-  "Retrieve a vault by id."
+  "Get a vault by id."
   [^AnthropicClient client ^String vault-id]
   (with-api-errors
     (vault->map (-> (.beta client) (.vaults) (.retrieve vault-id)))))
@@ -3530,7 +3530,7 @@
                            (.create (->user-profile-create-params req))))))
 
 (defn get-user-profile
-  "Retrieve a user profile by id."
+  "Get a user profile by id."
   [^AnthropicClient client ^String user-profile-id]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles) (.retrieve user-profile-id)))))

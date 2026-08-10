@@ -1,7 +1,7 @@
 # Streaming
 
-Streaming calls hit the live Messages API and are billed. They should be used
-in integration tests or application code, not ordinary unit tests.
+Streaming calls go to the live Messages API, and the calls are billed. Use them
+in integration tests or in application code, not in ordinary unit tests.
 
 The wrapper has two streaming entry points:
 
@@ -9,8 +9,8 @@ The wrapper has two streaming entry points:
 - `stream`: every normalized stream event
 
 Both take the same request map shape as `create-message`. Both close the
-underlying HTTP stream automatically. API and I/O errors use the same
-`ex-info` contract as `create-message`.
+HTTP stream automatically. API and I/O errors use the same `ex-info` contract
+as `create-message`.
 
 ## `stream-text`
 

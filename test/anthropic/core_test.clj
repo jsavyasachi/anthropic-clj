@@ -161,7 +161,7 @@
     (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
                                             :service-tier :standard-only})]
       (is (= MessageCreateParams$ServiceTier/STANDARD_ONLY (opt (.serviceTier p))))))
-  (testing "tool-choice :any and the {:type :tool :name ...} form are both honored"
+  (testing "tool-choice :any and the {:type :tool :name ...} form are both supported"
     (is (some? (opt (.toolChoice (->params {:messages [{:role :user :content "hi"}]
                                             :tool-choice :any})))))
     (is (some? (opt (.toolChoice (->params {:messages [{:role :user :content "hi"}]
@@ -284,8 +284,8 @@
                   (->tool-choice {:type :none :disable-parallel-tool-use true})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      ;; Same error keyword as the beta path, so a caller catching this does not
-      ;; have to branch on which Messages API produced it.
+      ;; The beta path uses the same error keyword. A caller does not branch on
+      ;; the Messages API that produced it.
       (is (= :unsupported-disable-parallel-tool-use
              (:anthropic/error (ex-data error)))))))
 
@@ -963,7 +963,7 @@
       (is @closed?))))
 
 (deftest usage-cache-tokens
-  (testing "cache tokens surface when present"
+  (testing "cache tokens are included when present"
     (is (= {:input-tokens 10 :output-tokens 20
             :cache-creation-input-tokens 3 :cache-read-input-tokens 7}
            (usage->map (usage 10 20 3 7)))))
@@ -1047,9 +1047,9 @@
            (:stop-reason (message->map m))))))
 
 (deftest thinking-block-round-trips-with-signature
-  ;; extended-thinking responses must re-enter :messages intact: the API
-  ;; requires the signature on replayed thinking blocks, and the input
-  ;; translation NPEs without it.
+  ;; Extended-thinking responses must return to :messages unchanged. The API
+  ;; requires the signature on replayed thinking blocks. Input translation
+  ;; throws an NPE without it.
   (let [blk (com.anthropic.models.messages.ContentBlock/ofThinking
              (-> (com.anthropic.models.messages.ThinkingBlock/builder)
                  (.thinking "let me reason")
@@ -1354,7 +1354,8 @@
       (is (map? (:request-counts b)))
       (is (= id (:id (a/get-batch c id))))
       (is (some #(= id (:id %)) (a/list-batches c)))
-      ;; batches run async; cancel the in-flight one rather than wait for results
+      ;; Batches run asynchronously. Cancel the in-flight batch instead of
+      ;; waiting for results.
       (is (= id (:id (a/cancel-batch c id)))))))
 
 (deftest ^:integration web-search-roundtrip
@@ -1388,7 +1389,7 @@
         (is (= id (:id (a/get-file c id))))
         (is (some #(= id (:id %)) (a/list-files c)))
         ;; download-file works only for API-generated downloadable files, not
-        ;; user uploads, so it can't be exercised against this fixture.
+        ;; user uploads. This test fixture cannot test it.
         (is (:deleted (a/delete-file c id))))
       (.delete tmp))))
 

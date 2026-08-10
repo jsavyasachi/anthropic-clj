@@ -5,8 +5,8 @@ Request maps go in, response maps come back.
 
 Messages, model listing, and most examples here call the live Anthropic API and
 are billed by Anthropic. Do not put live calls in unit tests. Use the existing
-unit-test style for request/response translation tests, and reserve live calls
-for an explicit integration suite.
+unit-test style for request and response translation tests. Keep live calls in
+an explicit integration suite.
 
 ## Installation
 
@@ -54,7 +54,7 @@ Supported client option keys:
 - `:timeout-ms`
 - `:max-retries`
 
-Only supplied keys are set on the SDK builder.
+The wrapper sets only the keys that you supply on the SDK builder.
 
 ## First Message
 
@@ -126,14 +126,14 @@ blocks:
        :text))
 ```
 
-`:usage` always includes `:input-tokens` and `:output-tokens`. Newer usage keys
-are included when the API reports them, such as `:cache-creation-input-tokens`,
+`:usage` always includes `:input-tokens` and `:output-tokens`. The wrapper adds
+newer usage keys when the API reports them, such as `:cache-creation-input-tokens`,
 `:cache-read-input-tokens`, `:server-tool-use`, `:service-tier`,
 `:cache-creation`, `:inference-geo`, and `:output-tokens-details`.
 
 ## Errors
 
-API and I/O failures from the SDK are normalized to `ex-info`.
+The wrapper normalizes API and I/O failures from the SDK to `ex-info`.
 
 API failures:
 
@@ -147,7 +147,7 @@ API failures:
 ;;     :error-type :rate-limit}
 ```
 
-The original SDK exception is preserved as `(ex-cause e)`.
+The wrapper keeps the original SDK exception as `(ex-cause e)`.
 
 `:error-type` can be:
 
@@ -177,7 +177,7 @@ Other SDK exceptions can pass through unchanged.
 
 ## Models
 
-Model helper calls hit the live API.
+Model helper functions call the live API.
 
 ```clojure
 (anthropic/list-models client)

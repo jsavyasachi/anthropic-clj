@@ -1,8 +1,8 @@
 # Batches, Files & Structured Output
 
-Message Batches, Files, and structured-output message calls hit Anthropic APIs
-and are billed according to Anthropic's billing rules for those APIs. Keep live
-calls in explicit integration tests or application code.
+Message Batches, Files, and structured-output message calls go to Anthropic
+APIs. Anthropic bills them by its billing rules for those APIs. Keep live calls
+in explicit integration tests or in application code.
 
 ## Message Batches
 
@@ -83,8 +83,8 @@ Result `:type` values are:
 - `:expired`
 - `:unknown`
 
-For large result sets, use `reduce-batch-results` to avoid retaining the full
-collection. The underlying results stream is closed automatically.
+For large result sets, use `reduce-batch-results`. It does not hold the full
+collection in memory, and it closes the results stream automatically.
 
 ```clojure
 (anthropic/reduce-batch-results
@@ -138,14 +138,14 @@ automatically:
   (anthropic/download-file client "file_..."))
 ```
 
-Downloaded contents are only available for downloadable files. User uploads may
-not be downloadable.
+You can download the contents of downloadable files only. User uploads can be
+unavailable for download.
 
 ## Structured Output
 
 Pass `:response-format` as a JSON Schema map. The wrapper sends it as the
-Messages API output config and adds `:parsed` to the returned response by
-decoding the first text block as JSON with keyword keys.
+Messages API output config. It then decodes the first text block as JSON with
+keyword keys, and adds the result to the response as `:parsed`.
 
 ```clojure
 (def response
@@ -227,6 +227,6 @@ request also accepts `:cache-control`.
 `:cache-control {:ttl :5m}` use ephemeral caching. `{:ttl :1h}` requests a
 one-hour TTL where the API supports it.
 
-The README has a broader example covering images, PDFs, search-result blocks,
+The README has a broader example. It covers images, PDFs, search-result blocks,
 thinking round trips, container uploads, server tools, and the beta agents
-platform pointer.
+platform.

@@ -1,5 +1,5 @@
 (ns anthropic.core
-  "Idiomatic Clojure wrapper over the official Anthropic Java SDK
+  "Clojure wrapper over the official Anthropic Java SDK
   (`com.anthropic/anthropic-java`).
 
   Build a request as a Clojure map, get a Clojure map back. The client reads
@@ -130,7 +130,7 @@
 (declare headers->map json->clj ->keyword)
 
 (def models
-  "Convenience keyword aliases for the SDK's named models. Any raw model-id string is still accepted."
+  "Keyword aliases for the SDK's named models. Any raw model-id string is still accepted."
   {:claude-opus-5 "claude-opus-5"
    :claude-sonnet-5 "claude-sonnet-5"
    :claude-fable-5 "claude-fable-5"
@@ -193,7 +193,7 @@
      (when configure (configure b))
      (.build b))))
 
-;; These helpers deliberately use reflection so bedrock/vertex remain optional dependencies.
+;; These helpers use reflection so bedrock/vertex remain optional dependencies.
 (defn- optional-class [class-name alias]
   (try
     (Class/forName class-name)
@@ -1488,7 +1488,7 @@
        (mapv model->map (.autoPager p))))))
 
 (defn get-model
-  "Retrieve one model's info by id, as a map shaped like `list-models`' entries."
+  "Get one model's info by id, as a map shaped like `list-models`' entries."
   [^AnthropicClient client ^String id]
   (with-api-errors
     (model->map (-> (.models client) (.retrieve id)))))
@@ -1592,7 +1592,7 @@
       (batch->map (-> (.messages client) (.batches) (.create bp))))))
 
 (defn get-batch
-  "Retrieve a batch by id. Returns `{:id :processing-status :request-counts
+  "Get a batch by id. Returns `{:id :processing-status :request-counts
   :created-at :expires-at}` plus `:ended-at`/`:results-url` once available."
   [^AnthropicClient client ^String id]
   (with-api-errors
@@ -1773,8 +1773,8 @@
 (defn stream-text
   "Stream a Messages request, calling `on-text` with each text delta (a string)
   as it arrives, and returning the full concatenated text when the stream ends.
-  Takes the same `req` map as `create-message`. A thin convenience over `stream`
-  that ignores every non-text event; reach for `stream` when you need thinking or
+  Takes the same `req` map as `create-message`. It wraps `stream` and ignores
+  every non-text event. Use `stream` when you need thinking or
   tool-use deltas. The underlying HTTP stream is closed automatically."
   ^String [^AnthropicClient client req on-text]
   (stream client req
@@ -1820,7 +1820,7 @@
     (file->map (-> (.beta client) (.files) (.upload (->upload-params file))))))
 
 (defn get-file
-  "Retrieve a file's metadata by id: `{:id :filename :mime-type :size-bytes
+  "Get a file's metadata by id: `{:id :filename :mime-type :size-bytes
   :created-at}` plus `:downloadable` and `:scope` when reported."
   [^AnthropicClient client ^String id]
   (with-api-errors

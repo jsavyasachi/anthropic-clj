@@ -4,7 +4,7 @@
 [![cljdoc](https://cljdoc.org/badge/net.clojars.savya/anthropic-clj)](https://cljdoc.org/d/net.clojars.savya/anthropic-clj)
 [![test](https://github.com/jsavyasachi/anthropic-clj/actions/workflows/test.yml/badge.svg)](https://github.com/jsavyasachi/anthropic-clj/actions/workflows/test.yml)
 
-An idiomatic Clojure wrapper over the **official** Anthropic Java SDK
+A Clojure wrapper over the **official** Anthropic Java SDK
 ([`com.anthropic/anthropic-java`](https://github.com/anthropics/anthropic-sdk-java)).
 Build a request as a Clojure map, get a Clojure map back.
 
@@ -22,9 +22,10 @@ Build a request as a Clojure map, get a Clojure map back.
 
 ## Why
 
-This library wraps Anthropic's official Java SDK rather than hand-rolling HTTP,
-and commits to idiomatic parity with that SDK: maps in, maps out, and keywords
-for roles and block types. Parity is checked against the SDK jar, not asserted.
+This library wraps Anthropic's official Java SDK instead of writing HTTP calls
+by hand. It keeps idiomatic parity with that SDK: maps in, maps out, and
+keywords for roles and block types. The library checks parity against the SDK
+jar. It does not assert parity.
 
 ## Installation
 
@@ -86,19 +87,20 @@ Tracks [`com.anthropic/anthropic-java` 2.53.0](https://github.com/anthropics/ant
 - `:cache-control` - top-level prompt-cache breakpoint
 
 `create-message` and `count-tokens` accept a third `opts` map with `:timeout-ms`,
-`:response-validation`, and `:include-response`; the latter adds raw HTTP
-`:status`, `:request-id`, and headers. Request maps accept `:extra-headers`,
-`:extra-query`, and `:extra-body` as forward-compatibility escape hatches.
+`:response-validation`, and `:include-response`. `:include-response` adds the raw
+HTTP `:status`, `:request-id`, and headers. Request maps accept `:extra-headers`,
+`:extra-query`, and `:extra-body`. Use these keys to send a parameter that this
+wrapper does not know about yet.
 
-For structured output, pass `:response-format` and/or `:effort`. Responses
+For structured output, pass `:response-format`, `:effort`, or both. Responses
 include newer `:usage` fields when present: cache creation/read tokens,
 server-tool usage, service-tier, inference geo, cache creation details, and
 output-token details.
 
 ### Images, PDFs, and prompt caching
 
-Message content can be a vector of blocks. Beyond `:text`, `:tool-use`, and
-`:tool-result`, you can send `:image`, `:document`, `:search-result`,
+Message content can be a vector of blocks. In addition to `:text`, `:tool-use`,
+and `:tool-result`, you can send `:image`, `:document`, `:search-result`,
 `:thinking`, `:redacted-thinking`, and `:container-upload` blocks. Blocks that
 support prompt caching accept `:cache-control`.
 
@@ -122,17 +124,17 @@ support prompt caching accept `:cache-control`.
                           :cache-control true}]}]})  ; :cache-control {:ttl :1h} for 1-hour
 ```
 
-Assistant turns that contained thinking can be round-tripped with
+To send an assistant turn that contained thinking back to the API, use
 `{:type :thinking :thinking "..." :signature "..."}` or
 `{:type :redacted-thinking :data "..."}`. Container uploads use
 `{:type :container-upload :file-id "file_..."}`.
 
 ### Server-side tools
 
-Enable Anthropic-hosted tools by `:type` (latest version of each is used). The
-model runs them server-side; the response content carries `:server-tool-use`
-blocks and typed result blocks (`:web-search-result`, `:code-execution-result`,
-…).
+Enable Anthropic-hosted tools by `:type`. The library uses the latest version of
+each tool. The model runs the tools server-side. The response content carries
+`:server-tool-use` blocks and typed result blocks (`:web-search-result`,
+`:code-execution-result`, …).
 
 ```clojure
 (anthropic/create-message
@@ -156,8 +158,8 @@ blocks and typed result blocks (`:web-search-result`, `:code-execution-result`,
 
 ### Tool use
 
-Declare tools as maps; `tool_use` blocks come back parsed, and you complete the
-loop by echoing the assistant turn and sending a `:tool-result` block.
+Declare tools as maps. The library parses the `tool_use` blocks for you. To
+complete the loop, send the assistant turn back with a `:tool-result` block.
 
 ```clojure
 (def weather-tool
@@ -181,7 +183,7 @@ loop by echoing the assistant turn and sending a `:tool-result` block.
                                       :content "18°C and sunny"}]}]})
 ```
 
-Or let `run-tools` drive the loop with a `:fn` for each tool:
+You can also let `run-tools` do the loop. Give each tool a `:fn`:
 
 ```clojure
 (anthropic/run-tools
@@ -191,16 +193,16 @@ Or let `run-tools` drive the loop with a `:fn` for each tool:
   {:max-iterations 5 :on-message println})
 ```
 
-A tool `:fn` that throws sends the exception message back as an `:is-error`
-tool result instead of aborting, so the model can recover. String returns are
-sent as-is; any other value is JSON-encoded. `:fn` is stripped before every
-API call.
+If a tool `:fn` throws, the loop does not stop. It sends the exception message
+back as an `:is-error` tool result, so the model can recover. A `:fn` that
+returns a string sends that string unchanged. Any other value is JSON-encoded.
+The library removes `:fn` before every API call.
 
 ### Structured output
 
 Pass `:response-format` (a JSON Schema map) to get a `:parsed` Clojure map back.
-Object schemas must set `"additionalProperties": false` (an API requirement).
-`:effort` (`:low`…`:max`) is accepted alongside or on its own.
+Object schemas must set `"additionalProperties": false`. The API requires this.
+You can pass `:effort` (`:low`…`:max`) with `:response-format` or on its own.
 
 ```clojure
 (anthropic/create-message
@@ -217,8 +219,8 @@ Object schemas must set `"additionalProperties": false` (an API requirement).
 
 ### Counting tokens
 
-`count-tokens` takes the same request map and returns the input-token count
-without sending the message (`:max-tokens` and sampling params are ignored).
+`count-tokens` takes the same request map. It returns the input-token count and
+does not send the message. It ignores `:max-tokens` and the sampling params.
 
 ```clojure
 (anthropic/count-tokens
@@ -229,7 +231,7 @@ without sending the message (`:max-tokens` and sampling params are ignored).
 
 ### Models
 
-`:model` accepts a raw model-id string or a convenience keyword from
+`:model` accepts a raw model-id string or a keyword alias from
 `anthropic.core/models`, such as `:claude-opus-4-8`. An unknown keyword throws
 `ex-info` with `{:anthropic/error :unknown-model}`.
 
@@ -300,8 +302,8 @@ Submit many requests at the 50%-cost batch tier. Each request is
 ;; => returns the complete string when the stream ends
 ```
 
-For thinking or tool-use streams, `stream` surfaces every normalized event and
-still returns the full text. Each event is a map keyed by `:type`:
+For thinking or tool-use streams, `stream` gives you every normalized event and
+also returns the full text. Each event is a map keyed by `:type`:
 
 - `:message-start`
 - `:content-block-start` - `:index`, `:block`
@@ -322,12 +324,12 @@ still returns the full text. Each event is a map keyed by `:type`:
       nil)))
 ```
 
-When you want the assembled result instead of raw events, `stream-message` fires
-the same events but returns the **fully reconstructed** response map - all content
-blocks, tool `:input`, `:usage`, `:stop-reason`, and `:parsed` when
-`:response-format` is set: the same shape `create-message` returns. It reassembles
-streamed tool calls for you, so there's no accumulating `:input-json-delta`
-`:partial-json` per `:index` by hand.
+Use `stream-message` when you want the assembled result instead of raw events.
+It sends the same events, but it returns the **fully reconstructed** response
+map: all content blocks, tool `:input`, `:usage`, `:stop-reason`, and `:parsed`
+when `:response-format` is set. This is the same shape that `create-message`
+returns. `stream-message` also reassembles streamed tool calls, so you do not
+collect `:input-json-delta` `:partial-json` per `:index` yourself.
 
 ```clojure
 (anthropic/stream-message
@@ -340,13 +342,12 @@ streamed tool calls for you, so there's no accumulating `:input-json-delta`
 
 ## Concurrency
 
-This wrapper uses the SDK's blocking client. There is deliberately no async
-namespace because the SDK async client returns `CompletableFuture`s, which are
-awkward to thread through Clojure. Use `future`/`deref`, `pmap`, or `pcalls` for
-ordinary concurrency.
+This wrapper uses the SDK's blocking client. There is no async namespace. The
+SDK async client returns `CompletableFuture`s, which are difficult to compose in
+Clojure. For ordinary concurrency, use `future`/`deref`, `pmap`, or `pcalls`.
 
-On JDK 21+, a virtual-thread executor supports high concurrency: blocking calls
-parked on virtual threads do not consume an OS thread.
+On JDK 21+, a virtual-thread executor supports high concurrency. A blocking call
+parked on a virtual thread does not use an OS thread.
 
 ```clojure
 (with-open [executor (java.util.concurrent.Executors/newVirtualThreadPerTaskExecutor)]
@@ -357,9 +358,9 @@ parked on virtual threads do not consume an OS thread.
     (mapv #(.get %) tasks)))
 ```
 
-Do not put blocking calls inside a core.async `go` block: it parks the fixed
+Do not put a blocking call inside a core.async `go` block. It parks the fixed
 dispatch pool. Use `thread` instead. On JDK < 21, use the SDK async client
-through the `:configure` seam when thousands of in-flight requests are needed.
+through the `:configure` option if you need thousands of in-flight requests.
 
 ## What's covered
 
@@ -375,33 +376,34 @@ through the `:configure` seam when thousands of in-flight requests are needed.
 - Beta Messages API: `anthropic.beta.messages`
 
 Async clients, raw-response accessors, and per-call `RequestOptions` are
-transport and accessor variants reached through the `:configure` seam and the
-`opts`/`:include-response` args, not duplicated as fns. For anything unwrapped,
-use the [Java SDK](https://github.com/anthropics/anthropic-sdk-java).
+transport and accessor variants. You reach them through the `:configure` option
+and through the `opts` and `:include-response` arguments. This library does not
+duplicate them as functions. For anything it does not wrap, use the
+[Java SDK](https://github.com/anthropics/anthropic-sdk-java).
 
 ### Beta Messages
 
 `anthropic.beta.messages` supports fallback params, dynamic tool changes, and
-beta-only server tools. `run-beta-tools` accepts `:on-turn`, called with
-`(response params)` after each assistant turn; its returned params control the
-next iteration.
+beta-only server tools. `run-beta-tools` accepts `:on-turn`. The library calls
+`:on-turn` with `(response params)` after each assistant turn. The params that
+`:on-turn` returns control the next iteration.
 
 ## Errors
 
 All failures throw `ex-info` keyed `:anthropic/error` in `ex-data`:
 
-- Request-shaping errors (bad tool spec, missing key) throw before any network
-  call, with an error keyword describing the problem.
+- Request-shaping errors (a bad tool spec or a missing key) throw before any
+  network call. The error keyword describes the problem.
 - API failures carry `{:anthropic/error :api-error :status <http status>
   :error-type <kw>}` where `:error-type` is one of `:bad-request`,
   `:unauthorized`, `:permission-denied`, `:not-found`,
   `:unprocessable-entity`, `:rate-limit`, `:internal-server`, or
-  `:unexpected-status`. The original SDK exception is preserved as
+  `:unexpected-status`. The library keeps the original SDK exception as
   `(ex-cause e)`.
-- Network/IO failures carry `{:anthropic/error :io-error}`, original exception
-  as cause.
+- Network and IO failures carry `{:anthropic/error :io-error}`. The original
+  exception is the cause.
 
-Other SDK exceptions (e.g. `AnthropicInvalidDataException`) propagate
+Other SDK exceptions, such as `AnthropicInvalidDataException`, propagate
 unchanged.
 
 ## Beta agents platform
@@ -449,8 +451,9 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 
 Webhook parsing covers agent, deployment, session, environment, and memory-store
 events. `stream-session-events` and `stream-thread-events` open SSE streams over
-the blocking client (event maps keyed by `:type`, e.g. `:agent-message`,
-`:session-status-running`), matching `anthropic.core`'s `stream`.
+the blocking client. They give you event maps keyed by `:type`, such as
+`:agent-message` and `:session-status-running`, like `stream` in
+`anthropic.core`.
 
 Beta endpoints may still change.
 
@@ -459,21 +462,22 @@ Beta endpoints may still change.
 The SDK ships separate backend artifacts,
 [`com.anthropic/anthropic-java-bedrock` and
 `com.anthropic/anthropic-java-vertex`](https://github.com/anthropics/anthropic-sdk-java#amazon-bedrock-and-google-vertex-ai),
-for Amazon Bedrock and Google Vertex AI. `client` here builds the direct-API
-client, but its `:configure` option can set a `.backend(...)` on the SDK builder,
-and every function takes the client as its first argument - so an
-`AnthropicClient` built from either backend artifact works with all of them.
+for Amazon Bedrock and Google Vertex AI. The `client` function here builds the
+direct-API client. Its `:configure` option can set a `.backend(...)` on the SDK
+builder. Every function takes the client as its first argument. An
+`AnthropicClient` built from either backend artifact therefore works with all of
+them.
 
 ## Tests
 
-Unit tests (the request/response translation) run with no network:
+The unit tests cover the request and response translation. They use no network:
 
 ```
 clojure -M:test
 ```
 
-The `:integration` suite hits the live API and is billed - it needs
-`ANTHROPIC_API_KEY` and is run explicitly:
+The `:integration` suite calls the live API, and the calls are billed. It needs
+`ANTHROPIC_API_KEY`. Run it explicitly:
 
 ```
 ANTHROPIC_API_KEY=sk-... clojure -M:test --focus-meta :integration

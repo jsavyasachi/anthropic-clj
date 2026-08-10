@@ -1,5 +1,5 @@
 (ns anthropic.beta.messages
-  "Idiomatic Clojure wrapper for the beta Messages API."
+  "Clojure wrapper for the beta Messages API."
   (:require [anthropic.core]
             [clojure.string :as str]
             [clojure.walk :as walk]
@@ -956,8 +956,8 @@
   (-> x str str/lower-case (str/replace #"[._]" "-") keyword))
 
 (defn- keywordize-types
-  "Convert every nested `:type` string to a keyword, so a block's `:type` reads the
-   same here as on the stable path. `:input` is left alone: a tool call's arguments
+  "Convert every nested `:type` string to a keyword. A block's `:type` reads the
+   same here as on the stable path. Leave `:input` unchanged: a tool call's arguments
    are caller-defined JSON where a `type` key is data, not a discriminator."
   [x]
   (cond
