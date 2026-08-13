@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.25.0] - 2026-08-13
+
+### Added
+- `:output-type` on `create-message` and `count-tokens`, in both the stable and
+  the beta namespaces. It takes a Java `Class` and builds the schema from that
+  class. Combine it with `:effort`, or use `:response-format` as before.
+- `:output-behavior` on `create-dream`, either `{:type :create-new}` or
+  `{:type :update-existing :memory-store-id "..."}`. Dream maps carry the same
+  key.
+- `:base-url` on `vertex-client`.
+
+### Changed
+- Track `com.anthropic/anthropic-java` 2.54.0.
+- The test matrix covers Clojure 1.10, 1.11, and 1.12.
+
 ## [0.24.1] - 2026-08-13
 
 ### Changed
