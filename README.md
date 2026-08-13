@@ -41,6 +41,8 @@ Leiningen (`project.clj`):
 [net.clojars.savya/anthropic-clj "0.24.1"]
 ```
 
+Supported Clojure versions: 1.10, 1.11, and 1.12.
+
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
 
 - `:api-key`, `:auth-token`, `:base-url` - credentials and endpoint
