@@ -32,13 +32,13 @@ jar. It does not assert parity.
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.24.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.24.1"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.24.0"]
+[net.clojars.savya/anthropic-clj "0.24.1"]
 ```
 
 Set `ANTHROPIC_API_KEY` in your environment, or pass client options:

@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.24.1] - 2026-08-13
+
+### Changed
+- Docstrings and prose documentation rewritten in Simplified Technical English.
+  No behavior change.
+
 ## [0.24.0] - 2026-08-08
 
 ### Removed
