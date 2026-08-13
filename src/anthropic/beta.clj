@@ -3364,7 +3364,6 @@
   [{:keys [inputs model instructions output-behavior]}]
   (when-not (contains? #{nil} inputs) (when-not (sequential? inputs) (missing-key! :inputs)))
   (when-not model (missing-key! :model))
-  (when-not output-behavior (missing-key! :output-behavior))
   (let [b (com.anthropic.models.beta.dreams.DreamCreateParams/builder)
         ^com.anthropic.models.beta.dreams.DreamCreateParams$Model model*
         (if (string? model)
@@ -3373,7 +3372,7 @@
     (.inputs b ^java.util.List (vec inputs))
     (.model b model*)
     (when instructions (.instructions b ^String instructions))
-    (.outputBehavior b (->dream-output-behavior output-behavior))
+    (when output-behavior (.outputBehavior b (->dream-output-behavior output-behavior)))
     (.build b)))
 
 (defn- dream->map [^com.anthropic.models.beta.dreams.BetaDream r]

@@ -128,6 +128,7 @@
 (def ->memory-version-retrieve-params #'beta/->memory-version-retrieve-params)
 (def memory-version->map #'beta/memory-version->map)
 (def dream->map #'beta/dream->map)
+(def ->dream-create-params #'beta/->dream-create-params)
 (def memory->map #'beta/memory->map)
 (def memory-delete->map #'beta/memory-delete->map)
 (def ->environment-create-params #'beta/->environment-create-params)
@@ -505,6 +506,14 @@
     (is (= "dream" (opt (.instructions p))))
     (is (.isUpdateExisting (opt (.outputBehavior p))))
     (is (= "store_1" (.memoryStoreId (.asUpdateExisting (opt (.outputBehavior p))))))))
+
+(deftest dream-params-output-behavior-is-optional
+  (let [p (try
+            (->dream-create-params {:inputs [] :model "claude-opus-4-8"})
+            (catch clojure.lang.ExceptionInfo _ ::error))]
+    (is (not= ::error p))
+    (when (not= ::error p)
+      (is (not (.isPresent (.outputBehavior p)))))))
 
 (deftest dream-response-enum-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
