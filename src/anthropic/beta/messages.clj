@@ -5,7 +5,7 @@
             [clojure.walk :as walk]
             [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
-           (com.anthropic.core JsonSchemaLocalValidation JsonValue RequestOptions)
+           (com.anthropic.core JsonValue RequestOptions)
            (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
            (com.anthropic.errors AnthropicException)
            (com.anthropic.models.beta.messages BetaBase64ImageSource
@@ -750,7 +750,7 @@
 (defn- ->output-config ^BetaOutputConfig [schema effort task-budget output-type]
   (if output-type
     (let [b (StructuredOutputConfig/builder)]
-      (.format b ^Class output-type JsonSchemaLocalValidation/NO)
+      (.format b ^Class output-type)
       (when effort (.effort b (BetaOutputConfig$Effort/of (name effort))))
       (.rawOutputConfig (.build b)))
     (let [b (BetaOutputConfig/builder)]

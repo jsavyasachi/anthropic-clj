@@ -9,7 +9,7 @@
             [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.client.okhttp AnthropicOkHttpClient AnthropicOkHttpClient$Builder)
-           (com.anthropic.core JsonSchemaLocalValidation JsonValue LogLevel RequestOptions)
+           (com.anthropic.core JsonValue LogLevel RequestOptions)
            (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
            (com.anthropic.helpers MessageAccumulator)
            (java.net Proxy)
@@ -973,7 +973,7 @@
 (defn- ->output-config ^OutputConfig [schema effort output-type]
   (if output-type
     (let [b (StructuredOutputConfig/builder)]
-      (.format b ^Class output-type JsonSchemaLocalValidation/NO)
+      (.format b ^Class output-type)
       (when effort (.effort b (OutputConfig$Effort/of (name effort))))
       (.rawOutputConfig (.build b)))
     (let [b (OutputConfig/builder)]
