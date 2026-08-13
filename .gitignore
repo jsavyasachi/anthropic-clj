@@ -4,3 +4,4 @@ pom.xml
 .nrepl-port
 .cpcache/
 .lein-*
+release-notes.md
