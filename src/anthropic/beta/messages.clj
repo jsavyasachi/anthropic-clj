@@ -5,7 +5,7 @@
             [clojure.walk :as walk]
             [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
-           (com.anthropic.core JsonValue RequestOptions)
+           (com.anthropic.core JsonSchemaLocalValidation JsonValue RequestOptions)
            (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
            (com.anthropic.errors AnthropicException)
            (com.anthropic.models.beta.messages BetaBase64ImageSource
@@ -28,6 +28,7 @@
                                                BetaMessage BetaMessageTokensCount
                                                BetaMetadata BetaOutputConfig
                                                BetaOutputConfig$Effort
+                                               StructuredOutputConfig
                                                BetaFallbackParam
                                                BetaFallbackParam$Speed
                                                BetaPlainTextSource
@@ -746,17 +747,22 @@
       (.putAdditionalProperty sb ^String (name k) (->json v)))
     (-> (BetaJsonOutputFormat/builder) (.schema (.build sb)) (.build))))
 
-(defn- ->output-config ^BetaOutputConfig [schema effort task-budget]
-  (let [b (BetaOutputConfig/builder)]
-    (when schema (.format b (->json-output-format schema)))
-    (when effort (.effort b (BetaOutputConfig$Effort/of (name effort))))
-    (when task-budget
-      (.taskBudget b
-                   (let [tb (BetaTokenTaskBudget/builder)]
-                     (.total tb (long (:total task-budget)))
-                     (when (:remaining task-budget) (.remaining tb (long (:remaining task-budget))))
-                     (.build tb))))
-    (.build b)))
+(defn- ->output-config ^BetaOutputConfig [schema effort task-budget output-type]
+  (if output-type
+    (let [b (StructuredOutputConfig/builder)]
+      (.format b ^Class output-type JsonSchemaLocalValidation/NO)
+      (when effort (.effort b (BetaOutputConfig$Effort/of (name effort))))
+      (.rawOutputConfig (.build b)))
+    (let [b (BetaOutputConfig/builder)]
+      (when schema (.format b (->json-output-format schema)))
+      (when effort (.effort b (BetaOutputConfig$Effort/of (name effort))))
+      (when task-budget
+        (.taskBudget b
+                     (let [tb (BetaTokenTaskBudget/builder)]
+                       (.total tb (long (:total task-budget)))
+                       (when (:remaining task-budget) (.remaining tb (long (:remaining task-budget))))
+                       (.build tb))))
+      (.build b))))
 
 (defn- ->context-edit ^BetaContextManagementConfig$Edit
   [{:keys [type clear-tool-inputs instructions keep] :as edit}]
@@ -801,7 +807,7 @@
             (.model ^String model))]
     (when max-tokens (.maxTokens b (long max-tokens)))
     (when output-config
-      (.outputConfig b (->output-config (:schema output-config) (:effort output-config) (:task-budget output-config))))
+      (.outputConfig b (->output-config (:schema output-config) (:effort output-config) (:task-budget output-config) nil)))
     (when speed (.speed b (BetaFallbackParam$Speed/of (name speed))))
     (when thinking
       (case (keyword (:type thinking))
@@ -849,7 +855,7 @@
 
 (defn- ->params ^MessageCreateParams
   [{:keys [model max-tokens system messages tools temperature top-p top-k stop-sequences
-           tool-choice thinking metadata service-tier response-format output-format effort container inference-geo
+           tool-choice thinking metadata service-tier response-format output-format output-type effort container inference-geo
            task-budget
            context-management diagnostics speed
            user-profile-id cache-control betas mcp-servers fallbacks fallback-credit-token
@@ -875,7 +881,7 @@
     (when inference-geo (.inferenceGeo b ^String inference-geo))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
-    (when (or response-format effort task-budget) (.outputConfig b (->output-config response-format effort task-budget)))
+    (when (or response-format output-type effort task-budget) (.outputConfig b (->output-config response-format effort task-budget output-type)))
     (when output-format (.outputFormat b (->json-output-format output-format)))
     (when context-management (.contextManagement b (->context-management context-management)))
     (when diagnostics (.diagnostics b (->diagnostics diagnostics)))
@@ -903,7 +909,7 @@
 
 (defn- ->count-params ^MessageCountTokensParams
   [{:keys [model system messages tools thinking tool-choice betas cache-control context-management
-           mcp-servers response-format effort task-budget output-format speed user-profile-id
+           mcp-servers response-format output-type effort task-budget output-format speed user-profile-id
            extra-headers extra-query extra-body]
     :or {model "claude-opus-4-8"}}]
   (let [^String model-name (if (keyword? model) (name model) model)
@@ -920,7 +926,7 @@
         (.addBeta b beta-name)))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
-    (when (or response-format effort task-budget) (.outputConfig b (->output-config response-format effort task-budget)))
+    (when (or response-format output-type effort task-budget) (.outputConfig b (->output-config response-format effort task-budget output-type)))
     (when output-format (.outputFormat b (->json-output-format output-format)))
     (when context-management (.contextManagement b (->context-management context-management)))
     (when speed
@@ -1111,7 +1117,7 @@
 (defn count-beta-tokens
   "Count beta Messages input tokens without creating a message. Request maps
   support cache-control, context-management, mcp-servers, response-format,
-  effort, task-budget, output-format, speed, user-profile-id, extra-headers,
+  output-type, effort, task-budget, output-format, speed, user-profile-id, extra-headers,
   extra-query, and extra-body. Returns :input-tokens and, when present, nested
   :context-management data."
   ([^AnthropicClient client req] (count-beta-tokens client req {}))

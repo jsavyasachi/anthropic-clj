@@ -3345,10 +3345,26 @@
 
 ;; ---- Dreams ---------------------------------------------------------------
 
+(defn- ->dream-output-behavior ^com.anthropic.models.beta.dreams.BetaOutputBehavior
+  [{:keys [type memory-store-id]}]
+  (case (keyword type)
+    :create-new
+    (com.anthropic.models.beta.dreams.BetaOutputBehavior/ofCreateNew
+     (com.anthropic.models.beta.dreams.BetaOutputBehaviorCreateNew$Type/of "create_new"))
+    :update-existing
+    (do
+      (when-not memory-store-id (missing-key! :memory-store-id))
+      (com.anthropic.models.beta.dreams.BetaOutputBehavior/ofUpdateExisting
+       ^String memory-store-id))
+    (throw (ex-info (str "Unknown dream output behavior type " type)
+                    {:anthropic/error :unknown-output-behavior-type
+                     :type type}))))
+
 (defn- ->dream-create-params ^com.anthropic.models.beta.dreams.DreamCreateParams
-  [{:keys [inputs model instructions]}]
+  [{:keys [inputs model instructions output-behavior]}]
   (when-not (contains? #{nil} inputs) (when-not (sequential? inputs) (missing-key! :inputs)))
   (when-not model (missing-key! :model))
+  (when-not output-behavior (missing-key! :output-behavior))
   (let [b (com.anthropic.models.beta.dreams.DreamCreateParams/builder)
         ^com.anthropic.models.beta.dreams.DreamCreateParams$Model model*
         (if (string? model)
@@ -3356,12 +3372,20 @@
           model)]
     (.inputs b ^java.util.List (vec inputs))
     (.model b model*)
-    (when instructions (.instructions b ^String instructions)) (.build b)))
+    (when instructions (.instructions b ^String instructions))
+    (.outputBehavior b (->dream-output-behavior output-behavior))
+    (.build b)))
 
 (defn- dream->map [^com.anthropic.models.beta.dreams.BetaDream r]
-  (cond-> {:id (.id r) :status (->keyword (.asString (.status r))) :created-at (str (.createdAt r))
+  (let [output-behavior (.outputBehavior r)]
+    (cond-> {:id (.id r) :status (->keyword (.asString (.status r))) :created-at (str (.createdAt r))
            :inputs (vec (.inputs r)) :outputs (vec (.outputs r))
            :type (->keyword (.asString (.type r)))
+           :output-behavior (cond
+                              (.isCreateNew output-behavior) {:type :create-new}
+                              (.isUpdateExisting output-behavior)
+                              {:type :update-existing
+                               :memory-store-id (.memoryStoreId (.asUpdateExisting output-behavior))})
            :model {:id (.id (.model r))}
            :usage {:cache-creation-input-tokens (.cacheCreationInputTokens (.usage r))
                    :cache-read-input-tokens (.cacheReadInputTokens (.usage r))
@@ -3372,7 +3396,7 @@
     (unopt (.endedAt r)) (assoc :ended-at (str (unopt (.endedAt r))))
     (unopt (.error r)) (assoc :error (let [^com.anthropic.models.beta.dreams.BetaDreamError e (unopt (.error r))]
                                       {:type (->keyword (.type e)) :message (.message e)}))
-    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))))
+    (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r)))))))
 (defn create-dream [^AnthropicClient client req] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.create (->dream-create-params req))))))
 (defn get-dream [^AnthropicClient client ^String dream-id] (with-api-errors (dream->map (-> (.beta client) (.dreams) (.retrieve dream-id)))))
 (defn list-dreams

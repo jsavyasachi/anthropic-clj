@@ -9,7 +9,7 @@
             [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.client.okhttp AnthropicOkHttpClient AnthropicOkHttpClient$Builder)
-           (com.anthropic.core JsonValue LogLevel RequestOptions)
+           (com.anthropic.core JsonSchemaLocalValidation JsonValue LogLevel RequestOptions)
            (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
            (com.anthropic.helpers MessageAccumulator)
            (java.net Proxy)
@@ -49,6 +49,7 @@
                                           DocumentBlockParam DocumentBlockParam$Source
                                           ImageBlockParam ImageBlockParam$Source
                                           JsonOutputFormat JsonOutputFormat$Schema
+                                          StructuredOutputConfig
                                           Message
                                           MessageCountTokensTool
                                           MessageCountTokensParams
@@ -242,7 +243,7 @@
 (defn vertex-client
   "Build an `AnthropicClient` backed by Google Vertex AI. Requires the optional
   `:vertex` deps.edn alias. Options: `:region`, `:project`,
-  `:google-credentials`, `:access-token`, and `:configure`, which receives the
+  `:google-credentials`, `:access-token`, `:base-url`, and `:configure`, which receives the
   Vertex backend builder last. With no args, loads backend settings and
   application-default credentials from the environment."
   (^AnthropicClient []
@@ -250,7 +251,7 @@
          b (static-call cls "builder" [])]
      (instance-call b "fromEnv")
      (backend-client (instance-call b "build"))))
-  (^AnthropicClient [{:keys [region project google-credentials access-token configure]}]
+  (^AnthropicClient [{:keys [region project base-url google-credentials access-token configure]}]
    (let [cls (optional-class "com.anthropic.vertex.backends.VertexBackend" :vertex)
          b (static-call cls "builder" [])
          credentials (or google-credentials
@@ -268,6 +269,7 @@
                              (static-call credentials-class "create" [token]))))]
      (when region (instance-call b "region" region))
      (when project (instance-call b "project" project))
+     (when base-url (instance-call b "baseUrl" base-url))
      (when credentials (instance-call b "googleCredentials" credentials))
      (when configure (configure b))
      (backend-client (instance-call b "build")))))
@@ -968,13 +970,18 @@
       (.putAdditionalProperty b ^String (name k) (JsonValue/from (walk/stringify-keys v))))
     (.build b)))
 
-(defn- ->output-config ^OutputConfig [schema effort]
-  (let [b (OutputConfig/builder)]
-    (when schema
-      (.format b (-> (JsonOutputFormat/builder) (.schema (->schema schema)) (.build))))
-    (when effort
-      (.effort b (OutputConfig$Effort/of (name effort))))
-    (.build b)))
+(defn- ->output-config ^OutputConfig [schema effort output-type]
+  (if output-type
+    (let [b (StructuredOutputConfig/builder)]
+      (.format b ^Class output-type JsonSchemaLocalValidation/NO)
+      (when effort (.effort b (OutputConfig$Effort/of (name effort))))
+      (.rawOutputConfig (.build b)))
+    (let [b (OutputConfig/builder)]
+      (when schema
+        (.format b (-> (JsonOutputFormat/builder) (.schema (->schema schema)) (.build))))
+      (when effort
+        (.effort b (OutputConfig$Effort/of (name effort))))
+      (.build b))))
 
 (defn- add-message [^MessageCreateParams$Builder b {:keys [role content]}]
   (let [r (keyword role)]
@@ -992,7 +999,7 @@
   ^MessageCreateParams [{:keys [model max-tokens system messages tools
                                 temperature top-p top-k stop-sequences
                                 tool-choice thinking metadata service-tier
-                                response-format effort container inference-geo
+                                response-format output-type effort container inference-geo
                                 user-profile-id cache-control extra-headers
                                 extra-query extra-body]
                          :or {model "claude-opus-4-8" max-tokens 1024}}]
@@ -1015,8 +1022,8 @@
     (when inference-geo (.inferenceGeo b ^String inference-geo))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
-    (when (or response-format effort)
-      (.outputConfig b (->output-config response-format effort)))
+    (when (or response-format output-type effort)
+      (.outputConfig b (->output-config response-format effort output-type)))
     (doseq [t tools] (.addTool b (->tool t)))
     (doseq [m messages] (add-message b m))
     (doseq [[k v] extra-headers]
@@ -1045,7 +1052,7 @@
   `->params`; `:max-tokens` and sampling params are ignored (not part of the
   count-tokens request). Web-fetch tools accept `:use-cache` and `:citations`."
   ^MessageCountTokensParams [{:keys [model system messages tools thinking tool-choice
-                                     response-format effort user-profile-id
+                                     response-format output-type effort user-profile-id
                                      cache-control extra-headers extra-query
                                      extra-body]
                               :or {model "claude-opus-4-8"}}]
@@ -1059,8 +1066,8 @@
     (when tool-choice (.toolChoice b (->tool-choice tool-choice)))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
-    (when (or response-format effort)
-      (.outputConfig b (->output-config response-format effort)))
+    (when (or response-format output-type effort)
+      (.outputConfig b (->output-config response-format effort output-type)))
     (doseq [t tools] (.addTool b (->count-tool t)))
     (doseq [m messages] (add-count-message b m))
     (doseq [[k v] extra-headers]
@@ -1386,7 +1393,7 @@
   escape hatches `:extra-headers`, `:extra-query`, and `:extra-body` pass
   unwrapped values to the SDK builder. For structured output, pass
   `:response-format` (a
-  JSON Schema map) and/or `:effort` (`:low`…`:max`); when `:response-format` is
+  JSON Schema map), `:output-type` (a Java `Class`), and/or `:effort` (`:low`…`:max`); when `:response-format` is
   set the returned map also carries `:parsed`, the response text decoded as a
   Clojure map. An optional third `opts` map accepts `:timeout-ms`,
   `:response-validation`, and truthy `:include-response`; the latter adds raw

@@ -94,7 +94,9 @@ HTTP `:status`, `:request-id`, and headers. Request maps accept `:extra-headers`
 `:extra-query`, and `:extra-body`. Use these keys to send a parameter that this
 wrapper does not know about yet.
 
-For structured output, pass `:response-format`, `:effort`, or both. Responses
+For structured output, pass `:response-format`, `:output-type`, `:effort`, or a
+combination. `:output-type` accepts a Java `Class` such as `String` and builds
+the schema from that class. Responses
 include newer `:usage` fields when present: cache creation/read tokens,
 server-tool usage, service-tier, inference geo, cache creation details, and
 output-token details.
@@ -204,7 +206,7 @@ The library removes `:fn` before every API call.
 
 Pass `:response-format` (a JSON Schema map) to get a `:parsed` Clojure map back.
 Object schemas must set `"additionalProperties": false`. The API requires this.
-You can pass `:effort` (`:low`…`:max`) with `:response-format` or on its own.
+You can pass `:effort` (`:low`…`:max`) with either structured output option or on its own.
 
 ```clojure
 (anthropic/create-message
