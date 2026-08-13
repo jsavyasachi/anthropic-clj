@@ -508,12 +508,8 @@
     (is (= "store_1" (.memoryStoreId (.asUpdateExisting (opt (.outputBehavior p))))))))
 
 (deftest dream-params-output-behavior-is-optional
-  (let [p (try
-            (->dream-create-params {:inputs [] :model "claude-opus-4-8"})
-            (catch clojure.lang.ExceptionInfo _ ::error))]
-    (is (not= ::error p))
-    (when (not= ::error p)
-      (is (not (.isPresent (.outputBehavior p)))))))
+  (let [p (->dream-create-params {:inputs [] :model "claude-opus-4-8"})]
+    (is (not (.isPresent (.outputBehavior p))))))
 
 (deftest dream-response-enum-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
