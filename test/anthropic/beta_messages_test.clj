@@ -459,6 +459,18 @@
     (is (= {:type "object" :properties {}}
            (get-in body [:output-format :schema])))))
 
+(deftest beta-message-structured-output-class-request-translation
+  (let [^MessageCreateParams p
+        (->params {:messages [{:role :user :content "hi"}]
+                   :output-type String
+                   :effort :high})
+        config (opt (.outputConfig p))
+        format (when config (opt (.format config)))
+        schema (when format (._schema format))]
+    (is (some? config))
+    (is (= "high" (str (opt (.effort config)))))
+    (is (= "string" (.convert ^JsonValue (get (.values schema) "type") Object)))))
+
 (deftest beta-count-context-management-request-translation
   (let [^MessageCountTokensParams p
         (->count-params {:messages [{:role :user :content "hi"}]

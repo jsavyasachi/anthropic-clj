@@ -324,6 +324,19 @@
           (is (instance? AnthropicClient c))
           (is @configured))))))
 
+(deftest vertex-client-base-url
+  (let [base-url "https://vertex.example.test"
+        configured (atom nil)
+        c (a/vertex-client {:region "us-east5"
+                            :project "test"
+                            :access-token "test"
+                            :base-url base-url
+                            :configure (fn [builder]
+                                         (reset! configured
+                                                 (.baseUrl (.build builder))))})]
+    (is (instance? AnthropicClient c))
+    (is (= base-url @configured))))
+
 (deftest per-call-request-options-api
   (is (some #{'[client req opts]} (:arglists (meta #'a/create-message))))
   (is (some #{'[client req opts]} (:arglists (meta #'a/count-tokens))))
@@ -863,6 +876,16 @@
     (testing "no structured keys -> no output_config"
       (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]})]
         (is (not (.isPresent (.outputConfig p))))))))
+
+(deftest structured-output-class-params
+  (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                          :output-type String
+                                          :effort :low})
+        oc (opt (.outputConfig p))
+        format (when oc (opt (.format oc)))]
+    (is (some? oc))
+    (is (= "low" (str (opt (.effort oc)))))
+    (is (= "string" (.convert ^JsonValue (get (._additionalProperties (.schema format)) "type") Object)))))
 
 (deftest structured-parse
   (testing "parse-text decodes the first text block as JSON with keyword keys"

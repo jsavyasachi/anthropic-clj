@@ -498,9 +498,13 @@
     (is (= 10 (opt (.limit p))))))
 
 (deftest dream-params
-  (let [p (->dream-create-params {:inputs [] :model "claude-opus-4-8" :instructions "dream"})]
+  (let [p (->dream-create-params {:inputs [] :model "claude-opus-4-8" :instructions "dream"
+                                  :output-behavior {:type :update-existing
+                                                    :memory-store-id "store_1"}})]
     (is (= "claude-opus-4-8" (.asString (.model p))))
-    (is (= "dream" (opt (.instructions p))))))
+    (is (= "dream" (opt (.instructions p))))
+    (is (.isUpdateExisting (opt (.outputBehavior p))))
+    (is (= "store_1" (.memoryStoreId (.asUpdateExisting (opt (.outputBehavior p))))))))
 
 (deftest dream-response-enum-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
@@ -513,6 +517,9 @@
                   (.createdAt ts) (.inputs []) (.outputs [])
                   (.model (-> (com.anthropic.models.beta.dreams.BetaDreamModelConfig/builder)
                               (.id "claude-opus-4-8") (.build)))
+                  (.outputBehavior
+                   (com.anthropic.models.beta.dreams.BetaOutputBehavior/ofCreateNew
+                    (com.anthropic.models.beta.dreams.BetaOutputBehaviorCreateNew$Type/of "create_new")))
                   (.status (com.anthropic.models.beta.dreams.BetaDreamStatus/of "running"))
                   (.type (com.anthropic.models.beta.dreams.BetaDream$Type/of "dream"))
                   (.usage (-> (com.anthropic.models.beta.dreams.BetaDreamUsage/builder)
@@ -521,7 +528,8 @@
                   (.build))
         mapped (dream->map dream)]
     (is (= :running (:status mapped)))
-    (is (= :dream (:type mapped)))))
+    (is (= :dream (:type mapped)))
+    (is (= {:type :create-new} (:output-behavior mapped)))))
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))
