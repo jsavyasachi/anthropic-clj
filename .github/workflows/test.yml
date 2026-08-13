@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         jdk: ['17', '21']
-        clojure: ['1.11', '1.12']
+        clojure: ['1.10', '1.11', '1.12']
     name: jdk ${{ matrix.jdk }} / clojure ${{ matrix.clojure }}
     steps:
       - uses: actions/checkout@v4
