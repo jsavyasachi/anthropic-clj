@@ -1504,7 +1504,7 @@
         (.addBeta b beta-name)))
     (.build b)))
 
-(declare ^:private agent-ref->map session-resource->map)
+(declare ^:private session-resource->map)
 
 (defn- session-agent->map
   [^com.anthropic.models.beta.sessions.BetaManagedAgentsSessionAgent r]
@@ -1868,7 +1868,7 @@
     (unopt (.maxIterations event)) (assoc :max-iterations (unopt (.maxIterations event)))))
 
 (defn- user-interrupt-payload->map
-  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent event]
+  [^com.anthropic.models.beta.sessions.events.BetaManagedAgentsUserInterruptEvent _event]
   {})
 
 (declare ^:private search-result-block->map)
@@ -2549,12 +2549,12 @@
                                                    :else (throw (ex-info "Unsupported checkout type" {:anthropic/error :unknown-checkout-type})))))
         (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))
     :else
-    (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig x (.asMemoryStore r)]
-      (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig$Access access (unopt (.access x))]
-        (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)}
+    (let [^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig x (.asMemoryStore r)
+          ^com.anthropic.models.beta.deployments.BetaManagedAgentsMemoryStoreResourceConfig$Access access (unopt (.access x))]
+      (cond-> {:type :memory-store :memory-store-id (.memoryStoreId x)}
         access (assoc :access (->keyword (.asString access)))
         (unopt (.instructions x)) (assoc :instructions (unopt (.instructions x)))
-        (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r))))))))
+        (unopt (.mountPath r)) (assoc :mount-path (unopt (.mountPath r)))))))
 
 (defn- deployment-schedule->map [^com.anthropic.models.beta.deployments.BetaManagedAgentsSchedule r]
   (cond-> {:expression (.expression r)
@@ -3301,7 +3301,7 @@
     (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
                                  (.create (->tunnel-certificate-create-params tunnel-id req))))))
 
-(defn get-tunnel-certificate [^AnthropicClient client ^String tunnel-id ^String certificate-id]
+(defn get-tunnel-certificate [^AnthropicClient client ^String _tunnel-id ^String certificate-id]
   (with-api-errors
     (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
                                  (.retrieve certificate-id)))) )
@@ -3318,7 +3318,7 @@
                (.list (->certificate-list-params tunnel-id opts)))]
        (mapv tunnel-certificate->map (.autoPager p))))))
 
-(defn archive-tunnel-certificate [^AnthropicClient client ^String tunnel-id ^String certificate-id]
+(defn archive-tunnel-certificate [^AnthropicClient client ^String _tunnel-id ^String certificate-id]
   (with-api-errors
     (tunnel-certificate->map (-> (.beta client) (.tunnels) (.certificates)
                                  (.archive certificate-id)))))

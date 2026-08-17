@@ -61,10 +61,8 @@
                                                BetaToolTextEditor20250728$InputExample$Builder
                                                BetaMemoryTool20250818$InputExample$Builder
                                                BetaToolSearchToolBm25_20251119$AllowedCaller
-                                               BetaToolSearchToolBm25_20251119$Builder
                                                BetaToolSearchToolBm25_20251119$Type
                                                BetaToolSearchToolRegex20251119$AllowedCaller
-                                               BetaToolSearchToolRegex20251119$Builder
                                                BetaToolSearchToolRegex20251119$Type
                                                BetaToolSearchToolBm25_20251119
                                                BetaToolSearchToolRegex20251119
@@ -94,7 +92,6 @@
                                                BetaMemoryTool20250818$Builder
                                                BetaTool$InputExample$Builder
                                                BetaToolChangeMcpToolReference
-                                               BetaToolChangeMcpToolsetReference
                                                BetaToolChoice BetaToolChoiceAny
                                                BetaToolChoiceAuto BetaToolChoiceNone
                                                BetaToolChoiceTool

@@ -46,7 +46,7 @@
                                           Container
                                           ContainerUploadBlockParam
                                           ContentBlock ContentBlockParam
-                                          DocumentBlockParam DocumentBlockParam$Source
+                                          DocumentBlockParam$Source
                                           ImageBlockParam ImageBlockParam$Source
                                           JsonOutputFormat JsonOutputFormat$Schema
                                           StructuredOutputConfig
@@ -93,7 +93,6 @@
                                           ToolChoiceAuto ToolChoiceAuto$Builder
                                           ToolChoiceNone ToolChoiceTool
                                           ToolChoiceTool$Builder
-                                          ServerToolUseBlock
                                           ToolResultBlockParam ToolResultBlockParam$Builder
                                           ToolTextEditor20250728
                                           ToolTextEditor20250728$AllowedCaller
