@@ -740,6 +740,37 @@
       (is (= "file_123" (.fileId cu)))
       (is (.isPresent (.cacheControl cu))))))
 
+(deftest stable-2-56-message-content-additions
+  (let [image (.get (.image (->content-block
+                             {:type :image
+                              :source {:type :file :file-id "file_1"}
+                              :transformations {:oversized-image :downsize}})))
+        image-source (.source image)
+        document (.get (.document (->content-block
+                                   {:type :document
+                                    :source {:type :file :file-id "file_2"}})))
+        document-source (.source document)
+        ^MessageCreateParams params
+        (->params {:messages [{:role :user :content "hi"}]
+                   :container {:id "c1"
+                               :skills [{:skill-id "s1"
+                                         :type :custom
+                                         :version "1.0.0"}]}})
+        container (.asContainerParams (opt (.container params)))
+        skill (first (opt (.skills container)))]
+    (is (.isFile image-source))
+    (is (= "file_1" (.fileId (.asFile image-source))))
+    (is (= :downsize
+           (-> (opt (.oversizedImage (opt (.transformations image))))
+               str str/lower-case keyword)))
+    (is (.isFile document-source))
+    (is (= "file_2" (.fileId (.asFile document-source))))
+    (is (= "c1" (opt (.id container))))
+    (is (= 1 (count (opt (.skills container)))))
+    (is (= "s1" (.skillId skill)))
+    (is (= :custom (-> (.type skill) str str/lower-case keyword)))
+    (is (= "1.0.0" (opt (.version skill))))))
+
 (deftest tool-use-caller-mapping
   (testing "direct caller"
     (let [block (-> (ToolUseBlock/builder)

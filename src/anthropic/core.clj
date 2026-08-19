@@ -44,10 +44,14 @@
                                           CodeExecutionTool20260521
                                           CodeExecutionTool20260521$AllowedCaller
                                           Container
+                                          ContainerParams
                                           ContainerUploadBlockParam
                                           ContentBlock ContentBlockParam
                                           DocumentBlockParam$Source
+                                          FileDocumentSource FileImageSource
                                           ImageBlockParam ImageBlockParam$Source
+                                          ImageTransformationsParam
+                                          ImageTransformationsParam$OversizedImage
                                           JsonOutputFormat JsonOutputFormat$Schema
                                           StructuredOutputConfig
                                           Message
@@ -104,6 +108,7 @@
                                           RefusalStopDetails
                                           CacheCreation OutputTokensDetails
                                           ServerToolUsage
+                                          SkillParams SkillParams$Type
                                           UserLocation
                                           WebSearchTool20260318
                                           WebSearchTool20260318$AllowedCaller
@@ -813,7 +818,7 @@
       (.ttl b (CacheControlEphemeral$Ttl/of (name ttl))))
     (.build b)))
 
-(defn- ->image-source ^ImageBlockParam$Source [{:keys [type media-type data url]}]
+(defn- ->image-source ^ImageBlockParam$Source [{:keys [type media-type data url file-id]}]
   (case (keyword type)
     :base64 (ImageBlockParam$Source/ofBase64
              (-> (Base64ImageSource/builder)
@@ -822,21 +827,46 @@
                  (.build)))
     :url (ImageBlockParam$Source/ofUrl
           (-> (UrlImageSource/builder) (.url ^String url) (.build)))
+    :file (ImageBlockParam$Source/ofFile
+           (-> (FileImageSource/builder) (.fileId ^String file-id) (.build)))
     (throw (anthropic-error :unsupported-content-source
                             "Unsupported image source type"
                             {:type type}))))
 
-(defn- ->document-source ^DocumentBlockParam$Source [{:keys [type data url]}]
+(defn- ->document-source ^DocumentBlockParam$Source [{:keys [type data url file-id]}]
   (case (keyword type)
     :base64 (DocumentBlockParam$Source/ofBase64
              (-> (Base64PdfSource/builder) (.data ^String data) (.build)))
     :url (DocumentBlockParam$Source/ofUrl
           (-> (UrlPdfSource/builder) (.url ^String url) (.build)))
+    :file (DocumentBlockParam$Source/ofFile
+           (-> (FileDocumentSource/builder) (.fileId ^String file-id) (.build)))
     :text (DocumentBlockParam$Source/ofText
            (-> (PlainTextSource/builder) (.data ^String data) (.build)))
     (throw (anthropic-error :unsupported-content-source
                             "Unsupported document source type"
                             {:type type}))))
+
+(defn- ->image-transformations ^ImageTransformationsParam [{:keys [oversized-image]}]
+  (let [b (ImageTransformationsParam/builder)]
+    (when oversized-image
+      (.oversizedImage b
+                       (ImageTransformationsParam$OversizedImage/of
+                        (name oversized-image))))
+    (.build b)))
+
+(defn- ->skill-params ^SkillParams [{:keys [skill-id type version]}]
+  (let [b (-> (SkillParams/builder)
+              (.skillId ^String skill-id)
+              (.type (SkillParams$Type/of (name type))))]
+    (when version (.version b ^String version))
+    (.build b)))
+
+(defn- ->container-params ^ContainerParams [{:keys [id skills]}]
+  (let [b (ContainerParams/builder)]
+    (when id (.id b ^String id))
+    (when skills (.skills b ^java.util.List (mapv ->skill-params skills)))
+    (.build b)))
 
 (defn- ->search-result-text ^TextBlockParam [{:keys [text cache-control citations]}]
   (let [b (-> (TextBlockParam/builder) (.text ^String text))]
@@ -860,6 +890,8 @@
     :image (let [b (-> (ImageBlockParam/builder)
                        (.source ^ImageBlockParam$Source (->image-source (:source blk))))]
              (when cache-control (.cacheControl b (->cache-control cache-control)))
+             (when-let [transformations (:transformations blk)]
+               (.transformations b (->image-transformations transformations)))
              (ContentBlockParam/ofImage (.build b)))
     :document (->sdk-content-block
                (cond-> blk
@@ -1016,7 +1048,10 @@
     (when thinking (.thinking b (->thinking thinking)))
     (when metadata (.metadata b (->metadata metadata)))
     (when service-tier (.serviceTier b (->service-tier service-tier)))
-    (when container (.container b ^String container))
+    (when container
+      (if (string? container)
+        (.container b ^String container)
+        (.container b ^ContainerParams (->container-params container))))
     (when inference-geo (.inferenceGeo b ^String inference-geo))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
