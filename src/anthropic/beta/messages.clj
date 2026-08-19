@@ -13,6 +13,7 @@
                                                BetaBase64PdfSource
                                                BetaCacheControlEphemeral
                                                BetaCacheControlEphemeral$Ttl
+                                               BetaContainerParams
                                                BetaContentBlockParam
                                                BetaContextManagementConfig
                                                BetaCountTokensContextManagementResponse
@@ -31,6 +32,10 @@
                                                StructuredOutputConfig
                                                BetaFallbackParam
                                                BetaFallbackParam$Speed
+                                               BetaFileDocumentSource
+                                               BetaFileImageSource
+                                               BetaImageTransformationsParam
+                                               BetaImageTransformationsParam$OversizedImage
                                                BetaPlainTextSource
                                                BetaRedactedThinkingBlockParam
                                                BetaRequestDocumentBlock
@@ -48,6 +53,8 @@
                                                BetaThinkingConfigDisabled
                                                BetaThinkingConfigEnabled
                                                BetaThinkingConfigParam
+                                               BetaSkillParams
+                                               BetaSkillParams$Type
                                                BetaTool BetaTool$Builder BetaTool$AllowedCaller BetaTool$InputSchema
                                                BetaTool$InputSchema$Properties
                                                BetaToolUnion
@@ -174,7 +181,7 @@
       (.ttl b (BetaCacheControlEphemeral$Ttl/of (name ttl))))
     (.build b)))
 
-(defn- ->image-source ^BetaImageBlockParam$Source [{:keys [type media-type data url]}]
+(defn- ->image-source ^BetaImageBlockParam$Source [{:keys [type media-type data url file-id]}]
   (case (keyword type)
     :base64 (BetaImageBlockParam$Source/ofBase64
              (-> (BetaBase64ImageSource/builder)
@@ -183,19 +190,44 @@
                  (.build)))
     :url (BetaImageBlockParam$Source/ofUrl
           (-> (BetaUrlImageSource/builder) (.url ^String url) (.build)))
+    :file (BetaImageBlockParam$Source/ofFile
+           (-> (BetaFileImageSource/builder) (.fileId ^String file-id) (.build)))
     (throw (ex-info "Unsupported image source type"
                     {:anthropic/error :unsupported-content-source :type type}))))
 
-(defn- ->document-source ^BetaRequestDocumentBlock$Source [{:keys [type data url]}]
+(defn- ->document-source ^BetaRequestDocumentBlock$Source [{:keys [type data url file-id]}]
   (case (keyword type)
     :base64 (BetaRequestDocumentBlock$Source/ofBase64
              (-> (BetaBase64PdfSource/builder) (.data ^String data) (.build)))
     :url (BetaRequestDocumentBlock$Source/ofUrl
           (-> (BetaUrlPdfSource/builder) (.url ^String url) (.build)))
+    :file (BetaRequestDocumentBlock$Source/ofFile
+           (-> (BetaFileDocumentSource/builder) (.fileId ^String file-id) (.build)))
     :text (BetaRequestDocumentBlock$Source/ofText
            (-> (BetaPlainTextSource/builder) (.data ^String data) (.build)))
     (throw (ex-info "Unsupported document source type"
                     {:anthropic/error :unsupported-content-source :type type}))))
+
+(defn- ->beta-image-transformations ^BetaImageTransformationsParam [{:keys [oversized-image]}]
+  (let [b (BetaImageTransformationsParam/builder)]
+    (when oversized-image
+      (.oversizedImage b
+                       (BetaImageTransformationsParam$OversizedImage/of
+                        (name oversized-image))))
+    (.build b)))
+
+(defn- ->beta-skill-params ^BetaSkillParams [{:keys [skill-id type version]}]
+  (let [b (-> (BetaSkillParams/builder)
+              (.skillId ^String skill-id)
+              (.type (BetaSkillParams$Type/of (name type))))]
+    (when version (.version b ^String version))
+    (.build b)))
+
+(defn- ->beta-container-params ^BetaContainerParams [{:keys [id skills]}]
+  (let [b (BetaContainerParams/builder)]
+    (when id (.id b ^String id))
+    (when skills (.skills b ^java.util.List (mapv ->beta-skill-params skills)))
+    (.build b)))
 
 (declare ->citations)
 
@@ -255,6 +287,8 @@
     :image (let [b (-> (BetaImageBlockParam/builder)
                         (.source ^BetaImageBlockParam$Source (->image-source (:source blk))))]
              (when cache-control (.cacheControl b (->cache-control cache-control)))
+             (when-let [transformations (:transformations blk)]
+               (.transformations b (->beta-image-transformations transformations)))
              (BetaContentBlockParam/ofImage (.build b)))
     :document (let [b (-> (BetaRequestDocumentBlock/builder)
                            (.source ^BetaRequestDocumentBlock$Source (->document-source (:source blk))))]
@@ -1016,7 +1050,10 @@
     (when thinking (.thinking b (->thinking thinking)))
     (when metadata (.metadata b (->metadata metadata)))
     (when service-tier (.serviceTier b (MessageCreateParams$ServiceTier/of (-> service-tier name (str/replace "-" "_")))))
-    (when container (.container b ^String container))
+    (when container
+      (if (string? container)
+        (.container b ^String container)
+        (.container b ^BetaContainerParams (->beta-container-params container))))
     (when inference-geo (.inferenceGeo b ^String inference-geo))
     (when user-profile-id (.userProfileId b ^String user-profile-id))
     (when cache-control (.cacheControl b (->cache-control cache-control)))
@@ -1287,7 +1324,10 @@
              [(.tools p) #(.tools b ^java.util.List %)]
              [(.topK p) #(.topK b (long %))] [(.topP p) #(.topP b (double %))]]]
       (when (.isPresent ^java.util.Optional value) (setter (.get ^java.util.Optional value))))
-    (when-let [container (:container req)] (.container b ^String container))
+    (when-let [container (:container req)]
+      (if (string? container)
+        (.container b ^String container)
+        (.container b ^BetaContainerParams (->beta-container-params container))))
     (when-let [system (:system req)]
       (if (string? system) (.system b ^String system)
           (.systemOfBetaTextBlockParams b ^java.util.List (mapv ->system-block system))))

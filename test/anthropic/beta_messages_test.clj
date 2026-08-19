@@ -644,6 +644,41 @@
                                           :content "sunny"}]}]})]
     (is (= 3 (count (.asBetaContentBlockParams (.content (first (.messages p)))))))))
 
+(deftest beta-2-56-message-content-additions
+  (let [image (.asImage (->content-block
+                         {:type :image
+                          :source {:type :file :file-id "file_1"}
+                          :transformations {:oversized-image :downsize}}))
+        image-source (.source image)
+        document (.asDocument (->content-block
+                               {:type :document
+                                :source {:type :file :file-id "file_2"}}))
+        document-source (.source document)
+        ^MessageCreateParams params
+        (->params {:messages [{:role :user :content "hi"}]
+                   :container {:id "c1"
+                               :skills [{:skill-id "s1"
+                                         :type :custom
+                                         :version "1.0.0"}]}})
+        ^MessageCreateParams string-container-params
+        (->params {:messages [{:role :user :content "hi"}]
+                   :container "container_123"})
+        container (.asBetaContainerParams (opt (.container params)))
+        skill (first (opt (.skills container)))]
+    (is (.isFile image-source))
+    (is (= "file_1" (.fileId (.asFile image-source))))
+    (is (= :downsize
+           (-> (opt (.oversizedImage (opt (.transformations image))))
+               str str/lower-case keyword)))
+    (is (.isFile document-source))
+    (is (= "file_2" (.fileId (.asFile document-source))))
+    (is (= "c1" (opt (.id container))))
+    (is (= 1 (count (opt (.skills container)))))
+    (is (= "s1" (.skillId skill)))
+    (is (= :custom (-> (.type skill) str str/lower-case keyword)))
+    (is (= "1.0.0" (opt (.version skill))))
+    (is (= "container_123" (-> string-container-params .container opt .asString)))))
+
 (deftest beta-tool-change-content-blocks
   (doseq [[type tool expected-type expected-name]
           [[:tool-addition {:reference "get_weather"} "tool_addition" "get_weather"]
