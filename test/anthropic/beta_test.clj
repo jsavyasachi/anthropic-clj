@@ -2,8 +2,9 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string]
             [anthropic.beta :as beta])
-  (:import (com.anthropic.models.beta.skills SkillCreateParams
-                                             SkillCreateResponse)
+  (:import (com.anthropic.models.skills Skill
+                                        SkillCreateParams
+                                        SkillSource)
            (com.anthropic.models.beta.memorystores BetaManagedAgentsMemoryStore
                                                    MemoryStoreCreateParams
                                                    MemoryStoreUpdateParams)
@@ -67,13 +68,13 @@
                                                         WorkStatsParams
                                                         WorkStopParams
                                                         WorkUpdateParams)
-           (com.anthropic.models.beta.skills.versions VersionCreateParams
-                                                       VersionCreateResponse
-                                                       VersionDeleteParams
-                                                       VersionDeleteResponse
-                                                       VersionDownloadParams
-                                                       VersionListParams
-                                                       VersionRetrieveParams)
+           (com.anthropic.models.skills.versions SkillVersion
+                                                 VersionCreateParams
+                                                 VersionDeleteParams
+                                                 VersionListParams
+                                                 VersionRetrieveParams
+                                                 DeletedSkillVersion)
+           (com.anthropic.models.beta.skills.versions VersionDownloadParams)
            (com.anthropic.models.beta.vaults BetaManagedAgentsDeletedVault
                                              BetaManagedAgentsVault
                                              VaultCreateParams
@@ -325,8 +326,7 @@
         cases [{:name '->skill-list-params :args [{}]
                 :check (fn [p] [(= 7 (opt (.limit p)))
                                 (= "page" (opt (.page p)))
-                                (= "custom" (opt (.source p)))
-                                (= ["beta-test"] (mapv #(.asString %) (opt (.betas p))))])}
+                                (= "custom" (opt (.source p)))])}
                {:name '->version-list-params :args ["skill_1" {}]
                 :check (fn [p] [(= 7 (opt (.limit p))) (= "page" (opt (.page p)))])}
                {:name '->memory-store-list-params :args [{}]
@@ -545,12 +545,12 @@
 
 (deftest skill-params
   (let [tmp (doto (java.io.File/createTempFile "skill" ".md") (spit "content"))
-        ^SkillCreateParams p (->skill-create-params {:display-title "My Skill"
+        ^SkillCreateParams p (->skill-create-params {:display-name "My Skill"
                                                      :files [(.getPath tmp)]})]
     (is (some? p)))
   (testing "missing keys throw"
     (is (= {:anthropic/error :missing-key :key :files}
-           (ex-data-for #(->skill-create-params {:display-title "x"}))))))
+           (ex-data-for #(->skill-create-params {:display-name "x"}))))))
 
 (deftest memory-store-params
   (let [^MemoryStoreCreateParams p (->memory-store-create-params
@@ -1133,20 +1133,24 @@
     (is (= "up_1" (opt (.userProfileId p))))))
 
 (deftest skill-response-mapping
-  (let [r (-> (SkillCreateResponse/builder)
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        r (-> (Skill/builder)
               (.id "skill_1")
-              (.displayTitle "My Skill")
-              (.latestVersion "3")
-              (.source "custom")
-              (.type "skill")
-              (.createdAt "2026-07-04T00:00:00Z")
-              (.updatedAt "2026-07-04T00:00:00Z")
+              (.displayName "My Skill")
+              (.latestVersionId "sv_3")
+              (.source (-> (SkillSource/builder)
+                           (.type (com.anthropic.models.skills.SkillSource$Type/of "custom"))
+                           (.build)))
+              (.type (JsonValue/from "skill"))
+              (.createdAt ts)
+              (.updatedAt ts)
               (.build))
         m (skill-create->map r)]
     (is (= "skill_1" (:id m)))
-    (is (= "My Skill" (:display-title m)))
-    (is (= :skill (:type m)))
-    (is (= "2026-07-04T00:00:00Z" (:created-at m)))))
+    (is (= "My Skill" (:display-name m)))
+    (is (= "sv_3" (:latest-version-id m)))
+    (is (= {:type :custom} (:source m)))
+    (is (= "2026-07-04T00:00Z" (:created-at m)))))
 
 (deftest memory-store-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
@@ -1808,25 +1812,23 @@
              (f r))))))
 
 (deftest skill-version-response-mapping
-  (let [r (-> (VersionCreateResponse/builder)
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        r (-> (SkillVersion/builder)
               (.id "sv_1")
-              (.createdAt "2026-07-04T00:00:00Z")
+              (.createdAt ts)
               (.description "d")
-              (.directory "/")
               (.name "SKILL.md")
               (.skillId "skill_1")
-              (.type "skill_version")
-              (.version "2")
               (.build))
-        d (-> (VersionDeleteResponse/builder)
+        d (-> (DeletedSkillVersion/builder)
               (.id "sv_1")
-              (.type "skill_version_deleted")
+              (.type (JsonValue/from "skill_version_deleted"))
               (.build))
         m (skill-version->map r)]
-    (is (= "sv_1" (:id m)))
-    (is (= "skill_1" (:skill-id m)))
-    (is (= "2" (:version m)))
-    (is (= {:id "sv_1" :deleted true :type :skill_version_deleted} (skill-version-delete->map d)))))
+    (is (= {:id "sv_1" :skill-id "skill_1" :name "SKILL.md"
+            :description "d" :created-at "2026-07-04T00:00Z"}
+           m))
+    (is (= {:id "sv_1" :deleted true} (skill-version-delete->map d)))))
 
 (deftest deployment-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")

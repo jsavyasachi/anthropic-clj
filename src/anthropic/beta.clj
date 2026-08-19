@@ -13,22 +13,20 @@
            (com.anthropic.core JsonValue MultipartField UnwrapWebhookParams)
            (com.anthropic.core.http Headers HttpResponse StreamResponse)
            (com.anthropic.errors AnthropicException)
-           (com.anthropic.models.beta.skills SkillCreateParams
-                                             SkillCreateResponse
-                                             SkillDeleteResponse
-                                             SkillListPage
-                                             SkillListResponse
-                                             SkillRetrieveResponse)
-           (com.anthropic.models.beta.skills.versions VersionCreateParams
-                                                       VersionCreateResponse
-                                                       VersionDeleteParams
-                                                       VersionDeleteResponse
-                                                       VersionDownloadParams
-                                                       VersionListPage
-                                                       VersionListResponse
-                                                       VersionListParams
-                                                       VersionRetrieveParams
-                                                       VersionRetrieveResponse)
+           (com.anthropic.models.skills Skill
+                                        SkillCreateParams
+                                        SkillListPage
+                                        SkillListParams
+                                        SkillSource
+                                        DeletedSkill)
+           (com.anthropic.models.skills.versions SkillVersion
+                                                 VersionCreateParams
+                                                 VersionDeleteParams
+                                                 DeletedSkillVersion
+                                                 VersionListPage
+                                                 VersionListParams
+                                                 VersionRetrieveParams)
+           (com.anthropic.models.beta.skills.versions VersionDownloadParams)
            (com.anthropic.models.beta.memorystores BetaManagedAgentsMemoryStore
                                                    BetaManagedAgentsDeletedMemoryStore
                                                    MemoryStoreCreateParams
@@ -405,12 +403,12 @@
                        :key key :value value})))))
 
 (defn- ->skill-list-params
-  ^com.anthropic.models.beta.skills.SkillListParams
+  ^SkillListParams
   ([opts]
    (let [opts (or opts {})
-         b (com.anthropic.models.beta.skills.SkillListParams/builder)]
+         b (SkillListParams/builder)]
      (->list-pagination opts #(.limit b (long %)) #(.page b ^String %)
-                        #(.addBeta b ^String %))
+                        (constantly nil))
      (when-let [source (:source opts)] (.source b ^String source))
      (.build b))))
 
@@ -422,7 +420,7 @@
          b (VersionListParams/builder)]
      (.skillId b ^String skill-id)
      (->list-pagination opts #(.limit b (long %)) #(.page b ^String %)
-                        #(.addBeta b ^String %))
+                        (constantly nil))
      (.build b))))
 
 (defn- ->memory-store-list-params
@@ -603,68 +601,59 @@
 (defn- ->skill-file ^MultipartField [f]
   (let [^java.io.File file (if (string? f) (java.io.File. ^String f) f)]
     (-> (MultipartField/builder)
-        (.value (.toPath file))
+        (.value (java.io.FileInputStream. file))
         (.filename (.getName file))
         (.build))))
 
-(defn- ->skill-create-params ^SkillCreateParams [{:keys [display-title files]}]
+(defn- ->skill-create-params ^SkillCreateParams
+  [{:keys [display-name display-title files]}]
   (when-not (seq files) (missing-key! :files))
-  (let [b (SkillCreateParams/builder)]
-    (when display-title (.displayTitle b ^String display-title))
+  (let [b (SkillCreateParams/builder)
+        display-name (or display-name display-title)]
+    (when display-name (.displayName b ^String display-name))
     (doseq [f files] (.addFile b (->skill-file f)))
     (.build b)))
 
-(defn- skill-map [id display-title latest-version source created-at updated-at type]
-  (cond-> {:id id
-           :source (str source)
-           :created-at (str created-at)
-           :updated-at (str updated-at)
-           :type (keyword type)}
-    display-title (assoc :display-title display-title)
-    latest-version (assoc :latest-version latest-version)))
+(defn- skill->map [^Skill r]
+  {:id (.id r)
+   :display-name (.displayName r)
+   :latest-version-id (.latestVersionId r)
+   :source {:type (->keyword (.asString (.type ^SkillSource (.source r))))}
+   :created-at (str (.createdAt r))
+   :updated-at (str (.updatedAt r))})
 
-(defn- skill-create->map [^SkillCreateResponse r]
-  (skill-map (.id r) (unopt (.displayTitle r)) (unopt (.latestVersion r))
-             (.source r) (.createdAt r) (.updatedAt r) (.type r)))
-
-(defn- skill-retrieve->map [^SkillRetrieveResponse r]
-  (skill-map (.id r) (unopt (.displayTitle r)) (unopt (.latestVersion r))
-             (.source r) (.createdAt r) (.updatedAt r) (.type r)))
-
-(defn- skill-list->map [^SkillListResponse r]
-  (skill-map (.id r) (unopt (.displayTitle r)) (unopt (.latestVersion r))
-             (.source r) (.createdAt r) (.updatedAt r) (.type r)))
+(def skill-create->map skill->map)
 
 (defn create-skill
   "Create a skill from `:files` (paths or `java.io.File`s; typically a
-  SKILL.md plus resources) with an optional `:display-title`. Returns the
-  skill as a map (`:id`, `:display-title`, `:latest-version`, `:source`,
+  SKILL.md plus resources) with an optional `:display-name`. Returns the
+  skill as a map (`:id`, `:display-name`, `:latest-version-id`, `:source`,
   `:created-at`, `:updated-at`)."
   [^AnthropicClient client req]
   (with-api-errors
-    (skill-create->map (-> (.beta client) (.skills) (.create (->skill-create-params req))))))
+    (skill->map (-> (.skills client) (.create (->skill-create-params req))))))
 
 (defn get-skill
   "Get one skill by id, as a map shaped like `create-skill`'s return."
   [^AnthropicClient client ^String skill-id]
   (with-api-errors
-    (skill-retrieve->map (-> (.beta client) (.skills) (.retrieve skill-id)))))
+    (skill->map (-> (.skills client) (.retrieve skill-id)))))
 
 (defn list-skills
-  "List skills with optional `:limit`, `:page`, `:source`, and `:betas`."
+  "List skills with optional `:limit`, `:page`, and `:source`."
   ([^AnthropicClient client] (list-skills client {}))
   ([^AnthropicClient client opts]
    (with-api-errors
-     (let [^com.anthropic.models.beta.skills.SkillListParams params (->skill-list-params opts)
-           ^SkillListPage p (-> (.beta client) (.skills) (.list params))]
-       (mapv skill-list->map (.autoPager p))))))
+     (let [^SkillListParams params (->skill-list-params opts)
+           ^SkillListPage p (-> (.skills client) (.list params))]
+       (mapv skill->map (.autoPager p))))))
 
 (defn delete-skill
-  "Delete a skill by id. Returns `{:id ... :deleted true :type ...}`."
+  "Delete a skill by id. Returns `{:id ... :deleted true}`."
   [^AnthropicClient client ^String skill-id]
   (with-api-errors
-    (let [^SkillDeleteResponse r (-> (.beta client) (.skills) (.delete skill-id))]
-      {:id (.id r) :deleted true :type (keyword (.type r))})))
+    (let [^DeletedSkill r (-> (.skills client) (.delete skill-id))]
+      {:id (.id r) :deleted true})))
 
 ;; ---- Skill versions -------------------------------------------------------
 
@@ -694,72 +683,54 @@
     (.version b ^String version)
     (.build b)))
 
-(defn- skill-version-map [id skill-id version name description directory created-at type]
-  (cond-> {:id id
-           :skill-id skill-id
-           :version version
-           :name name
-           :description description
-           :directory directory
-           :created-at (str created-at)
-           :type (keyword type)}
-    true identity))
+(defn- skill-version->map [^SkillVersion r]
+  {:id (.id r)
+   :skill-id (.skillId r)
+   :name (.name r)
+   :description (.description r)
+   :created-at (str (.createdAt r))})
 
-(defn- skill-version->map [r]
-  (cond
-    (instance? VersionCreateResponse r)
-    (let [^VersionCreateResponse r r]
-      (skill-version-map (.id r) (.skillId r) (.version r) (.name r)
-                         (.description r) (.directory r) (.createdAt r) (.type r)))
-    (instance? VersionRetrieveResponse r)
-    (let [^VersionRetrieveResponse r r]
-      (skill-version-map (.id r) (.skillId r) (.version r) (.name r)
-                         (.description r) (.directory r) (.createdAt r) (.type r)))
-    :else
-    (let [^VersionListResponse r r]
-      (skill-version-map (.id r) (.skillId r) (.version r) (.name r)
-                         (.description r) (.directory r) (.createdAt r) (.type r)))))
-
-(defn- skill-version-delete->map [^VersionDeleteResponse r]
-  {:id (.id r) :deleted true :type (keyword (.type r))})
+(defn- skill-version-delete->map [^DeletedSkillVersion r]
+  {:id (.id r) :deleted true})
 
 (defn create-skill-version
   "Create a new skill version for `skill-id` from `:files` (paths or
   `java.io.File`s). Returns the version as a map."
   [^AnthropicClient client ^String skill-id req]
   (with-api-errors
-    (skill-version->map (-> (.beta client) (.skills) (.versions)
+    (skill-version->map (-> (.skills client) (.versions)
                             (.create (->version-create-params skill-id req))))))
 
 (defn get-skill-version
   "Get one skill version."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
-    (skill-version->map (-> (.beta client) (.skills) (.versions)
+    (skill-version->map (-> (.skills client) (.versions)
                             (.retrieve (->version-retrieve-params skill-id version))))))
 
 (defn list-skill-versions
-  "List skill versions with optional `:limit`, `:page`, and `:betas`."
+  "List skill versions with optional `:limit` and `:page`."
   ([^AnthropicClient client ^String skill-id]
    (list-skill-versions client skill-id {}))
   ([^AnthropicClient client ^String skill-id opts]
    (with-api-errors
      (let [^VersionListParams params (->version-list-params skill-id opts)
-           ^VersionListPage p (-> (.beta client) (.skills) (.versions)
+           ^VersionListPage p (-> (.skills client) (.versions)
                                   (.list params))]
        (mapv skill-version->map (.autoPager p))))))
 
 (defn delete-skill-version
-  "Delete a skill version. Returns `{:id ... :deleted true :type ...}`."
+  "Delete a skill version. Returns `{:id ... :deleted true}`."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
-    (skill-version-delete->map (-> (.beta client) (.skills) (.versions)
+    (skill-version-delete->map (-> (.skills client) (.versions)
                                    (.delete (->version-delete-params skill-id version))))))
 
 (defn download-skill-version
   "Download a skill version archive. Returns the response body as a byte array."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
+    ;; GA VersionService has no download operation, so this remains on beta.
     (let [^HttpResponse r (-> (.beta client) (.skills) (.versions)
                               (.download (->version-download-params skill-id version)))]
       (with-open [body (.body r)]
