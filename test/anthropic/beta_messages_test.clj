@@ -205,6 +205,52 @@
     (is (and (instance? BetaToolUnion (->tool tool))
              (predicate (->tool tool))))))
 
+(deftest beta-browser-and-computer-toolsets
+  (let [browser-union (->tool {:type :browser-toolset :name "browser"
+                               :allowed-callers [:direct]
+                               :cache-control true
+                               :configs {:navigate {:enabled true :defer-loading false}
+                                         :screenshot {:enabled true}}})
+        computer-union (->tool {:type :computer-toolset :name "computer"
+                                :allowed-callers [:direct]
+                                :cache-control true
+                                :configs {:screenshot {:enabled true :defer-loading false}
+                                          :cursor-position {:enabled true}}})]
+    (is (.isBrowserToolset20260801 ^BetaToolUnion browser-union))
+    (is (.isComputerToolset20260801 ^BetaToolUnion computer-union))
+    (when (.isBrowserToolset20260801 ^BetaToolUnion browser-union)
+      (let [browser (.asBrowserToolset20260801 ^BetaToolUnion browser-union)
+            configs (opt (.configs browser))]
+        (is (= "direct" (str (first (opt (.allowedCallers browser))))))
+        (is (some? (opt (.cacheControl browser))))
+        (is (= true (opt (.enabled (opt (.navigate configs))))))
+        (is (= false (opt (.deferLoading (opt (.navigate configs))))))
+        (is (= true (opt (.enabled (opt (.screenshot configs))))))))
+    (when (.isComputerToolset20260801 ^BetaToolUnion computer-union)
+      (let [computer (.asComputerToolset20260801 ^BetaToolUnion computer-union)
+            configs (opt (.configs computer))]
+        (is (= "direct" (str (first (opt (.allowedCallers computer))))))
+        (is (some? (opt (.cacheControl computer))))
+        (is (= true (opt (.enabled (opt (.screenshot configs))))))
+        (is (= false (opt (.deferLoading (opt (.screenshot configs))))))
+        (is (= true (opt (.enabled (opt (.cursorPosition configs))))))))
+    (is (.isBrowserToolset20260801 ^BetaToolUnion
+                                   (->tool {:type :browser-toolset :name "browser"})))
+    (is (.isComputerToolset20260801 ^BetaToolUnion
+                                    (->tool {:type :computer-toolset :name "computer"})))
+    (is (.isBrowserToolset20260801 ^BetaToolUnion
+                                   (first (opt (.tools (->params {:messages [{:role :user :content "hi"}]
+                                                                 :tools [{:type :browser-toolset :name "browser"}]}))))))
+    (is (.isComputerToolset20260801 ^BetaToolUnion
+                                    (first (opt (.tools (->params {:messages [{:role :user :content "hi"}]
+                                                                  :tools [{:type :computer-toolset :name "computer"}]}))))))
+    (is (.isBetaBrowserToolset20260801 ^MessageCountTokensParams$Tool
+                                       (first (opt (.tools (->count-params {:messages [{:role :user :content "hi"}]
+                                                                         :tools [{:type :browser-toolset :name "browser"}]}))))))
+    (is (.isBetaComputerToolset20260801 ^MessageCountTokensParams$Tool
+                                        (first (opt (.tools (->count-params {:messages [{:role :user :content "hi"}]
+                                                                          :tools [{:type :computer-toolset :name "computer"}]}))))))))
+
 (deftest beta-custom-tool-options
   (let [tool (->tool {:name "weather"
                       :input-schema {:type "object"}

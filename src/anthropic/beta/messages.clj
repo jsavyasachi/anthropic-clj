@@ -75,6 +75,37 @@
                                                BetaAdvisorTool20260301$Builder
                                                BetaMcpToolset BetaMcpToolset$Configs
                                                BetaMcpToolDefaultConfig
+                                               BetaBrowserToolset20260801
+                                               BetaBrowserToolset20260801$AllowedCaller
+                                               BetaBrowserToolset20260801$Builder
+                                               BetaBrowserToolsetConfigs BetaBrowserToolsetConfigs$Builder
+                                               BetaBrowserCloseTabConfig BetaBrowserDoubleClickConfig
+                                               BetaBrowserFileUploadConfig BetaBrowserFindConfig
+                                               BetaBrowserFormInputConfig BetaBrowserGetPageTextConfig
+                                               BetaBrowserHoldKeyConfig BetaBrowserHoverConfig
+                                               BetaBrowserJavascriptExecConfig BetaBrowserKeyConfig
+                                               BetaBrowserLeftClickConfig BetaBrowserLeftClickDragConfig
+                                               BetaBrowserLeftMouseDownConfig BetaBrowserLeftMouseUpConfig
+                                               BetaBrowserListTabsConfig BetaBrowserMiddleClickConfig
+                                               BetaBrowserMouseMoveConfig BetaBrowserNavigateConfig
+                                               BetaBrowserNewTabConfig BetaBrowserReadConsoleConfig
+                                               BetaBrowserReadNetworkConfig BetaBrowserReadPageConfig
+                                               BetaBrowserRightClickConfig BetaBrowserScreenshotConfig
+                                               BetaBrowserScrollConfig BetaBrowserScrollToConfig
+                                               BetaBrowserSwitchTabConfig BetaBrowserTripleClickConfig
+                                               BetaBrowserTypeConfig BetaBrowserWaitConfig BetaBrowserZoomConfig
+                                               BetaComputerToolset20260801
+                                               BetaComputerToolset20260801$AllowedCaller
+                                               BetaComputerToolset20260801$Builder
+                                               BetaComputerToolsetConfigs BetaComputerToolsetConfigs$Builder
+                                               BetaComputerCursorPositionConfig BetaComputerDoubleClickConfig
+                                               BetaComputerHoldKeyConfig BetaComputerKeyConfig
+                                               BetaComputerLeftClickConfig BetaComputerLeftClickDragConfig
+                                               BetaComputerLeftMouseDownConfig BetaComputerLeftMouseUpConfig
+                                               BetaComputerMiddleClickConfig BetaComputerMouseMoveConfig
+                                               BetaComputerRightClickConfig BetaComputerScreenshotConfig
+                                               BetaComputerScrollConfig BetaComputerTripleClickConfig
+                                               BetaComputerTypeConfig BetaComputerWaitConfig BetaComputerZoomConfig
                                                BetaCitationsConfigParam BetaUserLocation
                                                BetaWebSearchTool20260318$AllowedCaller
                                                BetaWebSearchTool20260318$Builder
@@ -380,7 +411,8 @@
 
 (def ^:private server-tool-types
   #{:web-search :web-fetch :code-execution :bash :text-editor :memory
-    :tool-search :computer-use :advisor :mcp-toolset})
+    :tool-search :computer-use :advisor :mcp-toolset :browser-toolset
+    :computer-toolset})
 
 (defn- ->web-search-tool ^BetaWebSearchTool20260318
   [{:keys [max-uses allowed-domains blocked-domains user-location response-inclusion] :as t}]
@@ -547,6 +579,110 @@
     (when cache-control (.cacheControl b (->cache-control cache-control)))
     (.build b)))
 
+(defmacro ^:private toolset-config-setters [builder-class entries]
+  `(hash-map
+    ~@(mapcat (fn [[action setter config-class]]
+                (let [builder (with-meta (gensym "builder") {:tag builder-class})
+                      config (gensym "config")
+                      config-builder (gensym "config-builder")]
+                  [action
+                   `(fn [~builder ~config]
+                      (let [~config-builder (~(symbol (str config-class "/builder")))]
+                        (when (contains? ~config :enabled)
+                          (.enabled ~config-builder (boolean (:enabled ~config))))
+                        (when (contains? ~config :defer-loading)
+                          (.deferLoading ~config-builder (boolean (:defer-loading ~config))))
+                        (~(symbol (str "." setter)) ~builder (.build ~config-builder))))]))
+              entries)))
+
+(def ^:private browser-toolset-config-setters
+  (toolset-config-setters BetaBrowserToolsetConfigs$Builder
+    [[:close-tab closeTab BetaBrowserCloseTabConfig]
+     [:double-click doubleClick BetaBrowserDoubleClickConfig]
+     [:file-upload fileUpload BetaBrowserFileUploadConfig]
+     [:find find BetaBrowserFindConfig]
+     [:form-input formInput BetaBrowserFormInputConfig]
+     [:get-page-text getPageText BetaBrowserGetPageTextConfig]
+     [:hold-key holdKey BetaBrowserHoldKeyConfig]
+     [:hover hover BetaBrowserHoverConfig]
+     [:javascript-exec javascriptExec BetaBrowserJavascriptExecConfig]
+     [:key key BetaBrowserKeyConfig]
+     [:left-click leftClick BetaBrowserLeftClickConfig]
+     [:left-click-drag leftClickDrag BetaBrowserLeftClickDragConfig]
+     [:left-mouse-down leftMouseDown BetaBrowserLeftMouseDownConfig]
+     [:left-mouse-up leftMouseUp BetaBrowserLeftMouseUpConfig]
+     [:list-tabs listTabs BetaBrowserListTabsConfig]
+     [:middle-click middleClick BetaBrowserMiddleClickConfig]
+     [:mouse-move mouseMove BetaBrowserMouseMoveConfig]
+     [:navigate navigate BetaBrowserNavigateConfig]
+     [:new-tab newTab BetaBrowserNewTabConfig]
+     [:read-console readConsole BetaBrowserReadConsoleConfig]
+     [:read-network readNetwork BetaBrowserReadNetworkConfig]
+     [:read-page readPage BetaBrowserReadPageConfig]
+     [:right-click rightClick BetaBrowserRightClickConfig]
+     [:screenshot screenshot BetaBrowserScreenshotConfig]
+     [:scroll scroll BetaBrowserScrollConfig]
+     [:scroll-to scrollTo BetaBrowserScrollToConfig]
+     [:switch-tab switchTab BetaBrowserSwitchTabConfig]
+     [:triple-click tripleClick BetaBrowserTripleClickConfig]
+     [:type type BetaBrowserTypeConfig]
+     [:wait wait BetaBrowserWaitConfig]
+     [:zoom zoom BetaBrowserZoomConfig]]))
+
+(def ^:private computer-toolset-config-setters
+  (toolset-config-setters BetaComputerToolsetConfigs$Builder
+    [[:cursor-position cursorPosition BetaComputerCursorPositionConfig]
+     [:double-click doubleClick BetaComputerDoubleClickConfig]
+     [:hold-key holdKey BetaComputerHoldKeyConfig]
+     [:key key BetaComputerKeyConfig]
+     [:left-click leftClick BetaComputerLeftClickConfig]
+     [:left-click-drag leftClickDrag BetaComputerLeftClickDragConfig]
+     [:left-mouse-down leftMouseDown BetaComputerLeftMouseDownConfig]
+     [:left-mouse-up leftMouseUp BetaComputerLeftMouseUpConfig]
+     [:middle-click middleClick BetaComputerMiddleClickConfig]
+     [:mouse-move mouseMove BetaComputerMouseMoveConfig]
+     [:right-click rightClick BetaComputerRightClickConfig]
+     [:screenshot screenshot BetaComputerScreenshotConfig]
+     [:scroll scroll BetaComputerScrollConfig]
+     [:triple-click tripleClick BetaComputerTripleClickConfig]
+     [:type type BetaComputerTypeConfig]
+     [:wait wait BetaComputerWaitConfig]
+     [:zoom zoom BetaComputerZoomConfig]]))
+
+(defn- ->browser-toolset-configs ^BetaBrowserToolsetConfigs [configs]
+  (let [b (BetaBrowserToolsetConfigs/builder)]
+    (doseq [[action config] configs]
+      (when-let [set-config! (get browser-toolset-config-setters action)]
+        (set-config! b config)))
+    (.build b)))
+
+(defn- ->computer-toolset-configs ^BetaComputerToolsetConfigs [configs]
+  (let [b (BetaComputerToolsetConfigs/builder)]
+    (doseq [[action config] configs]
+      (when-let [set-config! (get computer-toolset-config-setters action)]
+        (set-config! b config)))
+    (.build b)))
+
+(defn- ->browser-toolset ^BetaBrowserToolset20260801 [{:keys [configs] :as t}]
+  (let [b (BetaBrowserToolset20260801/builder)]
+    (when (seq configs) (.configs b (->browser-toolset-configs configs)))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaBrowserToolset20260801$Builder b
+                                               (BetaBrowserToolset20260801$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaBrowserToolset20260801$Builder b ^BetaCacheControlEphemeral %)})
+    (.build b)))
+
+(defn- ->computer-toolset ^BetaComputerToolset20260801 [{:keys [configs] :as t}]
+  (let [b (BetaComputerToolset20260801/builder)]
+    (when (seq configs) (.configs b (->computer-toolset-configs configs)))
+    (configure-tool-builder
+     t
+     {:add-allowed-caller #(.addAllowedCaller ^BetaComputerToolset20260801$Builder b
+                                               (BetaComputerToolset20260801$AllowedCaller/of (clojure.core/name %)))
+      :cache-control! #(.cacheControl ^BetaComputerToolset20260801$Builder b ^BetaCacheControlEphemeral %)})
+    (.build b)))
+
 (def ^:private dated-tool-variants
   {:web-search {"20250305" ["BetaWebSearchTool20250305" "ofWebSearchTool20250305" "ofBetaWebSearchTool20250305"]
                 "20260209" ["BetaWebSearchTool20260209" "ofWebSearchTool20260209" "ofBetaWebSearchTool20260209"]
@@ -694,6 +830,8 @@
       :advisor (BetaToolUnion/ofAdvisorTool20260301
                 (->advisor-tool (validate-tool-version family t "20260301")))
       :mcp-toolset (BetaToolUnion/ofMcpToolset (->mcp-toolset t))
+      :browser-toolset (BetaToolUnion/ofBrowserToolset20260801 (->browser-toolset t))
+      :computer-toolset (BetaToolUnion/ofComputerToolset20260801 (->computer-toolset t))
       (throw (ex-info "Unsupported server tool type" {:anthropic/error :unsupported-server-tool :type type})))))
 
 (defn- ->count-tool ^MessageCountTokensParams$Tool [{:keys [type] :as t}]
@@ -721,6 +859,10 @@
         :advisor (MessageCountTokensParams$Tool/ofBetaAdvisorTool20260301
                   (->advisor-tool (validate-tool-version family t "20260301")))
         :mcp-toolset (MessageCountTokensParams$Tool/ofBetaMcpToolset (->mcp-toolset t))
+        :browser-toolset (MessageCountTokensParams$Tool/ofBetaBrowserToolset20260801
+                          (->browser-toolset t))
+        :computer-toolset (MessageCountTokensParams$Tool/ofBetaComputerToolset20260801
+                           (->computer-toolset t))
         (MessageCountTokensParams$Tool/ofBeta (->custom-tool t))))))
 
 (defn- server-tool? [t]
