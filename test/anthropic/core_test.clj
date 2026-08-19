@@ -8,6 +8,7 @@
            (com.anthropic.core JsonValue)
            (com.anthropic.core.http StreamResponse)
            (com.anthropic.models.messages CacheCreation Container
+                                          ContainerSkill ContainerSkill$Type
                                           Message MessageCountTokensParams
                                           MessageCountTokensTool
                                           MessageCreateParams
@@ -31,8 +32,8 @@
                                           StopReason ToolResultBlockParam
                                           Usage$ServiceTier)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
-           (com.anthropic.models.beta.files BetaFileScope DeletedFile DeletedFile$Type
-                                             FileMetadata)
+           (com.anthropic.models.beta.files BetaFileScope BetaDeletedFile BetaDeletedFile$Type
+                                             BetaFileMetadata)
            (com.anthropic.models.beta.messages BetaTool BetaToolUnion
                                                BetaWebSearchTool20260318
                                                BetaWebFetchTool20260318
@@ -349,7 +350,7 @@
                                             :inference-geo "us"
                                             :user-profile-id "user_123"
                                             :cache-control true})]
-      (is (= "container_123" (opt (.container p))))
+      (is (= "container_123" (.asString (opt (.container p)))))
       (is (= "us" (opt (.inferenceGeo p))))
       (is (= "user_123" (opt (.userProfileId p))))
       (is (some? (opt (.cacheControl p))))))
@@ -916,7 +917,7 @@
     (is (= "cached system" (.text (first (.asTextBlockParams system)))))
     (is (.isPresent (.cacheControl (first (.asTextBlockParams system)))))
     (is (.isPresent (.cacheControl p)))
-    (is (= "container_123" (opt (.container p))))
+    (is (= "container_123" (.asString (opt (.container p)))))
     (is (= "us" (opt (.inferenceGeo p))))
     (is (= "standard_only" (str (opt (.serviceTier p)))))))
 
@@ -1031,6 +1032,7 @@
               (.container (-> (Container/builder)
                               (.id "container_123")
                               (.expiresAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
+                              (.skills [(-> (ContainerSkill/builder) (.skillId "skill_1") (.type ContainerSkill$Type/CUSTOM) (.version "1.0.0") (.build))])
                               (.build)))
               (.stopReason StopReason/STOP_SEQUENCE)
               (.stopSequence "END")
@@ -1040,7 +1042,9 @@
                                 (.build)))
               (.build))
         mm (message->map m)]
-    (is (= {:id "container_123" :expires-at "2026-01-01T00:00Z"} (:container mm)))
+    (is (= {:id "container_123" :expires-at "2026-01-01T00:00Z"
+            :skills [{:skill-id "skill_1" :type :custom :version "1.0.0"}]}
+           (:container mm)))
     (is (= "END" (:stop-sequence mm)))
     (is (= {:category :cyber :explanation "blocked"} (:stop-details mm)))))
 
@@ -1098,7 +1102,7 @@
     (.build b)))
 
 (deftest file-mapping
-  (let [fm (-> (FileMetadata/builder)
+  (let [fm (-> (BetaFileMetadata/builder)
                (.id "file_1") (.filename "a.txt") (.mimeType "text/plain")
                (.sizeBytes 5)
                (.createdAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
@@ -1117,9 +1121,9 @@
     (is (str/starts-with? (:created-at m) "2026-01-01"))))
 
 (deftest delete-response-mapping
-  (let [file (-> (DeletedFile/builder)
+  (let [file (-> (BetaDeletedFile/builder)
                  (.id "file_1")
-                 (.type (DeletedFile$Type/of "file_deleted"))
+                 (.type (BetaDeletedFile$Type/of "file_deleted"))
                  (.build))
         batch (-> (DeletedMessageBatch/builder)
                   (.id "msgbatch_1")
@@ -1255,6 +1259,7 @@
                     (.container (-> (Container/builder)
                                     (.id "container_stream")
                                     (.expiresAt (java.time.OffsetDateTime/parse "2026-02-01T00:00:00Z"))
+                                    (.skills [])
                                     (.build)))
                     (.stopReason StopReason/STOP_SEQUENCE)
                     (.stopSequence "DONE")

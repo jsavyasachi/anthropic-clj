@@ -15,8 +15,8 @@
            (java.net Proxy)
            (java.time Duration)
            (com.anthropic.models.beta AnthropicBeta)
-           (com.anthropic.models.beta.files DeletedFile FileListPage FileListParams
-                                            FileMetadata FileUploadParams)
+           (com.anthropic.models.beta.files BetaDeletedFile FileListPage FileListParams
+                                            BetaFileMetadata FileUploadParams)
            (com.anthropic.models.models ModelCapabilities ModelInfo ModelListPage ModelListParams)
            (com.anthropic.models.messages.batches BatchCreateParams
                                                   BatchCreateParams$Request
@@ -57,6 +57,7 @@
                                           MessageCreateParams
                                           MessageCreateParams$Builder
                                           MessageCreateParams$ServiceTier
+                                          MessageCreateParamsContainer
                                           MessageTokensCount Metadata Model
                                           OutputConfig OutputConfig$Effort
                                           RedactedThinkingBlock
@@ -1244,9 +1245,17 @@
       (.isPresent ig) (assoc :inference-geo (.get ig))
       (.isPresent otd) (assoc :output-tokens-details (output-tokens-details->map (.get otd))))))
 
+(defn- container-skill->map [^com.anthropic.models.messages.ContainerSkill s]
+  {:skill-id (.skillId s)
+   :type (->keyword (.asString (.type s)))
+   :version (.version s)})
+
 (defn- container->map [^Container c]
-  {:id (.id c)
-   :expires-at (str (.expiresAt c))})
+  (let [skills (.skills c)]
+    (cond-> {:id (.id c)
+             :expires-at (str (.expiresAt c))}
+      (and (.isPresent skills) (seq (.get skills)))
+      (assoc :skills (mapv container-skill->map (.get skills))))))
 
 (defn- stop-details->map [^RefusalStopDetails sd]
   (let [cat (.category sd)
@@ -1522,7 +1531,7 @@
             (.model (.model p)))]
     (doseq [[value setter]
             [[(.cacheControl p) #(.cacheControl b ^CacheControlEphemeral %)]
-             [(.container p) #(.container b ^String %)]
+             [(.container p) #(.container b ^MessageCreateParamsContainer %)]
              [(.inferenceGeo p) #(.inferenceGeo b ^String %)]
              [(.metadata p) #(.metadata b ^Metadata %)]
              [(.outputConfig p) #(.outputConfig b ^OutputConfig %)]
@@ -1786,7 +1795,7 @@
 
 ;; ---- Files (beta) ---------------------------------------------------------
 
-(defn- file->map [^FileMetadata f]
+(defn- file->map [^BetaFileMetadata f]
   (let [scope (.scope f)]
     (cond-> {:id (.id f)
              :filename (.filename f)
@@ -1796,11 +1805,11 @@
       (.isPresent (.downloadable f)) (assoc :downloadable (.get (.downloadable f)))
       (.isPresent scope) (assoc :scope (json->clj (JsonValue/from (.get scope)))))))
 
-(defn- deleted-file->map [^DeletedFile d]
+(defn- deleted-file->map [^BetaDeletedFile d]
   (let [t (.type d)]
     (cond-> {:id (.id d) :deleted true}
       (.isPresent t) (assoc :type (->keyword
-                                   (.asString ^com.anthropic.models.beta.files.DeletedFile$Type
+                                   (.asString ^com.anthropic.models.beta.files.BetaDeletedFile$Type
                                               (.get t)))))))
 
 (defn- ->upload-params ^FileUploadParams [file]
@@ -1859,7 +1868,7 @@
   "Delete a file by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String id]
   (with-api-errors
-    (let [^DeletedFile d (-> (.beta client) (.files) (.delete id))]
+    (let [^BetaDeletedFile d (-> (.beta client) (.files) (.delete id))]
       (deleted-file->map d))))
 
 (defn download-file
