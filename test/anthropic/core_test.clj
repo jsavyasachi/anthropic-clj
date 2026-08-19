@@ -811,13 +811,6 @@
                                      :start-char-index 0
                                      :end-char-index 5}]})))]
       (is (= 1 (count (opt (.citations text)))))))
-  (testing "mid-conversation system blocks are accepted"
-    (let [block (->content-block {:type :mid-conversation-system
-                                  :content [{:type :text :text "new policy"
-                                             :cache-control true}]
-                                  :cache-control true})]
-      (is (.isPresent (.midConvSystem block)))
-      (is (= "new policy" (.text (first (.content (.get (.midConvSystem block)))))))))
   (testing "server tool use and result maps replay as SDK input variants"
     (let [use (->content-block {:type :server-tool-use
                                 :id "srv_1"

@@ -366,8 +366,7 @@
 (declare ->cache-control java->clj)
 
 (def ^:private content-wire-types
-  {:mid-conversation-system "mid_conv_system"
-   :web-search-result "web_search_tool_result"
+  {:web-search-result "web_search_tool_result"
    :web-fetch-result "web_fetch_tool_result"
    :code-execution-result "code_execution_tool_result"
    :bash-code-execution-result "bash_code_execution_tool_result"
@@ -905,8 +904,7 @@
                 (ContentBlockParam/ofToolUse (.build b)))
     (:server-tool-use :web-search-result :web-fetch-result
      :code-execution-result :bash-code-execution-result
-     :text-editor-code-execution-result :tool-search-result
-     :mid-conversation-system)
+     :text-editor-code-execution-result :tool-search-result)
     (->sdk-content-block blk)
     (throw (anthropic-error :unsupported-content-block
                             "Unsupported content block type"

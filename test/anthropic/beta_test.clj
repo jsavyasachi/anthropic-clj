@@ -43,7 +43,14 @@
                                                              MemoryListParams
                                                              MemoryRetrieveParams
                                                              MemoryUpdateParams)
-           (com.anthropic.models.beta.memorystores.memoryversions MemoryVersionListParams
+           (com.anthropic.models.beta.memorystores.memoryversions BetaManagedAgentsActor
+                                                                   BetaManagedAgentsApiActor
+                                                                   BetaManagedAgentsApiActor$Type
+                                                                   BetaManagedAgentsMemoryVersion
+                                                                   BetaManagedAgentsMemoryVersion$Type
+                                                                   BetaManagedAgentsMemoryVersionOperation
+                                                                   BetaManagedAgentsServiceAccountActor
+                                                                   MemoryVersionListParams
                                                                    MemoryVersionRetrieveParams)
            (com.anthropic.models.beta.environments BetaEnvironment
                                                    BetaEnvironmentDeleteResponse
@@ -1106,16 +1113,19 @@
 (deftest user-profile-params
   (let [^UserProfileCreateParams p (->user-profile-create-params
                                     {:name "Ada" :external-id "ada-1" :metadata {:team "x"}
-                                     :relationship :external})]
+                                     :relationship :external :access-type :application})]
     (is (= "Ada" (opt (.name p))))
     (is (= "ada-1" (opt (.externalId p))))
-    (is (= "external" (some-> (.relationship p) opt .asString))))
+    (is (= "external" (some-> (.relationship p) opt .asString)))
+    (is (= "application" (some-> (.accessType p) opt .asString))))
   (let [^UserProfileUpdateParams p (->user-profile-update-params "up_1"
                                                                   {:name "Ada L"
-                                                                   :relationship :internal})]
+                                                                   :relationship :internal
+                                                                   :access-type :passthrough})]
     (is (= "up_1" (opt (.userProfileId p))))
     (is (= "Ada L" (opt (.name p))))
-    (is (= "internal" (.asString (opt (.relationship p))))))
+    (is (= "internal" (.asString (opt (.relationship p)))))
+    (is (= "passthrough" (.asString (opt (.accessType p))))))
   (is (= :invalid-enum-value
          (:anthropic/error (ex-data-for #(->user-profile-create-params {:relationship :unknown})))))
   (let [^UserProfileCreateEnrollmentUrlParams p
@@ -1554,6 +1564,28 @@
     (is (= {:id "mv_1" :memory-store-id "ms_1" :memory-id "mem_1"
             :operation :redact :created-at "2026-07-22T00:00Z" :redacted-at "2026-07-22T00:00Z"}
            (memory-version->map r)))))
+
+(deftest memory-version-created-by-response-mapping
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-22T00:00:00Z")
+        base #(-> (BetaManagedAgentsMemoryVersion/builder)
+                  (.id "mv_1") (.memoryStoreId "ms_1") (.memoryId "mem_1")
+                  (.operation (BetaManagedAgentsMemoryVersionOperation/of "create"))
+                  (.createdAt ts)
+                  (.type (BetaManagedAgentsMemoryVersion$Type/of "memory_version")))
+        service-account (-> (BetaManagedAgentsServiceAccountActor/builder)
+                            (.serviceAccountId "sa_1")
+                            (.build))
+        api (-> (BetaManagedAgentsApiActor/builder)
+                (.apiKeyId "key_1")
+                (.type (BetaManagedAgentsApiActor$Type/of "api"))
+                (.build))]
+    (is (= {:type :service-account :service-account-id "sa_1"}
+           (:created-by (memory-version->map
+                         (.build (.createdBy (base)
+                                             (BetaManagedAgentsActor/ofServiceAccount service-account)))))))
+    (is (= {:type :api :api-key-id "key_1"}
+           (:created-by (memory-version->map
+                         (.build (.createdBy (base) (BetaManagedAgentsActor/ofApi api)))))))))
 
 (deftest reveal-tunnel-token-params-and-response-mapping
   (let [f (ns-resolve 'anthropic.beta '->tunnel-reveal-token-params)]
@@ -2147,6 +2179,7 @@
               (.metadata (-> (com.anthropic.models.beta.userprofiles.BetaUserProfile$Metadata/builder)
                              (.build)))
               (.relationship (com.anthropic.models.beta.userprofiles.BetaUserProfile$Relationship/of "external"))
+              (.accessType (com.anthropic.models.beta.userprofiles.BetaUserProfile$AccessType/of "passthrough"))
               (.trustGrants (-> (com.anthropic.models.beta.userprofiles.BetaUserProfile$TrustGrants/builder)
                                 (.putAdditionalProperty "source" (JsonValue/from "admin"))
                                 (.build)))
@@ -2166,6 +2199,7 @@
     (is (= "Ada" (:name m)))
     (is (= "ada-1" (:external-id m)))
     (is (= :external (:relationship m)))
+    (is (= :passthrough (:access-type m)))
     (is (= {:source "admin"} (:trust-grants m)))
     (is (= {:url "https://example.test/enroll"
             :expires-at "2026-07-04T00:00Z"}

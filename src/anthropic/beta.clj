@@ -46,6 +46,11 @@
                                                             MemoryRetrieveParams
                                                             MemoryUpdateParams)
            (com.anthropic.models.beta.memorystores.memoryversions BetaManagedAgentsMemoryVersion
+                                                                  BetaManagedAgentsActor
+                                                                  BetaManagedAgentsApiActor
+                                                                  BetaManagedAgentsServiceAccountActor
+                                                                  BetaManagedAgentsSessionActor
+                                                                  BetaManagedAgentsUserActor
                                                                   BetaManagedAgentsMemoryVersionOperation
                                                                   MemoryVersionListPage
                                                                   MemoryVersionListParams
@@ -153,10 +158,12 @@
                                                    BetaUserProfileEnrollmentUrl
                                                    UserProfileCreateEnrollmentUrlParams
                                                    UserProfileCreateParams
+                                                   UserProfileCreateParams$AccessType
                                                    UserProfileCreateParams$Metadata
                                                    UserProfileCreateParams$Relationship
                                                    UserProfileListPage
                                                    UserProfileUpdateParams
+                                                   UserProfileUpdateParams$AccessType
                                                    UserProfileUpdateParams$Metadata
                                                    UserProfileUpdateParams$Relationship)
            (com.anthropic.models.beta.webhooks BetaWebhookDeploymentArchivedEventData
@@ -998,12 +1005,21 @@
     (when view (.view b (memory-view view)))
     (.build b)))
 
+(defn- actor->map [^BetaManagedAgentsActor actor]
+  (cond
+    (.isApi actor) {:type :api :api-key-id (.apiKeyId (.asApi actor))}
+    (.isUser actor) {:type :user :user-id (.userId (.asUser actor))}
+    (.isServiceAccount actor) {:type :service-account
+                               :service-account-id (.serviceAccountId (.asServiceAccount actor))}
+    (.isSession actor) {:type :session :session-id (.sessionId (.asSession actor))}))
+
 (defn- memory-version->map [^BetaManagedAgentsMemoryVersion r]
   (cond-> {:id (.id r)
            :memory-store-id (.memoryStoreId r)
            :memory-id (.memoryId r)
            :operation (->keyword (.asString (.operation r)))
            :created-at (str (.createdAt r))}
+    (unopt (.createdBy r)) (assoc :created-by (actor->map (unopt (.createdBy r))))
     (unopt (.content r)) (assoc :content (unopt (.content r)))
     (unopt (.path r)) (assoc :path (unopt (.path r)))
     (unopt (.contentSha256 r)) (assoc :content-sha256 (unopt (.contentSha256 r)))
@@ -2896,11 +2912,11 @@
 (defn- environment->map [^BetaEnvironment r]
   (cond-> {:id (.id r)
            :name (.name r)
-           :description (.description r)
            :created-at (str (.createdAt r))
            :updated-at (str (.updatedAt r))
            :config (environment-config->map (.config r))
            :metadata (environment-metadata->map (.metadata r))}
+    (unopt (.description r)) (assoc :description (unopt (.description r)))
     (unopt (.archivedAt r)) (assoc :archived-at (str (unopt (.archivedAt r))))
     (unopt (.scope r)) (assoc :scope (keyword (.asString ^com.anthropic.models.beta.environments.BetaEnvironment$Scope (unopt (.scope r)))))))
 
@@ -3497,23 +3513,29 @@
     (.build b)))
 
 (defn- ->user-profile-create-params ^UserProfileCreateParams
-  [{:keys [name external-id metadata relationship]}]
+  [{:keys [name external-id metadata relationship access-type]}]
   (let [b (UserProfileCreateParams/builder)]
     (when name (.name b ^String name))
     (when external-id (.externalId b ^String external-id))
     (when metadata (.metadata b (->user-profile-create-metadata metadata)))
+    (when access-type (.accessType b ^UserProfileCreateParams$AccessType
+                                    (->enum-value access-type #{:application :passthrough}
+                                                  (fn [s#] (UserProfileCreateParams$AccessType/of s#)) :access-type)))
     (when relationship (.relationship b ^UserProfileCreateParams$Relationship
                                       (->enum-value relationship #{:external :resold :internal}
                                                     (fn [s#] (UserProfileCreateParams$Relationship/of s#)) :relationship)))
     (.build b)))
 
 (defn- ->user-profile-update-params ^UserProfileUpdateParams
-  [user-profile-id {:keys [name external-id metadata relationship]}]
+  [user-profile-id {:keys [name external-id metadata relationship access-type]}]
   (let [b (UserProfileUpdateParams/builder)]
     (.userProfileId b ^String user-profile-id)
     (when name (.name b ^String name))
     (when external-id (.externalId b ^String external-id))
     (when metadata (.metadata b (->user-profile-update-metadata metadata)))
+    (when access-type (.accessType b ^UserProfileUpdateParams$AccessType
+                                    (->enum-value access-type #{:application :passthrough}
+                                                  (fn [s#] (UserProfileUpdateParams$AccessType/of s#)) :access-type)))
     (when relationship (.relationship b ^UserProfileUpdateParams$Relationship
                                       (->enum-value relationship #{:external :resold :internal}
                                                     (fn [s#] (UserProfileUpdateParams$Relationship/of s#)) :relationship)))
@@ -3533,7 +3555,8 @@
            :type (keyword (.asString (.type r)))}
     (unopt (.name r)) (assoc :name (unopt (.name r)))
     (unopt (.externalId r)) (assoc :external-id (unopt (.externalId r)))
-    (.relationship r) (assoc :relationship (->keyword (.asString (.relationship r))))
+    (unopt (.accessType r)) (assoc :access-type (->keyword (.asString ^com.anthropic.models.beta.userprofiles.BetaUserProfile$AccessType (unopt (.accessType r)))))
+    (unopt (.relationship r)) (assoc :relationship (->keyword (.asString ^com.anthropic.models.beta.userprofiles.BetaUserProfile$Relationship (unopt (.relationship r)))))
     (.trustGrants r) (assoc :trust-grants
                              (additional-properties->map
                               (._additionalProperties ^com.anthropic.models.beta.userprofiles.BetaUserProfile$TrustGrants
@@ -3545,8 +3568,8 @@
 
 (defn create-user-profile
   "Create a user profile with optional `:name`, `:external-id`, `:metadata`,
-  and `:relationship` (`:external`, `:resold`, or `:internal`). Returns the
-  profile map, including `:relationship` and `:trust-grants`."
+  `:access-type` (`:application` or `:passthrough`), and `:relationship`
+  (`:external`, `:resold`, or `:internal`). Returns the profile map."
   [^AnthropicClient client req]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles)
@@ -3568,8 +3591,9 @@
        (mapv user-profile->map (.autoPager p))))))
 
 (defn update-user-profile
-  "Update a user profile's `:name`, `:external-id`, `:metadata`, or
-  `:relationship` (`:external`, `:resold`, or `:internal`)."
+  "Update a user profile's `:name`, `:external-id`, `:metadata`,
+  `:access-type` (`:application` or `:passthrough`), or `:relationship`
+  (`:external`, `:resold`, or `:internal`)."
   [^AnthropicClient client ^String user-profile-id changes]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles)
