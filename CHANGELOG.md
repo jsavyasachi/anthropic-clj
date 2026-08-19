@@ -3,6 +3,33 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.26.0] - 2026-08-19
+
+### Changed
+
+- Bump `com.anthropic/anthropic-java` (and the Bedrock and Vertex modules) to
+  2.55.0.
+
+### Added
+
+- User-profile `:access-type` (`:application` or `:passthrough`) on
+  `create-user-profile` and `update-user-profile`, and in the returned profile
+  map.
+- Memory-version `:created-by` in the memory-version map, covering all actor
+  variants: `:api`, `:user`, `:service-account`, and `:session`.
+
+### Removed
+
+- The `:mid-conversation-system` content block. Upstream removed the
+  `mid_conv_system` block from the Messages API in 2.55.0, so it is no longer a
+  supported content-block type.
+
+### Fixed
+
+- User-profile `:relationship` and environment `:description` response mapping
+  now handle the `Optional` return types these accessors adopted in
+  anthropic-java 2.55.0.
+
 ## [0.25.0] - 2026-08-13
 
 ### Added
