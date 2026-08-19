@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.28.0] - 2026-08-19
+
+### Changed
+
+- **Files API is now GA.** `upload-file`, `get-file`, `list-files`,
+  `delete-file`, and `download-file` call the stable `client.files()` endpoint
+  instead of the beta one.
+- **Skills API is now GA.** The skill and skill-version functions call the
+  stable `client.skills()` endpoint. `download-skill-version` remains on the
+  beta endpoint because the GA version service does not expose a download
+  operation yet.
+
+### Breaking
+
+- File map: `:scope` is gone (not present on the GA model) and `:expires-at` is
+  added. `list-files` options changed from `:scope-id`/`:after-id`/`:before-id`/
+  `:betas` to the GA pagination `:ids`/`:page` (with `:limit`).
+- `create-skill`: `:display-title` is now `:display-name` (the old key still
+  works as an alias). Skill map: `:display-title` -> `:display-name`,
+  `:latest-version` -> `:latest-version-id`, and `:source` is now `{:type ...}`.
+- Skill-version map drops `:version`, `:directory`, and `:type` (absent on the
+  GA model). The `delete-skill` and `delete-skill-version` maps drop `:type`.
+  Skill/version list options drop `:betas`.
+
 ## [0.27.0] - 2026-08-19
 
 ### Added
