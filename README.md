@@ -32,13 +32,13 @@ jar. It does not assert parity.
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.26.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.27.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.26.0"]
+[net.clojars.savya/anthropic-clj "0.27.0"]
 ```
 
 Supported Clojure versions: 1.10, 1.11, and 1.12.

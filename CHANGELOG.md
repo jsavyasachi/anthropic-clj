@@ -3,6 +3,33 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.27.0] - 2026-08-19
+
+### Added
+
+- Browser and computer toolsets on the beta Messages API, as the
+  `:browser-toolset` and `:computer-toolset` server tools. Each accepts
+  `:allowed-callers`, `:cache-control`, and a per-action `:configs` map (every
+  action a `{:enabled ... :defer-loading ...}` map): 31 browser actions and 17
+  computer actions. Wired into both `create-message`/`stream` and
+  `count-tokens`.
+- File-based image and document sources: `{:type :file :file-id "..."}` as an
+  image or document block source, on both the stable and beta Messages APIs.
+- Image `:transformations` (`{:oversized-image :downsize}` or `:error`) on
+  stable and beta image blocks.
+- Map-form message container input carrying skills:
+  `{:container {:id "..." :skills [{:skill-id "..." :type :custom :version "..."}]}}`,
+  on both stable and beta. The plain-string container form is unchanged.
+
+### Changed
+
+- Bump `com.anthropic/anthropic-java` (core, Bedrock, Vertex) to 2.56.0 and
+  adapt to the Files/Skills GA promotion: beta `DeletedFile`/`FileMetadata`
+  became `BetaDeletedFile`/`BetaFileMetadata`, and the message `container`
+  request param is now a `MessageCreateParamsContainer` union.
+- The response container map now surfaces `:skills`
+  (`{:skill-id ... :type ... :version ...}`).
+
 ## [0.26.0] - 2026-08-19
 
 ### Changed
