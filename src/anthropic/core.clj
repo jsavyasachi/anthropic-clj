@@ -15,8 +15,8 @@
            (java.net Proxy)
            (java.time Duration)
            (com.anthropic.models.beta AnthropicBeta)
-           (com.anthropic.models.beta.files BetaDeletedFile FileListPage FileListParams
-                                            BetaFileMetadata FileUploadParams)
+           (com.anthropic.models.files DeletedFile DeletedFile$Type FileMetadata
+                                       FileListPage FileListParams FileUploadParams)
            (com.anthropic.models.models ModelCapabilities ModelInfo ModelListPage ModelListParams)
            (com.anthropic.models.messages.batches BatchCreateParams
                                                   BatchCreateParams$Request
@@ -1828,23 +1828,24 @@
   (stream client req
           (fn [m] (when (and on-text (= :text-delta (:type m))) (on-text (:text m))))))
 
-;; ---- Files (beta) ---------------------------------------------------------
+;; ---- Files ----------------------------------------------------------------
 
-(defn- file->map [^BetaFileMetadata f]
-  (let [scope (.scope f)]
+(defn- file->map [^FileMetadata f]
+  (let [downloadable (.downloadable f)
+        expires-at (.expiresAt f)]
     (cond-> {:id (.id f)
              :filename (.filename f)
              :mime-type (.mimeType f)
              :size-bytes (.sizeBytes f)
              :created-at (str (.createdAt f))}
-      (.isPresent (.downloadable f)) (assoc :downloadable (.get (.downloadable f)))
-      (.isPresent scope) (assoc :scope (json->clj (JsonValue/from (.get scope)))))))
+      (.isPresent downloadable) (assoc :downloadable (.get downloadable))
+      (.isPresent expires-at) (assoc :expires-at (str (.get expires-at))))))
 
-(defn- deleted-file->map [^BetaDeletedFile d]
+(defn- deleted-file->map [^DeletedFile d]
   (let [t (.type d)]
     (cond-> {:id (.id d) :deleted true}
       (.isPresent t) (assoc :type (->keyword
-                                   (.asString ^com.anthropic.models.beta.files.BetaDeletedFile$Type
+                                   (.asString ^DeletedFile$Type
                                               (.get t)))))))
 
 (defn- ->upload-params ^FileUploadParams [file]
@@ -1862,40 +1863,35 @@
 (defn upload-file
   "Upload a file (a path string, `java.io.File`, `java.nio.file.Path`,
   `InputStream`, or byte array) to the Files API. Returns its metadata map
-  (see `get-file`), including `:scope` when reported. Uses the beta Files API."
+  (see `get-file`), including `:expires-at` when reported."
   [^AnthropicClient client file]
   (with-api-errors
-    (file->map (-> (.beta client) (.files) (.upload (->upload-params file))))))
+    (file->map (-> (.files client) (.upload (->upload-params file))))))
 
 (defn get-file
   "Get a file's metadata by id: `{:id :filename :mime-type :size-bytes
-  :created-at}` plus `:downloadable` and `:scope` when reported."
+  :created-at}` plus `:downloadable` and `:expires-at` when reported."
   [^AnthropicClient client ^String id]
   (with-api-errors
-    (file->map (-> (.beta client) (.files) (.retrieveMetadata id)))))
+    (file->map (-> (.files client) (.retrieveMetadata id)))))
 
 (defn- ->file-list-params ^FileListParams
-  [{:keys [scope-id after-id before-id limit betas]}]
+  [{:keys [ids page limit]}]
   (let [b (FileListParams/builder)]
-    (when scope-id (.scopeId b ^String scope-id))
-    (when after-id (.afterId b ^String after-id))
-    (when before-id (.beforeId b ^String before-id))
+    (when ids (.ids b ^java.util.List (mapv str ids)))
+    (when page (.page b ^String page))
     (when limit (.limit b (long limit)))
-    (when (seq betas)
-      (.betas b ^java.util.List
-              (mapv #(AnthropicBeta/of (if (keyword? %) (name %) %)) betas)))
     (.build b)))
 
 (defn list-files
   "List uploaded files (pages followed) as a seq of maps like `get-file`,
-  including `:scope` when reported. Optional opts: `:scope-id`,
-  `:after-id`, `:before-id`, `:limit`, and free-form string or
-  keyword `:betas`."
+  including `:expires-at` when reported. Optional opts: `:ids`, `:page`,
+  and `:limit`."
   ([^AnthropicClient client]
    (list-files client {}))
   ([^AnthropicClient client opts]
    (with-api-errors
-     (let [^FileListPage p (-> (.beta client) (.files)
+     (let [^FileListPage p (-> (.files client)
                                (.list (->file-list-params opts)))]
        (mapv file->map (.autoPager p))))))
 
@@ -1903,7 +1899,7 @@
   "Delete a file by id. Returns `{:id ... :deleted true :type ...}`."
   [^AnthropicClient client ^String id]
   (with-api-errors
-    (let [^BetaDeletedFile d (-> (.beta client) (.files) (.delete id))]
+    (let [^DeletedFile d (-> (.files client) (.delete id))]
       (deleted-file->map d))))
 
 (defn download-file
@@ -1911,5 +1907,5 @@
   is closed automatically."
   ^bytes [^AnthropicClient client ^String id]
   (with-api-errors
-    (with-open [^HttpResponse r (-> (.beta client) (.files) (.download id))]
+    (with-open [^HttpResponse r (-> (.files client) (.download id))]
       (.readAllBytes (.body r)))))
