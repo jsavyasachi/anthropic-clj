@@ -32,8 +32,7 @@
                                           StopReason ToolResultBlockParam
                                           Usage$ServiceTier)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
-           (com.anthropic.models.beta.files BetaFileScope BetaDeletedFile BetaDeletedFile$Type
-                                             BetaFileMetadata)
+           (com.anthropic.models.files DeletedFile DeletedFile$Type FileMetadata)
            (com.anthropic.models.beta.messages BetaTool BetaToolUnion
                                                BetaWebSearchTool20260318
                                                BetaWebFetchTool20260318
@@ -974,18 +973,14 @@
 (deftest file-list-params-preserve-options
   (let [build (resolved-fn '->file-list-params)
         p (when build
-            (build {:scope-id "scope"
-                    :after-id "after"
-                    :before-id "before"
-                    :limit 19
-                    :betas ["beta-one" :beta-two]}))]
+            (build {:ids ["file_1" "file_2"]
+                    :page "next-page"
+                    :limit 19}))]
     (is (some? build))
     (when p
-      (is (= "scope" (opt (.scopeId p))))
-      (is (= "after" (opt (.afterId p))))
-      (is (= "before" (opt (.beforeId p))))
-      (is (= 19 (long (opt (.limit p)))))
-      (is (= ["beta-one" "beta-two"] (mapv str (opt (.betas p))))))))
+      (is (= ["file_1" "file_2"] (opt (.ids p))))
+      (is (= "next-page" (opt (.page p))))
+      (is (= 19 (long (opt (.limit p))))))))
 
 (deftest batch-result-stream-reduction
   (testing "reduces batch results without retaining the full result collection and closes the stream"
@@ -1133,28 +1128,27 @@
     (.build b)))
 
 (deftest file-mapping
-  (let [fm (-> (BetaFileMetadata/builder)
+  (let [fm (-> (FileMetadata/builder)
                (.id "file_1") (.filename "a.txt") (.mimeType "text/plain")
                (.sizeBytes 5)
                (.createdAt (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z"))
                (.type (com.anthropic.core.JsonValue/from "file"))
-               (.scope (-> (BetaFileScope/builder)
-                           (.id "scope_1")
-                           (.type (com.anthropic.core.JsonValue/from "workspace"))
-                           (.build)))
+               (.downloadable true)
+               (.expiresAt (java.time.OffsetDateTime/parse "2026-02-01T00:00:00Z"))
                (.build))
         m (file->map fm)]
     (is (= "file_1" (:id m)))
     (is (= "a.txt" (:filename m)))
     (is (= "text/plain" (:mime-type m)))
     (is (= 5 (:size-bytes m)))
-    (is (= {:id "scope_1" :type "workspace"} (:scope m)))
+    (is (= true (:downloadable m)))
+    (is (= "2026-02-01T00:00Z" (:expires-at m)))
     (is (str/starts-with? (:created-at m) "2026-01-01"))))
 
 (deftest delete-response-mapping
-  (let [file (-> (BetaDeletedFile/builder)
+  (let [file (-> (DeletedFile/builder)
                  (.id "file_1")
-                 (.type (BetaDeletedFile$Type/of "file_deleted"))
+                 (.type (DeletedFile$Type/of "file_deleted"))
                  (.build))
         batch (-> (DeletedMessageBatch/builder)
                   (.id "msgbatch_1")
