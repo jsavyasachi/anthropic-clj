@@ -1112,16 +1112,137 @@
     (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetParams$Type/of "mcp_toolset"))
     (.build b)))
 
+(defn- ->tool-permission-policy [{:keys [type]}]
+  (case type
+    :always-allow
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy/of
+     (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy$Type/of "always_allow"))
+    :always-ask
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy/of
+     (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy$Type/of "always_ask"))))
+
+(defn- ->user-location ^com.anthropic.models.beta.agents.BetaManagedAgentsUserLocation
+  [{:keys [city region country timezone]}]
+  (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsUserLocation/builder)]
+    (when city (.city b ^String city))
+    (when region (.region b ^String region))
+    (when country (.country b ^String country))
+    (when timezone (.timezone b ^String timezone))
+    (.build b)))
+
+(defn- ->agent-tool-config ^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams
+  [{:keys [tool enabled permission-policy allowed-domains blocked-domains user-location] :as config-map}]
+  (case tool
+    :bash
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofBash
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsBashToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsBashToolConfigParams$Type/of "bash"))
+       (.build b)))
+    :edit
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofEdit
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsEditToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsEditToolConfigParams$Type/of "edit"))
+       (.build b)))
+    :read
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofRead
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsReadToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsReadToolConfigParams$Type/of "read"))
+       (.build b)))
+    :write
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofWrite
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsWriteToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsWriteToolConfigParams$Type/of "write"))
+       (.build b)))
+    :glob
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofGlob
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsGlobToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsGlobToolConfigParams$Type/of "glob"))
+       (.build b)))
+    :grep
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofGrep
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsGrepToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsGrepToolConfigParams$Type/of "grep"))
+       (.build b)))
+    :web-fetch
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofWebFetch
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsWebFetchToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (when (contains? config-map :allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+       (when (contains? config-map :blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsWebFetchToolConfigParams$Type/of "web_fetch"))
+       (.build b)))
+    :web-search
+    (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfigParams/ofWebSearch
+     (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsWebSearchToolConfigParams/builder)]
+       (.enabled b (boolean enabled))
+       (when permission-policy
+         (case (:type permission-policy)
+           :always-allow (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy permission-policy))
+           :always-ask (.permissionPolicy b ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy permission-policy))))
+       (when (contains? config-map :allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
+       (when (contains? config-map :blocked-domains) (.blockedDomains b ^java.util.List (vec blocked-domains)))
+       (when (contains? config-map :user-location) (.userLocation b (->user-location user-location)))
+       (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsWebSearchToolConfigParams$Type/of "web_search"))
+       (.build b)))))
+
+(defn- ->agent-toolset-20260401 ^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params
+  [{:keys [configs default-config]}]
+  (let [b (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params/builder)]
+    (doseq [config configs]
+      (.addConfig b (->agent-tool-config config)))
+    (when default-config
+      (let [default-builder (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfigParams/builder)
+            policy (:permission-policy default-config)]
+        (.enabled default-builder (boolean (:enabled default-config)))
+        (when policy
+          (case (:type policy)
+            :always-allow (.permissionPolicy default-builder ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy (->tool-permission-policy policy))
+            :always-ask (.permissionPolicy default-builder ^com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy (->tool-permission-policy policy))))
+        (.defaultConfig b (.build default-builder))))
+    (.type b (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params$Type/of "agent_toolset_20260401"))
+    (.build b)))
+
 (defn- ->agent-create-tool ^AgentCreateParams$Tool [{:keys [type] :as tool}]
   (case type
     :custom (AgentCreateParams$Tool/ofCustom (->custom-tool tool))
     :mcp-toolset (AgentCreateParams$Tool/ofMcpToolset (->mcp-toolset tool))
     :agent-toolset-20260401
     (AgentCreateParams$Tool/ofAgentToolset20260401
-     (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params/builder)
-         (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params$Type/of
-                 "agent_toolset_20260401"))
-         (.build)))
+     (->agent-toolset-20260401 tool))
     (throw (ex-info (str "Unknown tool type " type)
                     {:anthropic/error :unknown-tool-type :type type}))))
 
@@ -1131,10 +1252,7 @@
     :mcp-toolset (AgentUpdateParams$Tool/ofMcpToolset (->mcp-toolset tool))
     :agent-toolset-20260401
     (AgentUpdateParams$Tool/ofAgentToolset20260401
-     (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params/builder)
-         (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401Params$Type/of
-                 "agent_toolset_20260401"))
-         (.build)))
+     (->agent-toolset-20260401 tool))
     (throw (ex-info (str "Unknown tool type " type)
                     {:anthropic/error :unknown-tool-type :type type}))))
 
@@ -1262,8 +1380,43 @@
       (cond (.isAlwaysAllow p) {:type :always-allow}
             (.isAlwaysAsk p) {:type :always-ask}
             :else {:type :unknown}))
-    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig$PermissionPolicy p)
-    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig$PermissionPolicy p p]
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsBashToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsBashToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsEditToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsEditToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsReadToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsReadToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsWriteToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsWriteToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsGlobToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsGlobToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsGrepToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsGrepToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsWebFetchToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsWebFetchToolConfig$PermissionPolicy p p]
+      (cond (.isAlwaysAllow p) {:type :always-allow}
+            (.isAlwaysAsk p) {:type :always-ask}
+            :else {:type :unknown}))
+    (instance? com.anthropic.models.beta.agents.BetaManagedAgentsWebSearchToolConfig$PermissionPolicy p)
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsWebSearchToolConfig$PermissionPolicy p p]
       (cond (.isAlwaysAllow p) {:type :always-allow}
             (.isAlwaysAsk p) {:type :always-ask}
             :else {:type :unknown}))
@@ -1294,10 +1447,54 @@
   [^com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolsetDefaultConfig c]
   {:enabled (.enabled c) :permission-policy (permission-policy->map (.permissionPolicy c))})
 
+(defn- user-location->map [^com.anthropic.models.beta.agents.BetaManagedAgentsUserLocation location]
+  (cond-> {}
+    (unopt (.city location)) (assoc :city (unopt (.city location)))
+    (unopt (.region location)) (assoc :region (unopt (.region location)))
+    (unopt (.country location)) (assoc :country (unopt (.country location)))
+    (unopt (.timezone location)) (assoc :timezone (unopt (.timezone location)))))
+
 (defn- agent-tool-config->map
   [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig c]
-  {:name (->keyword (.asString (.name c))) :enabled (.enabled c)
-   :permission-policy (permission-policy->map (.permissionPolicy c))})
+  (case (->keyword (.asString (.type c)))
+    :bash
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsBashToolConfig config (.asBash c)]
+      {:tool :bash :enabled (.enabled config)
+       :permission-policy (permission-policy->map (.permissionPolicy config))})
+    :edit
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsEditToolConfig config (.asEdit c)]
+      {:tool :edit :enabled (.enabled config)
+       :permission-policy (permission-policy->map (.permissionPolicy config))})
+    :read
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsReadToolConfig config (.asRead c)]
+      {:tool :read :enabled (.enabled config)
+       :permission-policy (permission-policy->map (.permissionPolicy config))})
+    :write
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsWriteToolConfig config (.asWrite c)]
+      {:tool :write :enabled (.enabled config)
+       :permission-policy (permission-policy->map (.permissionPolicy config))})
+    :glob
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsGlobToolConfig config (.asGlob c)]
+      {:tool :glob :enabled (.enabled config)
+       :permission-policy (permission-policy->map (.permissionPolicy config))})
+    :grep
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsGrepToolConfig config (.asGrep c)]
+      {:tool :grep :enabled (.enabled config)
+       :permission-policy (permission-policy->map (.permissionPolicy config))})
+    :web-fetch
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsWebFetchToolConfig config (.asWebFetch c)]
+      (cond-> {:tool :web-fetch :enabled (.enabled config)
+               :permission-policy (permission-policy->map (.permissionPolicy config))}
+        (unopt (.allowedDomains config)) (assoc :allowed-domains (vec (unopt (.allowedDomains config))))
+        (unopt (.blockedDomains config)) (assoc :blocked-domains (vec (unopt (.blockedDomains config))))))
+    :web-search
+    (let [^com.anthropic.models.beta.agents.BetaManagedAgentsWebSearchToolConfig config (.asWebSearch c)]
+      (cond-> {:tool :web-search :enabled (.enabled config)
+               :permission-policy (permission-policy->map (.permissionPolicy config))}
+        (unopt (.allowedDomains config)) (assoc :allowed-domains (vec (unopt (.allowedDomains config))))
+        (unopt (.blockedDomains config)) (assoc :blocked-domains (vec (unopt (.blockedDomains config))))
+        (unopt (.userLocation config)) (assoc :user-location (user-location->map (unopt (.userLocation config))))))
+    {:tool :unknown}))
 
 (defn- agent-default-config->map
   [^com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig c]

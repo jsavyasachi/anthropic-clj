@@ -613,6 +613,36 @@
   (is (= {:anthropic/error :missing-key :key :model}
          (ex-data-for #(->agent-create-params {:name "n"})))))
 
+(deftest agent-toolset-config-build-round-trip
+  (let [^AgentCreateParams p (->agent-create-params
+                              {:name "helper" :model "m"
+                               :tools [{:type :agent-toolset-20260401
+                                        :configs [{:tool :bash :enabled true
+                                                   :permission-policy {:type :always-ask}}
+                                                  {:tool :web-search :enabled true
+                                                   :allowed-domains ["example.com"]
+                                                   :user-location {:country "US" :city "SF"}
+                                                   :permission-policy {:type :always-allow}}]
+                                        :default-config {:enabled false}}]})
+        tool (.asAgentToolset20260401 (first (opt (.tools p))) )
+        configs (opt (.configs tool))
+        bash (.asBash (first configs))
+        web-search (.asWebSearch (second configs))]
+    (is (= 2 (count configs)))
+    (is (true? (opt (.enabled bash))))
+    (is (.isAlwaysAsk (opt (.permissionPolicy bash))))
+    (is (= ["example.com"] (vec (opt (.allowedDomains web-search)))))
+    (is (= "US" (opt (.country (opt (.userLocation web-search))))))
+    (is (= "SF" (opt (.city (opt (.userLocation web-search))))))
+    (is (.isAlwaysAllow (opt (.permissionPolicy web-search))))
+    (is (false? (opt (.enabled (opt (.defaultConfig tool)))))))
+  (let [^AgentCreateParams p (->agent-create-params
+                              {:name "helper" :model "m"
+                               :tools [{:type :agent-toolset-20260401}]})
+        tool (.asAgentToolset20260401 (first (opt (.tools p))))]
+    (is (nil? (opt (.configs tool))))
+    (is (nil? (opt (.defaultConfig tool))))))
+
 (deftest agents-platform-request-param-parity
   (let [^AgentCreateParams agent-create (->agent-create-params
                                           {:name "helper" :model "m"
@@ -1210,7 +1240,29 @@
               (.system "be helpful")
               (.tools [(com.anthropic.models.beta.agents.BetaManagedAgentsAgent$Tool/ofAgentToolset20260401
                         (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolset20260401/builder)
-                            (.configs [])
+                            (.configs [(com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig/ofBash
+                                       (-> (com.anthropic.models.beta.agents.BetaManagedAgentsBashToolConfig/builder)
+                                           (.enabled true)
+                                           (.permissionPolicy
+                                            (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy/builder)
+                                                (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAskPolicy$Type/of "always_ask"))
+                                                (.build)))
+                                           (.type (JsonValue/from "bash"))
+                                           (.build)))
+                                      (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig/ofWebSearch
+                                       (-> (com.anthropic.models.beta.agents.BetaManagedAgentsWebSearchToolConfig/builder)
+                                           (.allowedDomains ["example.com"])
+                                           (.enabled true)
+                                           (.permissionPolicy
+                                            (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy/builder)
+                                                (.type (com.anthropic.models.beta.agents.BetaManagedAgentsAlwaysAllowPolicy$Type/of "always_allow"))
+                                                (.build)))
+                                           (.userLocation (-> (com.anthropic.models.beta.agents.BetaManagedAgentsUserLocation/builder)
+                                                              (.city "SF")
+                                                              (.country "US")
+                                                              (.build)))
+                                           (.type (JsonValue/from "web_search"))
+                                           (.build)))])
                             (.defaultConfig (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig/builder)
                                                 (.enabled true)
                                                 (.permissionPolicy
@@ -1243,7 +1295,11 @@
     (is (= :agent (:type m)))
     (is (= [{:type :custom :skill-id "skill_1" :version "2"}] (:skills m)))
     (is (= [{:name "github" :url "https://mcp.example.test" :type :url}] (:mcp-servers m)))
-    (is (= [{:type :agent-toolset-20260401 :configs [] :default-config {:enabled true :permission-policy {:type :always-ask}}}
+    (is (= [{:type :agent-toolset-20260401
+             :configs [{:tool :bash :enabled true :permission-policy {:type :always-ask}}
+                       {:tool :web-search :enabled true :permission-policy {:type :always-allow}
+                        :allowed-domains ["example.com"] :user-location {:city "SF" :country "US"}}]
+             :default-config {:enabled true :permission-policy {:type :always-ask}}}
             {:type :mcp-toolset :mcp-server-name "github" :configs [] :default-config {:enabled true :permission-policy {:type :always-ask}}}] (:tools m)))
     (is (= :high (:effort m)))
     (is (= :fast (:speed m)))
@@ -1716,11 +1772,12 @@
                 (.configs [mcp-config]) (.defaultConfig mcp-default) (.mcpServerName "server")
                 (.type (com.anthropic.models.beta.agents.BetaManagedAgentsMcpToolset$Type/of "mcp_toolset"))
                 (.build))
-        agent-config (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig/builder)
-                         (.name (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig$Name/of "search"))
-                         (.enabled true)
-                         (.permissionPolicy (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig$PermissionPolicy/ofAlwaysAsk always-ask))
-                         (.build))
+        agent-config (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolConfig/ofBash
+                      (-> (com.anthropic.models.beta.agents.BetaManagedAgentsBashToolConfig/builder)
+                          (.enabled true)
+                          (.permissionPolicy always-ask)
+                          (.type (JsonValue/from "bash"))
+                          (.build)))
         agent-default (-> (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig/builder)
                           (.enabled true)
                           (.permissionPolicy (com.anthropic.models.beta.agents.BetaManagedAgentsAgentToolsetDefaultConfig$PermissionPolicy/ofAlwaysAsk always-ask))

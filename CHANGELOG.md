@@ -3,6 +3,34 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [0.29.0] - 2026-08-19
+
+### Changed
+
+- Bump `anthropic-java` to **2.57.0** (core + bedrock + vertex).
+- **Managed-agents agent toolset tool config is now a typed union.** 2.57.0
+  restructured the flat `{name, enabled, permission-policy}` config into one of
+  eight per-tool configs (`bash`, `edit`, `read`, `write`, `glob`, `grep`,
+  `web-fetch`, `web-search`), adding web-search/web-fetch domain filtering and a
+  user-location.
+
+### Added
+
+- **Agent toolset build path now wires `:configs` and `:default-config`.** The
+  `:agent-toolset-20260401` tool accepts a `:configs` vector of per-tool config
+  maps (`{:tool :bash|:edit|:read|:write|:glob|:grep|:web-fetch|:web-search
+  :enabled bool :permission-policy {:type :always-allow|:always-ask}}`), with
+  `:allowed-domains`/`:blocked-domains`/`:user-location` on the two web tools,
+  and a `:default-config` map. Previously any configs passed were silently
+  dropped. Applies to both agent create and update.
+
+### Breaking
+
+- Agent tool-config read shape: `agent->map` `:tools` entries for an agent
+  toolset now emit `:tool` (the per-tool keyword) instead of `:name`, and
+  web-search/web-fetch entries gain `:allowed-domains`, `:blocked-domains`, and
+  `:user-location` when present.
+
 ## [0.28.0] - 2026-08-19
 
 ### Changed
