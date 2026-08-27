@@ -392,6 +392,10 @@ beta-only server tools. `run-beta-tools` accepts `:on-turn`. The library calls
 `:on-turn` with `(response params)` after each assistant turn. The params that
 `:on-turn` returns control the next iteration.
 
+Power users can use `beta-tool-runner-handle` for the SDK's blocking
+`BetaToolRunner`; its handle provides lazy `:messages` and `:streaming`
+sequences, `:set-next-params!`, and translated `:last-tool-response` access.
+
 ## Errors
 
 All failures throw `ex-info` keyed `:anthropic/error` in `ex-data`:

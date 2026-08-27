@@ -9,6 +9,7 @@
            (com.anthropic.core JsonValue RequestOptions)
            (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
            (com.anthropic.errors AnthropicException)
+           (com.anthropic.helpers BetaToolRunner)
            (com.anthropic.models.beta.messages BetaBase64ImageSource
                                                BetaBase64ImageSource$MediaType
                                                BetaBase64PdfSource
@@ -1290,6 +1291,59 @@
    (run-beta-tools client params {}))
   ([^AnthropicClient client params opts]
    (run-beta-tools* (partial create-beta-message client) params opts)))
+
+(defn- beta-message-param->map [param]
+  (let [m (keywordize-types (json->clj (JsonValue/from param)))]
+    (cond-> m
+      (string? (:role m)) (update :role ->keyword))))
+
+(declare beta-stream-event->map)
+
+(defn- beta-tool-runner-handle* [^BetaToolRunner runner]
+  (letfn [(stream-response-events [^StreamResponse response]
+            (with-open [^StreamResponse stream response]
+              (let [events (java.util.ArrayList.)]
+                (.forEach (.stream stream)
+                          (reify java.util.function.Consumer
+                            (accept [_ event] (.add events event))))
+                (mapv beta-stream-event->map events))))
+          (stream-events [^java.util.Iterator responses]
+            (lazy-seq
+             (when (.hasNext responses)
+               (let [response (.next responses)
+                     events (seq (stream-response-events response))]
+                 (when events
+                   (cons (first events)
+                         (concat (rest events)
+                                 (stream-events responses))))))))]
+    {:messages (fn []
+               (map beta-message->map
+                    (iterator-seq (.iterator runner))))
+     :streaming (fn []
+                  (stream-events (.iterator ^Iterable (.streaming runner))))
+     :set-next-params! (fn [params]
+                         (.setNextParams runner ^MessageCreateParams (->params params)))
+     :last-tool-response (fn []
+                          (some-> (.lastToolResponse runner)
+                                  (.orElse nil)
+                                  beta-message-param->map))}))
+
+(defn beta-tool-runner-handle
+  "Create a Clojure handle around the SDK's blocking `BetaToolRunner`.
+
+  The handle's `:messages` and `:streaming` operations return lazy sequences;
+  `:set-next-params!` accepts a normal request map, and `:last-tool-response`
+  returns a translated message-param map or nil. The one-argument form wraps
+  an existing SDK runner; the other forms create one through the beta
+  Messages service."
+  ([^BetaToolRunner runner]
+   (beta-tool-runner-handle* runner))
+  ([^AnthropicClient client params]
+   (beta-tool-runner-handle client params {}))
+  ([^AnthropicClient client params opts]
+   (let [service (.messages (.beta client))
+         runner (.toolRunner service (->params params) (->request-options opts))]
+     (beta-tool-runner-handle* runner))))
 
 (defn count-beta-tokens
   "Count beta Messages input tokens without creating a message. Request maps
