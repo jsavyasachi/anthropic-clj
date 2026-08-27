@@ -630,6 +630,10 @@
               entries)))
 
 (def ^:private browser-toolset-config-setters
+  ;; The middle column is a Java method name consumed as data by the macro
+  ;; (constructed into a compile-time interop call); clj-kondo reads it as an
+  ;; unresolved var, so ignore that linter for this generated table.
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
   (toolset-config-setters BetaBrowserToolsetConfigs$Builder
     [[:close-tab closeTab BetaBrowserCloseTabConfig]
      [:double-click doubleClick BetaBrowserDoubleClickConfig]
@@ -664,6 +668,8 @@
      [:zoom zoom BetaBrowserZoomConfig]]))
 
 (def ^:private computer-toolset-config-setters
+  ;; See note on browser-toolset-config-setters: the method-name column is data.
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
   (toolset-config-setters BetaComputerToolsetConfigs$Builder
     [[:cursor-position cursorPosition BetaComputerCursorPositionConfig]
      [:double-click doubleClick BetaComputerDoubleClickConfig]

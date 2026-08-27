@@ -14,7 +14,6 @@
            (com.anthropic.helpers MessageAccumulator)
            (java.net Proxy)
            (java.time Duration)
-           (com.anthropic.models.beta AnthropicBeta)
            (com.anthropic.models.files DeletedFile DeletedFile$Type FileMetadata
                                        FileListPage FileListParams FileUploadParams)
            (com.anthropic.models.models ModelCapabilities ModelInfo ModelListPage ModelListParams)

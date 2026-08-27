@@ -45,10 +45,6 @@
                                                             MemoryUpdateParams)
            (com.anthropic.models.beta.memorystores.memoryversions BetaManagedAgentsMemoryVersion
                                                                   BetaManagedAgentsActor
-                                                                  BetaManagedAgentsApiActor
-                                                                  BetaManagedAgentsServiceAccountActor
-                                                                  BetaManagedAgentsSessionActor
-                                                                  BetaManagedAgentsUserActor
                                                                   BetaManagedAgentsMemoryVersionOperation
                                                                   MemoryVersionListPage
                                                                   MemoryVersionListParams
