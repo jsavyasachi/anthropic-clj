@@ -3,14 +3,17 @@
             [clojure.string :as str]
             [anthropic.beta.messages :as messages]
             [anthropic.core])
-  (:import (com.anthropic.core JsonValue)
+  (:import (com.anthropic.core JsonValue RequestOptions)
            (com.anthropic.core.http StreamResponse)
+           (com.anthropic.helpers BetaToolRunner)
            (com.anthropic.models.beta.messages BetaMessage BetaTextBlock BetaUsage BetaTool
-                                               BetaMessageTokensCount MessageCountTokensParams
+                                               BetaMessageTokensCount BetaCacheCreation BetaContainer MessageCountTokensParams
                                                MessageCreateParams BetaRawContentBlockDeltaEvent
-                                               BetaRawMessageStreamEvent BetaToolUnion
+                                               BetaRawMessageStreamEvent BetaStopReason BetaToolUnion
                                                MessageCountTokensParams$Tool)
            (com.anthropic.models.messages Tool ToolUnion)
+           (com.anthropic.services.blocking.beta MessageService)
+           (java.time OffsetDateTime)
            (com.anthropic.models.beta.messages.batches BatchCreateParams
                                                        BetaDeletedMessageBatch
                                                        BetaMessageBatch
@@ -39,6 +42,125 @@
 (defn- ex-data-for [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
 (def stable->tool #'anthropic.core/->tool)
+
+(defn- beta-test-message [id]
+  (-> (BetaMessage/builder)
+      (.id id)
+      (.type (JsonValue/from "message"))
+      (.role (JsonValue/from "assistant"))
+      (.model "claude-sonnet-4-6")
+      (.stopReason BetaStopReason/END_TURN)
+      (.content [])
+      (.contextManagement (java.util.Optional/empty))
+      (.diagnostics (java.util.Optional/empty))
+      (.stopDetails (java.util.Optional/empty))
+      (.stopSequence (java.util.Optional/empty))
+      (.container (-> (BetaContainer/builder)
+                      (.id "container_1")
+                      (.expiresAt (OffsetDateTime/parse "2030-01-01T00:00:00Z"))
+                      (.skills [])
+                      (.build)))
+      (.usage (-> (BetaUsage/builder)
+                  (.cacheCreation (-> (BetaCacheCreation/builder)
+                                      (.ephemeral1hInputTokens 0)
+                                      (.ephemeral5mInputTokens 0)
+                                      (.build)))
+                  (.cacheCreationInputTokens 0)
+                  (.cacheReadInputTokens 0)
+                  (.fallbackCredit (java.util.Optional/empty))
+                  (.inferenceGeo (java.util.Optional/empty))
+                  (.iterations (java.util.Optional/empty))
+                  (.outputTokensDetails (java.util.Optional/empty))
+                  (.serverToolUse (java.util.Optional/empty))
+                  (.serviceTier (java.util.Optional/empty))
+                  (.speed (java.util.Optional/empty))
+                  (.inputTokens 0) (.outputTokens 0) (.build)))
+      (.build)))
+
+(defn- beta-test-runner
+  ([messages streams]
+   (beta-test-runner messages streams {:messages [{:role :user :content "hello"}]}))
+  ([messages streams initial-params]
+   (beta-test-runner messages streams initial-params (atom nil)))
+  ([messages streams initial-params on-create]
+   (let [message-index (atom -1)
+        stream-index (atom -1)
+        service (proxy [MessageService] []
+                  (withRawResponse [] nil)
+                  (withOptions [_] nil)
+                  (batches [] nil)
+                  (create [params _opts]
+                    (let [index (swap! message-index inc)]
+                      (when-let [f @on-create] (f index params))
+                      (nth messages index)))
+                  (createStreaming [_ _]
+                    (nth streams (swap! stream-index inc)))
+                  (countTokens [_ _] nil)
+                  (toolRunner [_ _] nil))]
+    (BetaToolRunner. service
+                     (let [p (->params initial-params)]
+                       (-> (com.anthropic.models.beta.messages.ToolRunnerCreateParams/builder)
+                           (.initialMessageParams p)
+                           (.build)))
+                     (RequestOptions/none)))))
+
+(defn- beta-test-stream-response [events closed?]
+  (reify StreamResponse
+    (stream [_] (.stream (java.util.ArrayList. events)))
+    (close [_] (reset! closed? true))))
+
+(deftest beta-tool-runner-handle-iterates-messages
+  (let [runner (beta-test-runner [(beta-test-message "msg_1")] [])
+        handle (messages/beta-tool-runner-handle runner)]
+    (is (= ["msg_1"] (mapv :id ((:messages handle)))))
+    (is (fn? (:set-next-params! handle)))))
+
+(deftest beta-tool-runner-handle-streams-lazily
+  (let [closed? (atom false)
+        stop (-> (com.anthropic.models.beta.messages.BetaRawMessageStopEvent/builder)
+                 (.type (JsonValue/from "message_stop"))
+                 (.build))
+        events [(BetaRawMessageStreamEvent/ofMessageStart (beta-test-message "stream_msg"))
+                (BetaRawMessageStreamEvent/ofMessageStop stop)]
+        runner (beta-test-runner [] [(beta-test-stream-response events closed?)])
+        handle (messages/beta-tool-runner-handle runner)]
+    (let [events ((:streaming handle))
+          first-event (first events)]
+      (is (= :message-start (:type first-event)))
+      (is (= "stream_msg" (get-in first-event [:message :id]))))
+    (is @closed?)))
+
+(deftest beta-tool-runner-handle-sets-next-params-and-reads-last-tool-response
+  (let [on-create (atom nil)
+        seen-params (atom [])
+        runner (beta-test-runner [(beta-test-message "msg_1") (beta-test-message "msg_2")] []
+                                 {:messages [{:role :user :content "hello"}]}
+                                 on-create)
+        handle (messages/beta-tool-runner-handle runner)
+        next-params {:messages [{:role :user :content "next"}] :max-tokens 42}]
+    (reset! on-create (fn [index params]
+                        (swap! seen-params conj [index (.maxTokens ^MessageCreateParams params)])
+                        (when (zero? index)
+                          ((:set-next-params! handle) next-params))))
+    (is (nil? ((:last-tool-response handle))))
+    (let [messages ((:messages handle))]
+      (is (= "msg_1" (:id (first messages))))
+      (is (= 2 (count (doall messages))))
+      (is (= [[0 1024] [1 42]] @seen-params)))
+    (is (nil? ((:last-tool-response handle))))))
+
+(deftest beta-tool-runner-handle-translates-positive-last-tool-response
+  (let [runner (beta-test-runner [] []
+                                 {:messages [{:role :assistant
+                                              :content [{:type :tool-use
+                                                         :id "toolu_1"
+                                                         :name "weather"
+                                                         :input {:city "Paris"}}]}]})
+        handle (messages/beta-tool-runner-handle runner)
+        response ((:last-tool-response handle))]
+    (is (= :user (:role response)))
+    (is (= :tool-result (get-in response [:content 0 :type])))
+    (is (= "toolu_1" (get-in response [:content 0 :tool-use-id])))))
 
 (def server-tool-versions
   [{:type :bash
