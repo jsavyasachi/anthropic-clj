@@ -34,6 +34,13 @@
                                           Usage$ServiceTier)
            (com.anthropic.models.models ModelInfo ModelInfo$Builder)
            (com.anthropic.models.files DeletedFile DeletedFile$Type FileMetadata)
+           (com.anthropic.models.skills DeletedSkill Skill SkillCreateParams
+                                         SkillListParams SkillSource
+                                         SkillSource$Type)
+           (com.anthropic.models.skills.versions DeletedSkillVersion
+                                                 SkillVersion VersionCreateParams
+                                                 VersionListParams VersionRetrieveParams
+                                                 VersionDeleteParams)
            (com.anthropic.models.beta.messages BetaTool BetaToolUnion
                                                BetaWebSearchTool20260318
                                                BetaWebFetchTool20260318
@@ -1246,6 +1253,75 @@
     (is (= true (:downloadable m)))
     (is (= "2026-02-01T00:00Z" (:expires-at m)))
     (is (str/starts-with? (:created-at m) "2026-01-01"))))
+
+(deftest ga-skill-params
+  (let [tmp (doto (java.io.File/createTempFile "ga-skill" ".md") (spit "content"))
+        create (when-let [f (resolved-fn '->skill-create-params)]
+                 (f {:display-name "My Skill" :files [(.getPath tmp)]}))
+        list (when-let [f (resolved-fn '->skill-list-params)]
+               (f {:limit 17 :page "next" :source "custom"}))
+        version-create (when-let [f (resolved-fn '->skill-version-create-params)]
+                         (f "skill_1" {:files [(.getPath tmp)]}))
+        version-list (when-let [f (resolved-fn '->skill-version-list-params)]
+                       (f "skill_1" {:limit 11 :page "next"}))
+        version-retrieve (when-let [f (resolved-fn '->skill-version-retrieve-params)]
+                           (f "skill_1" "2"))
+        version-delete (when-let [f (resolved-fn '->skill-version-delete-params)]
+                         (f "skill_1" "2"))]
+    (is (instance? SkillCreateParams create))
+    (is (= 1 (count (.files ^SkillCreateParams create))))
+    (is (= 17 (long (opt (.limit ^SkillListParams list)))))
+    (is (= "next" (opt (.page ^SkillListParams list))))
+    (is (= "custom" (opt (.source ^SkillListParams list))))
+    (is (= "skill_1" (opt (.skillId ^VersionCreateParams version-create))))
+    (is (= 1 (count (.files ^VersionCreateParams version-create))))
+    (is (= "skill_1" (opt (.skillId ^VersionListParams version-list))))
+    (is (= 11 (long (opt (.limit ^VersionListParams version-list)))))
+    (is (= "next" (opt (.page ^VersionListParams version-list))))
+    (is (= "skill_1" (.skillId ^VersionRetrieveParams version-retrieve)))
+    (is (= "2" (opt (.version ^VersionRetrieveParams version-retrieve))))
+    (is (= "skill_1" (.skillId ^VersionDeleteParams version-delete)))
+    (is (= "2" (opt (.version ^VersionDeleteParams version-delete))))))
+
+(deftest ga-skill-response-mapping
+  (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
+        skill (-> (Skill/builder)
+                  (.id "skill_1")
+                  (.displayName "My Skill")
+                  (.latestVersionId "sv_3")
+                  (.source (-> (SkillSource/builder)
+                               (.type (SkillSource$Type/of "custom"))
+                               (.build)))
+                  (.type (JsonValue/from "skill"))
+                  (.createdAt ts)
+                  (.updatedAt ts)
+                  (.build))
+        version (-> (SkillVersion/builder)
+                    (.id "sv_3")
+                    (.skillId "skill_1")
+                    (.name "v3")
+                    (.description "release")
+                    (.type (JsonValue/from "skill_version"))
+                    (.createdAt ts)
+                    (.build))
+        deleted-skill (DeletedSkill/of "skill_1")
+        deleted-version (DeletedSkillVersion/of "sv_3")
+        skill-map ((resolved-fn 'skill->map) skill)
+        version-map ((resolved-fn 'skill-version->map) version)]
+    (is (= {:id "skill_1"
+            :display-name "My Skill"
+            :latest-version-id "sv_3"
+            :source {:type :custom}
+            :created-at "2026-07-04T00:00Z"
+            :updated-at "2026-07-04T00:00Z"}
+           skill-map))
+    (is (= {:id "sv_3" :skill-id "skill_1" :name "v3"
+            :description "release" :created-at "2026-07-04T00:00Z"}
+           version-map))
+    (is (= {:id "skill_1" :deleted true}
+           ((resolved-fn 'skill-delete->map) deleted-skill)))
+    (is (= {:id "sv_3" :deleted true}
+           ((resolved-fn 'skill-version-delete->map) deleted-version)))))
 
 (deftest delete-response-mapping
   (let [file (-> (DeletedFile/builder)

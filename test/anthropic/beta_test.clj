@@ -2,9 +2,10 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string]
             [anthropic.beta :as beta])
-  (:import (com.anthropic.models.skills Skill
-                                        SkillCreateParams
-                                        SkillSource)
+  (:import (com.anthropic.models.beta.skills BetaSkill
+                                             BetaSkillSource
+                                             SkillCreateParams
+                                             SkillListParams)
            (com.anthropic.models.beta.memorystores BetaManagedAgentsMemoryStore
                                                    MemoryStoreCreateParams
                                                    MemoryStoreUpdateParams)
@@ -68,12 +69,12 @@
                                                         WorkStatsParams
                                                         WorkStopParams
                                                         WorkUpdateParams)
-           (com.anthropic.models.skills.versions SkillVersion
-                                                 VersionCreateParams
-                                                 VersionDeleteParams
-                                                 VersionListParams
-                                                 VersionRetrieveParams
-                                                 DeletedSkillVersion)
+           (com.anthropic.models.beta.skills.versions BetaSkillVersion
+                                                       VersionCreateParams
+                                                       VersionDeleteParams
+                                                       VersionListParams
+                                                       VersionRetrieveParams
+                                                       BetaDeletedSkillVersion)
            (com.anthropic.models.beta.skills.versions VersionDownloadParams)
            (com.anthropic.models.beta.vaults BetaManagedAgentsDeletedVault
                                              BetaManagedAgentsVault
@@ -154,6 +155,9 @@
 (def ->version-list-params #'beta/->version-list-params)
 (def ->version-delete-params #'beta/->version-delete-params)
 (def ->version-download-params #'beta/->version-download-params)
+(def ->unwrap-webhook-params #'beta/->unwrap-webhook-params)
+(def ->beta-file-upload-params #'beta/->beta-file-upload-params)
+(def ->beta-file-list-params #'beta/->beta-file-list-params)
 (def skill-version->map #'beta/skill-version->map)
 (def skill-version-delete->map #'beta/skill-version-delete->map)
 (def ->vault-create-params #'beta/->vault-create-params)
@@ -551,6 +555,44 @@
   (testing "missing keys throw"
     (is (= {:anthropic/error :missing-key :key :files}
            (ex-data-for #(->skill-create-params {:display-name "x"}))))))
+
+(deftest beta-files-have-idiomatic-endpoints
+  (doseq [name '[upload-file get-file list-files delete-file download-file]]
+    (is (fn? (some-> (ns-resolve 'anthropic.beta name) deref))
+        (str "anthropic.beta/" name " must be public")))
+  (is (fn? (some-> (ns-resolve 'anthropic.beta 'list-files-lazy) deref))))
+
+(deftest beta-file-params-use-ga-pagination-shape
+  (let [tmp (doto (java.io.File/createTempFile "beta-file" ".txt") (spit "content"))
+        upload (->beta-file-upload-params (.getPath tmp) {:expires-in-seconds 3600})
+        list-params (->beta-file-list-params {:ids ["file_1" "file_2"]
+                                              :page "page_2" :limit 10 :scope-id "scope_1"})]
+    (is (= 3600 (opt (.expiresInSeconds upload))))
+    (is (= ["file_1" "file_2"] (opt (.ids list-params))))
+    (is (= "page_2" (opt (.page list-params))))
+    (is (= 10 (opt (.limit list-params))))
+    (is (= "scope_1" (opt (.scopeId list-params))))))
+
+(deftest beta-skills-use-current-pagination-shape
+  (let [skill-params ((private-fn '->skill-list-params)
+                      {:limit 10 :page "next" :source "custom" :betas [:dated-beta]})
+        version-params ((private-fn '->version-list-params)
+                        "skill_1" {:limit 10 :page "next" :betas [:dated-beta]})]
+    (is (instance? SkillListParams skill-params))
+    (is (= 10 (opt (.limit skill-params))))
+    (is (= "next" (opt (.page skill-params))))
+    (is (= "custom" (opt (.source skill-params))))
+    (is (empty? (opt (.betas skill-params))))
+    (is (empty? (opt (.betas version-params))))))
+
+(deftest unwrap-webhook-params-require-headers-for-verification
+  (let [p (->unwrap-webhook-params "{}" {:headers {"webhook-id" "msg_1"
+                                                    "webhook-signature" "v1,sig"}
+                                            :secret "whsec_test"})]
+    (is (= "{}" (.body p)))
+    (is (= ["msg_1"] (.values (.headers p) "webhook-id")))
+    (is (= ["v1,sig"] (.values (.headers p) "webhook-signature")))
+    (is (= "whsec_test" (opt (.secret p))))))
 
 (deftest memory-store-params
   (let [^MemoryStoreCreateParams p (->memory-store-create-params
@@ -1164,12 +1206,12 @@
 
 (deftest skill-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
-        r (-> (Skill/builder)
+        r (-> (BetaSkill/builder)
               (.id "skill_1")
               (.displayName "My Skill")
               (.latestVersionId "sv_3")
-              (.source (-> (SkillSource/builder)
-                           (.type (com.anthropic.models.skills.SkillSource$Type/of "custom"))
+              (.source (-> (BetaSkillSource/builder)
+                           (.type (com.anthropic.models.beta.skills.BetaSkillSource$Type/of "custom"))
                            (.build)))
               (.type (JsonValue/from "skill"))
               (.createdAt ts)
@@ -1870,14 +1912,14 @@
 
 (deftest skill-version-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")
-        r (-> (SkillVersion/builder)
+        r (-> (BetaSkillVersion/builder)
               (.id "sv_1")
               (.createdAt ts)
               (.description "d")
               (.name "SKILL.md")
               (.skillId "skill_1")
               (.build))
-        d (-> (DeletedSkillVersion/builder)
+        d (-> (BetaDeletedSkillVersion/builder)
               (.id "sv_1")
               (.type (JsonValue/from "skill_version_deleted"))
               (.build))
