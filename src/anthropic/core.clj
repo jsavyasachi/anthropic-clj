@@ -6,6 +6,7 @@
   `ANTHROPIC_API_KEY` from the environment by default."
   (:require [anthropic.pagination :as pagination]
             [clojure.string :as str]
+            [clojure.spec.alpha :as s]
             [clojure.walk :as walk]
             [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
@@ -15,7 +16,6 @@
            (com.anthropic.helpers MessageAccumulator)
            (java.net Proxy)
            (java.time Duration)
-           (com.anthropic.models.beta AnthropicBeta)
            (com.anthropic.models.files DeletedFile DeletedFile$Type FileMetadata
                                        FileListPage FileListParams FileUploadParams)
            (com.anthropic.models.models ModelCapabilities ModelInfo ModelListPage ModelListParams)
@@ -1001,15 +1001,144 @@
       (.putAdditionalProperty b ^String (name k) (JsonValue/from (walk/stringify-keys v))))
     (.build b)))
 
+(def ^:private malli-schema-tags
+  #{:map :map-of :vector :sequential :set :tuple :enum :maybe :and :or :not
+    :string :int :integer :double :float :number :boolean :keyword :symbol
+    :nil :any :re :fn})
+
+(defn- malli-schema? [x]
+  (and (vector? x) (contains? malli-schema-tags (first x))))
+
+(defn- optional-resolve [sym]
+  (try
+    (requiring-resolve sym)
+    (catch java.io.FileNotFoundException _ nil)))
+
+(defn- malli-functions []
+  (let [validate (optional-resolve 'malli.core/validate)
+        explain (optional-resolve 'malli.core/explain)
+        transform (optional-resolve 'malli.json-schema/transform)]
+    (when-not (and validate explain transform)
+      (throw (anthropic-error :missing-optional-dependency
+                              "Malli structured output requires the :malli alias"
+                              {:dependency 'metosin/malli
+                               :alias :malli})))
+    {:validate validate :explain explain :transform transform}))
+
+(defn- spec-form [x]
+  (if (keyword? x)
+    (if-let [spec (s/get-spec x)] (s/form spec) x)
+    (if (seq? x) x (s/form (s/spec x)))))
+
+(declare spec->json-schema)
+
+(defn- predicate->json-schema [p]
+  (let [same? (fn [f] (or (= p f) (= (str p) (str f))))]
+    (cond
+      (same? string?) {:type "string"}
+      (same? keyword?) {:type "string"}
+      (same? symbol?) {:type "string"}
+      (same? boolean?) {:type "boolean"}
+      (same? integer?) {:type "integer"}
+      (same? int?) {:type "integer"}
+      (same? number?) {:type "number"}
+      (same? double?) {:type "number"}
+      (same? float?) {:type "number"}
+      (same? nil?) {:type "null"}
+      (same? map?) {:type "object"}
+      (same? vector?) {:type "array"}
+      (same? seq?) {:type "array"}
+      (same? any?) {}
+      :else (throw (anthropic-error :unsupported-schema
+                                    "Unsupported clojure.spec predicate for JSON Schema"
+                                    {:schema p})))))
+
+(defn- spec-key-name [k] (name k))
+
+(defn- spec-keys->json-schema [[_ & options]]
+  (let [opts (apply hash-map options)
+        required (mapv spec-key-name (concat (:req opts) (:req-un opts)))
+        optional (concat (:opt opts) (:opt-un opts))
+        properties (into {}
+                         (map (fn [k]
+                                [(spec-key-name k)
+                                 (spec->json-schema (or (s/get-spec k)
+                                                        (throw (anthropic-error
+                                                                :unsupported-schema
+                                                                "Spec key has no registered spec"
+                                                                {:key k}))))]))
+                         (concat (:req opts) (:req-un opts) optional))]
+    (cond-> {:type "object" :properties properties :additionalProperties false}
+      (seq required) (assoc :required required))))
+
+(defn- spec->json-schema [x]
+  (let [form (spec-form x)]
+    (cond
+      (keyword? form)
+      (throw (anthropic-error :unsupported-schema
+                              "Spec keyword must resolve to a registered spec"
+                              {:schema x}))
+      (symbol? form) (predicate->json-schema (some-> (resolve form) deref))
+      (seq? form)
+      (case (first form)
+        clojure.spec.alpha/keys (spec-keys->json-schema form)
+        clojure.spec.alpha/and {:allOf (mapv spec->json-schema (rest form))}
+        clojure.spec.alpha/or {:anyOf (mapv (fn [[tag schema]]
+                                             (assoc (spec->json-schema schema) :title (name tag)))
+                                           (partition 2 (rest form)))}
+        clojure.spec.alpha/nilable {:anyOf [(spec->json-schema (second form))
+                                            {:type "null"}]}
+        (if (= 'clojure.spec.alpha/every (first form))
+          {:type "array"}
+          (predicate->json-schema (some-> (resolve (first form)) deref))))
+      :else (predicate->json-schema form))))
+
+(defn- ->structured-schema [schema]
+  (if (map? schema)
+    {:schema schema :validator nil}
+    (if (malli-schema? schema)
+      (let [{:keys [validate explain transform]} (malli-functions)]
+        {:schema (transform schema)
+         :validator (fn [value] (boolean (validate schema value)))
+         :explain (fn [value] (explain schema value))})
+      {:schema (spec->json-schema schema)
+       :validator (fn [value] (s/valid? schema value))
+       :explain (fn [value] (s/explain-data schema value))})))
+
+(defn- validate-parsed! [value schema]
+  (let [{:keys [validator explain]} (->structured-schema schema)]
+    (if (or (nil? validator) (validator value))
+      value
+      (throw (anthropic-error :response-validation-failed
+                              "Structured response failed validation"
+                              {:value value
+                               :schema schema
+                               :validation-errors (when explain (explain value))})))))
+
+(declare parse-text)
+
+(defn- parsed-response [resp req opts]
+  (if-let [schema (or (:response-format req)
+                      (when-not (instance? Class (:output-type req))
+                        (:output-type req)))]
+    (let [parsed (parse-text resp)]
+      (assoc resp :parsed (if (:response-validation opts)
+                            (validate-parsed! parsed schema)
+                            parsed)))
+    resp))
+
 (defn- ->output-config ^OutputConfig [schema effort output-type]
-  (if output-type
+  (if (instance? Class output-type)
     (let [b (StructuredOutputConfig/builder)]
       (.format b ^Class output-type)
       (when effort (.effort b (OutputConfig$Effort/of (name effort))))
       (.rawOutputConfig (.build b)))
     (let [b (OutputConfig/builder)]
-      (when schema
-        (.format b (-> (JsonOutputFormat/builder) (.schema (->schema schema)) (.build))))
+      (when (or schema output-type)
+        (.format b (-> (JsonOutputFormat/builder)
+                       (.schema (->schema
+                                 (:schema (->structured-schema (or output-type schema)))))
+                       (.build))))
       (when effort
         (.effort b (OutputConfig$Effort/of (name effort))))
       (.build b))))
@@ -1435,10 +1564,14 @@
   escape hatches `:extra-headers`, `:extra-query`, and `:extra-body` pass
   unwrapped values to the SDK builder. For structured output, pass
   `:response-format` (a
-  JSON Schema map), `:output-type` (a Java `Class`), and/or `:effort` (`:low`…`:max`); when `:response-format` is
-  set the returned map also carries `:parsed`, the response text decoded as a
-  Clojure map. An optional third `opts` map accepts `:timeout-ms`,
-  `:response-validation`, and truthy `:include-response`; the latter adds raw
+  JSON Schema map), `:output-type` (a Java `Class`, Malli schema, or registered
+  clojure.spec keyword/form), and/or `:effort` (`:low`…`:max`); `:output-type`
+  uses the Java Class path only for a Class and otherwise converts the schema.
+  When `:response-format` or a non-Class `:output-type` is set the returned map
+  also carries `:parsed`, the response text decoded as a Clojure map. An
+  optional third `opts` map accepts
+  `:timeout-ms`, `:response-validation` (also validates Malli/spec decoded
+  values), and truthy `:include-response`; the latter adds raw
   HTTP `:response` metadata (`:status`, `:request-id`, and lowercase headers).
   Returns
   `{:id :model :role :stop-reason :content [...] :usage {...}}`; tool-use content
@@ -1458,8 +1591,7 @@
                                                      params request-options)]
                [(message->map (.parse r)) (response-metadata r)])
              [(message->map (.create (.messages client) params request-options)) nil])]
-       (cond-> resp
-         (:response-format req) (assoc :parsed (parse-text resp))
+       (cond-> (parsed-response resp req opts)
          response (assoc :response response))))))
 
 (defn run-tools
@@ -1816,8 +1948,7 @@
           (.accumulate acc ev)
           (when on-event (on-event (event->map ev))))
         (let [resp (message->map (.message acc))]
-          (cond-> resp
-            (:response-format req) (assoc :parsed (parse-text resp))))))))
+          (parsed-response resp req {}))))))
 
 (defn stream-text
   "Stream a Messages request, calling `on-text` with each text delta (a string)

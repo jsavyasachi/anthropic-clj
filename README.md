@@ -208,6 +208,16 @@ Pass `:response-format` (a JSON Schema map) to get a `:parsed` Clojure map back.
 Object schemas must set `"additionalProperties": false`. The API requires this.
 You can pass `:effort` (`:low`…`:max`) with either structured output option or on its own.
 
+`:output-type` accepts either a Java `Class` or, alternatively, a Malli schema or
+a registered clojure.spec keyword/form. A Java `Class` uses the SDK's class-based
+structured-output path. A non-Class value uses schema conversion. Malli support
+is optional; add the `:malli` alias, which supplies `metosin/malli` 0.20.1. The
+wrapper uses Malli's JSON Schema transform and can validate the decoded value
+when the third argument includes `{:response-validation true}`. Spec conversion
+is intentionally scoped to registered `s/keys`, `s/and`, `s/or`, `s/nilable`, and
+common scalar predicates. Unsupported spec forms raise an `:unsupported-schema`
+error. `:response-format` remains a raw JSON Schema map.
+
 ```clojure
 (anthropic/create-message
   client
