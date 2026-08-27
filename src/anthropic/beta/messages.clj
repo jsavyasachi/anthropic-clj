@@ -1,6 +1,7 @@
 (ns anthropic.beta.messages
   "Clojure wrapper for the beta Messages API."
   (:require [anthropic.core]
+            [anthropic.stream :as stream-control]
             [clojure.string :as str]
             [clojure.walk :as walk]
             [jsonista.core :as json])
@@ -1430,3 +1431,26 @@
                        (fn [event]
                          (when-let [text (get-in event [:delta :text])]
                            (when on-text (on-text text))))))
+
+(defn stream-beta-message-handle
+  "Start a beta Messages SSE stream on a worker thread and return a
+  cancellable handle. `on-event` receives normalized event maps."
+  ([^AnthropicClient client req on-event]
+   (stream-beta-message-handle client req on-event {}))
+  ([^AnthropicClient client req on-event opts]
+   (stream-control/start!
+    #(.createStreaming (.messages (.beta client)) (->params req))
+    on-event
+    (assoc (or opts {}) :map-event beta-stream-event->map))))
+
+(defn stream-beta-message-queue
+  "Start a bounded pull stream of normalized beta Messages events."
+  ([^AnthropicClient client req] (stream-beta-message-queue client req {}))
+  ([^AnthropicClient client req opts]
+   (stream-beta-message-handle client req nil
+                               (assoc (or opts {}) :buffer-size (or (:buffer-size opts) 64)))))
+
+(def cancel-stream! stream-control/cancel-stream!)
+(def close-stream! stream-control/close-stream!)
+(def take-stream-event stream-control/take-stream-event)
+(def await-stream stream-control/await-stream)

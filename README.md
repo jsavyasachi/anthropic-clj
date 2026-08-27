@@ -344,6 +344,15 @@ collect `:input-json-delta` `:partial-json` per `:index` yourself.
 ;; => {:id ... :content [{:type :tool-use :input {...}} ...] :usage {...}}
 ```
 
+For streams that must be consumed from another thread, `stream-handle` returns
+a cancellable handle. Call `anthropic.core/cancel-stream!` (or
+`close-stream!`) to stop consumption and close the HTTP response. For
+consumer-paced processing, use `stream-queue` with a `:buffer-size`, then pull
+normalized events with `take-stream-event`; the producer blocks when the queue
+is full. The beta Messages and session APIs provide the corresponding
+`stream-beta-message-handle`/`-queue` and `stream-session-events-handle`/
+`-queue` functions. Always close or cancel a handle when abandoning it.
+
 ## Concurrency
 
 This wrapper uses the SDK's blocking client. There is no async namespace. The
