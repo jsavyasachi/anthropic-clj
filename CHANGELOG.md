@@ -5,10 +5,39 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-08-26
+
 ### Added
 
+- Wrap the beta **Organization administration** API added in anthropic-java
+  2.58.0: a new `anthropic.organization` namespace with idiomatic functions for
+  the organization, users, API keys, external keys, invites, rate limits,
+  service accounts, workspaces, workspace members / rate-limits / service
+  accounts, and identity federation (issuers, rules, and rule workspaces).
 - Structured output accepts optional Malli schemas and scoped clojure.spec
   schemas. Decoded responses can be validated with `:response-validation true`.
+- Lazy pagination: `*-lazy` sibling variants of the list functions return a
+  lazy sequence over the SDK auto-pager instead of eagerly realizing every page.
+- A Clojure-native beta tool-runner handle (`beta-tool-runner-handle`) exposing
+  the SDK `BetaToolRunner`'s lazy/streaming iteration, next-turn parameter
+  mutation, and last-tool-response access, alongside the existing
+  `run-beta-tools` loop.
+- Cancellation and bounded-queue backpressure for the existing blocking stable
+  and beta SSE streams.
+- Local HTTP contract tests covering stable/beta message creation, pagination,
+  an error-response shape, and streaming, with no live network access.
+- A runnable `examples/` REPL cookbook.
+
+### Changed
+
+- Bump `com.anthropic/anthropic-java` (and the Bedrock and Vertex artifacts) to
+  2.58.0.
+
+### Fixed
+
+- Restore a green `clj-kondo` gate: scope an `:unresolved-symbol` ignore to the
+  generated browser/computer tool-config tables (their method-name column is
+  data consumed by a macro, not a var) and drop five unused imports.
 
 ## [0.29.0] - 2026-08-19
 
