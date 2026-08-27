@@ -439,6 +439,7 @@ unchanged.
 maps-in/maps-out shape and error contract as `anthropic.core`:
 
 - skills (and skill versions)
+- beta files (upload, metadata, listing, deletion, and download)
 - memory stores (and memories)
 - agents (including multiagent rosters)
 - agent versions
@@ -452,7 +453,7 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 - tunnels and tunnel certificates
 - memory versions
 - user profiles
-- webhook payload parsing
+- webhook payload parsing (including verified header-based unwrapping)
 
 ```clojure
 (require '[anthropic.beta :as beta])

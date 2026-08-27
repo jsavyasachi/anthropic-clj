@@ -5,6 +5,34 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Complete beta Files endpoint wrappers (`upload-file`, `get-file`,
+  `list-files`, `delete-file`, and `download-file`) with lazy list support.
+
+### Changed
+
+- Bump `anthropic-java` and the Bedrock/Vertex artifacts to **2.59.0**.
+- Route beta Skills and skill-version operations through the SDK's beta
+  services and GA-shaped beta models (`display-name`, `latest-version-id`,
+  typed sources, and ISO date-time fields).
+- Use `parseUnverified` for unsigned webhook parsing and require headers for
+  verified `unwrap-webhook` calls.
+- Rely on the SDK auto-pagers for its corrected `has_more=false` termination
+  and backward `:before-id` traversal semantics.
+
+### Fixed
+
+- Remove the obsolete one-argument beta webhook `unwrap` call that was removed
+  in SDK 2.59.0.
+
+### Audit
+
+- SDK auto-pagers now provide the corrected `has_more=false` termination and
+  backward `before_id` traversal; the wrapper's lazy pager delegates to them.
+- The Bedrock SigV4 request-body fix is internal to the optional SDK backend;
+  no wrapper signing code required changes.
+
 ## [0.30.0] - 2026-08-26
 
 ### Added

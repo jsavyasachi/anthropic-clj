@@ -15,20 +15,26 @@
            (com.anthropic.core JsonValue MultipartField UnwrapWebhookParams)
            (com.anthropic.core.http Headers HttpResponse StreamResponse)
            (com.anthropic.errors AnthropicException)
-           (com.anthropic.models.skills Skill
-                                        SkillCreateParams
-                                        SkillListPage
-                                        SkillListParams
-                                        SkillSource
-                                        DeletedSkill)
-           (com.anthropic.models.skills.versions SkillVersion
-                                                 VersionCreateParams
-                                                 VersionDeleteParams
-                                                 DeletedSkillVersion
-                                                 VersionListPage
-                                                 VersionListParams
-                                                 VersionRetrieveParams)
-           (com.anthropic.models.beta.skills.versions VersionDownloadParams)
+           (com.anthropic.models.beta.skills BetaSkill
+                                             BetaDeletedSkill
+                                             BetaSkillSource
+                                             SkillCreateParams
+                                             SkillListPage
+                                             SkillListParams)
+           (com.anthropic.models.beta.files BetaDeletedFile
+                                            BetaFileMetadata
+                                            BetaFileScope
+                                            FileListPage
+                                            FileListParams
+                                            FileUploadParams)
+           (com.anthropic.models.beta.skills.versions BetaSkillVersion
+                                                       BetaDeletedSkillVersion
+                                                       VersionCreateParams
+                                                       VersionDeleteParams
+                                                       VersionListPage
+                                                       VersionListParams
+                                                       VersionRetrieveParams
+                                                       VersionDownloadParams)
            (com.anthropic.models.beta.memorystores BetaManagedAgentsMemoryStore
                                                    BetaManagedAgentsDeletedMemoryStore
                                                    MemoryStoreCreateParams
@@ -392,6 +398,94 @@
      (let [^ModelRetrieveParams params (->beta-model-retrieve-params model-id opts)]
        (beta-model->map (-> (.beta client) (.models) (.retrieve params)))))))
 
+;; ---- Files ---------------------------------------------------------------
+
+(defn- beta-file->map [^BetaFileMetadata f]
+  (let [downloadable (.downloadable f)
+        ^java.util.Optional expires-at (.expiresAt f)
+        scope (.scope f)]
+    (cond-> {:id (.id f)
+             :filename (.filename f)
+             :mime-type (.mimeType f)
+             :size-bytes (.sizeBytes f)
+             :created-at (str (.createdAt f))}
+      (.isPresent downloadable) (assoc :downloadable (.get downloadable))
+      (.isPresent expires-at) (assoc :expires-at (str (.get expires-at)))
+      (.isPresent scope) (assoc :scope (let [^BetaFileScope s (.get scope)]
+                                         {:id (.id s)
+                                          :type (->keyword (json->clj (._type s)))})))))
+
+(defn- ->beta-file-upload-params ^FileUploadParams [file opts]
+  (let [b (FileUploadParams/builder)]
+    (cond
+      (bytes? file) (.file b ^bytes file)
+      (instance? java.io.File file) (.file b (.toPath ^java.io.File file))
+      (instance? java.nio.file.Path file) (.file b ^java.nio.file.Path file)
+      (instance? java.io.InputStream file) (.file b ^java.io.InputStream file)
+      (string? file) (.file b (.toPath (java.io.File. ^String file)))
+      :else (throw (IllegalArgumentException.
+                    "upload-file expects a path string, java.io.File, Path, InputStream, or byte[]")))
+    (when-let [seconds (:expires-in-seconds opts)]
+      (.expiresInSeconds b (long seconds)))
+    (.build b)))
+
+(defn upload-file
+  "Upload a file through the beta Files endpoint. Options may include
+  `:expires-in-seconds`. Returns the beta file metadata map."
+  ([^AnthropicClient client file] (upload-file client file {}))
+  ([^AnthropicClient client file opts]
+   (with-api-errors
+     (beta-file->map (-> (.beta client) (.files)
+                         (.upload (->beta-file-upload-params file opts)))))))
+
+(defn get-file
+  "Retrieve beta Files metadata by id."
+  [^AnthropicClient client ^String id]
+  (with-api-errors
+    (beta-file->map (-> (.beta client) (.files)
+                        (.retrieveMetadata id)))))
+
+(defn- ->beta-file-list-params ^FileListParams
+  [{:keys [ids page limit scope-id]}]
+  (let [b (FileListParams/builder)]
+    (when ids (.ids b ^java.util.List (mapv str ids)))
+    (when page (.page b ^String page))
+    (when limit (.limit b (long limit)))
+    (when scope-id (.scopeId b ^String scope-id))
+    (.build b)))
+
+(defn list-files
+  "List beta Files, following the SDK's `next_page` pagination."
+  ([^AnthropicClient client] (list-files client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^FileListPage p (-> (.beta client) (.files)
+                               (.list (->beta-file-list-params opts)))]
+       (mapv beta-file->map (.autoPager p))))))
+
+(defn list-files-lazy
+  "Lazily list beta Files; accepts the same options as `list-files`."
+  ([^AnthropicClient client] (list-files-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^FileListPage p (-> (.beta client) (.files)
+                               (.list (->beta-file-list-params opts)))]
+       (pagination/->lazy-pager beta-file->map (.autoPager p))))))
+
+(defn delete-file
+  "Delete a file through the beta Files endpoint."
+  [^AnthropicClient client ^String id]
+  (with-api-errors
+    (let [^BetaDeletedFile d (-> (.beta client) (.files) (.delete id))]
+      {:id (.id d) :deleted true})))
+
+(defn download-file
+  "Download a beta file, returning its contents as a byte array."
+  ^bytes [^AnthropicClient client ^String id]
+  (with-api-errors
+    (with-open [^HttpResponse r (-> (.beta client) (.files) (.download id))]
+      (.readAllBytes (.body r)))))
+
 (defn- ->enum-value [value allowed constructor key]
   (let [value (if (keyword? value) value (->keyword value))]
     (if (contains? allowed value)
@@ -405,8 +499,10 @@
   ([opts]
    (let [opts (or opts {})
          b (SkillListParams/builder)]
-     (->list-pagination opts #(.limit b (long %)) #(.page b ^String %)
-                        (constantly nil))
+     ;; 2.59.0 promotes beta Skills to GA-shaped responses and removes the
+     ;; dated beta header from this namespace.
+     (when-let [limit (:limit opts)] (.limit b (long limit)))
+     (when-let [page (:page opts)] (.page b ^String page))
      (when-let [source (:source opts)] (.source b ^String source))
      (.build b))))
 
@@ -417,8 +513,9 @@
    (let [opts (or opts {})
          b (VersionListParams/builder)]
      (.skillId b ^String skill-id)
-     (->list-pagination opts #(.limit b (long %)) #(.page b ^String %)
-                        (constantly nil))
+     ;; Version list requests follow the same GA-shaped beta pagination.
+     (when-let [limit (:limit opts)] (.limit b (long limit)))
+     (when-let [page (:page opts)] (.page b ^String page))
      (.build b))))
 
 (defn- ->memory-store-list-params
@@ -612,11 +709,11 @@
     (doseq [f files] (.addFile b (->skill-file f)))
     (.build b)))
 
-(defn- skill->map [^Skill r]
+(defn- skill->map [^BetaSkill r]
   {:id (.id r)
    :display-name (.displayName r)
    :latest-version-id (.latestVersionId r)
-   :source {:type (->keyword (.asString (.type ^SkillSource (.source r))))}
+   :source {:type (->keyword (.asString (.type ^BetaSkillSource (.source r))))}
    :created-at (str (.createdAt r))
    :updated-at (str (.updatedAt r))})
 
@@ -629,13 +726,13 @@
   `:created-at`, `:updated-at`)."
   [^AnthropicClient client req]
   (with-api-errors
-    (skill->map (-> (.skills client) (.create (->skill-create-params req))))))
+    (skill->map (-> (.beta client) (.skills) (.create (->skill-create-params req))))))
 
 (defn get-skill
   "Get one skill by id, as a map shaped like `create-skill`'s return."
   [^AnthropicClient client ^String skill-id]
   (with-api-errors
-    (skill->map (-> (.skills client) (.retrieve skill-id)))))
+    (skill->map (-> (.beta client) (.skills) (.retrieve skill-id)))))
 
 (defn list-skills
   "List skills with optional `:limit`, `:page`, and `:source`."
@@ -643,14 +740,14 @@
   ([^AnthropicClient client opts]
    (with-api-errors
      (let [^SkillListParams params (->skill-list-params opts)
-           ^SkillListPage p (-> (.skills client) (.list params))]
+           ^SkillListPage p (-> (.beta client) (.skills) (.list params))]
        (mapv skill->map (.autoPager p))))))
 
 (defn delete-skill
   "Delete a skill by id. Returns `{:id ... :deleted true}`."
   [^AnthropicClient client ^String skill-id]
   (with-api-errors
-    (let [^DeletedSkill r (-> (.skills client) (.delete skill-id))]
+    (let [^BetaDeletedSkill r (-> (.beta client) (.skills) (.delete skill-id))]
       {:id (.id r) :deleted true})))
 
 ;; ---- Skill versions -------------------------------------------------------
@@ -681,14 +778,14 @@
     (.version b ^String version)
     (.build b)))
 
-(defn- skill-version->map [^SkillVersion r]
+(defn- skill-version->map [^BetaSkillVersion r]
   {:id (.id r)
    :skill-id (.skillId r)
    :name (.name r)
    :description (.description r)
    :created-at (str (.createdAt r))})
 
-(defn- skill-version-delete->map [^DeletedSkillVersion r]
+(defn- skill-version-delete->map [^BetaDeletedSkillVersion r]
   {:id (.id r) :deleted true})
 
 (defn create-skill-version
@@ -696,14 +793,14 @@
   `java.io.File`s). Returns the version as a map."
   [^AnthropicClient client ^String skill-id req]
   (with-api-errors
-    (skill-version->map (-> (.skills client) (.versions)
+    (skill-version->map (-> (.beta client) (.skills) (.versions)
                             (.create (->version-create-params skill-id req))))))
 
 (defn get-skill-version
   "Get one skill version."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
-    (skill-version->map (-> (.skills client) (.versions)
+    (skill-version->map (-> (.beta client) (.skills) (.versions)
                             (.retrieve (->version-retrieve-params skill-id version))))))
 
 (defn list-skill-versions
@@ -713,7 +810,7 @@
   ([^AnthropicClient client ^String skill-id opts]
    (with-api-errors
      (let [^VersionListParams params (->version-list-params skill-id opts)
-           ^VersionListPage p (-> (.skills client) (.versions)
+           ^VersionListPage p (-> (.beta client) (.skills) (.versions)
                                   (.list params))]
        (mapv skill-version->map (.autoPager p))))))
 
@@ -721,14 +818,13 @@
   "Delete a skill version. Returns `{:id ... :deleted true}`."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
-    (skill-version-delete->map (-> (.skills client) (.versions)
+    (skill-version-delete->map (-> (.beta client) (.skills) (.versions)
                                    (.delete (->version-delete-params skill-id version))))))
 
 (defn download-skill-version
   "Download a skill version archive. Returns the response body as a byte array."
   [^AnthropicClient client ^String skill-id ^String version]
   (with-api-errors
-    ;; GA VersionService has no download operation, so this remains on beta.
     (let [^HttpResponse r (-> (.beta client) (.skills) (.versions)
                               (.download (->version-download-params skill-id version)))]
       (with-open [body (.body r)]
@@ -3951,11 +4047,13 @@
     (.build b)))
 
 (defn unwrap-webhook
-  "Parse a raw webhook payload into a normalized map. With a second arity,
-  verifies signatures when `:headers` and `:secret` are supplied."
+  "Parse a raw webhook payload into a normalized map.
+
+  The one-argument form parses without verification. The options form verifies
+  signatures with `:headers` and optional `:secret`."
   ([^AnthropicClient client ^String payload]
    (with-api-errors
-     (webhook-event->map (-> (.beta client) (.webhooks) (.unwrap payload)))))
+     (webhook-event->map (-> (.beta client) (.webhooks) (.parseUnverified payload)))))
   ([^AnthropicClient client ^String payload opts]
    (with-api-errors
      (webhook-event->map (-> (.beta client) (.webhooks)
@@ -3976,7 +4074,7 @@
   ([^AnthropicClient client opts]
    (with-api-errors
      (let [^SkillListParams params (->skill-list-params opts)
-           ^SkillListPage p (-> (.skills client) (.list params))]
+           ^SkillListPage p (-> (.beta client) (.skills) (.list params))]
        (pagination/->lazy-pager skill->map (.autoPager p))))))
 
 (defn list-skill-versions-lazy
@@ -3986,7 +4084,7 @@
   ([^AnthropicClient client ^String skill-id opts]
    (with-api-errors
      (let [^VersionListParams params (->version-list-params skill-id opts)
-           ^VersionListPage p (-> (.skills client) (.versions) (.list params))]
+           ^VersionListPage p (-> (.beta client) (.skills) (.versions) (.list params))]
        (pagination/->lazy-pager skill-version->map (.autoPager p))))))
 
 (defn list-memory-stores-lazy
