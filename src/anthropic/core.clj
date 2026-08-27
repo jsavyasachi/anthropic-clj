@@ -8,7 +8,8 @@
             [clojure.string :as str]
             [clojure.spec.alpha :as s]
             [clojure.walk :as walk]
-            [jsonista.core :as json])
+            [jsonista.core :as json]
+            [anthropic.stream :as stream-control])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.client.okhttp AnthropicOkHttpClient AnthropicOkHttpClient$Builder)
            (com.anthropic.core JsonValue LogLevel RequestOptions)
@@ -1959,6 +1960,35 @@
   ^String [^AnthropicClient client req on-text]
   (stream client req
           (fn [m] (when (and on-text (= :text-delta (:type m))) (on-text (:text m))))))
+
+(defn stream-handle
+  "Start a Messages SSE stream on a worker thread and return a cancellable
+  handle. `on-event` receives normalized events; pass `:buffer-size` in `opts`
+  to make the handle a bounded pull stream instead."
+  ([^AnthropicClient client req on-event]
+   (stream-handle client req on-event {}))
+  ([^AnthropicClient client req on-event opts]
+   (stream-control/start!
+    #(.createStreaming (.messages client) (->params req))
+    on-event
+    (assoc (or opts {}) :map-event event->map))))
+
+(defn stream-queue
+  "Start a bounded pull stream of normalized Messages events. Call
+  `anthropic.stream/take-stream-event` to consume events and
+  `anthropic.stream/cancel-stream!` when abandoning the handle."
+  ([^AnthropicClient client req] (stream-queue client req {}))
+  ([^AnthropicClient client req opts]
+   (stream-handle client req nil
+                  (assoc (or opts {}) :buffer-size (or (:buffer-size opts) 64)))))
+
+(def stream-message-handle stream-handle)
+(def stream-message-queue stream-queue)
+
+(def cancel-stream! stream-control/cancel-stream!)
+(def close-stream! stream-control/close-stream!)
+(def take-stream-event stream-control/take-stream-event)
+(def await-stream stream-control/await-stream)
 
 ;; ---- Files ----------------------------------------------------------------
 

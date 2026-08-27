@@ -8,6 +8,7 @@
   `:anthropic/error` with the SDK exception as cause."
   (:require [anthropic.core]
             [anthropic.pagination :as pagination]
+            [anthropic.stream :as stream-control]
             [clojure.string :as str]
             [clojure.walk :as walk])
   (:import (com.anthropic.client AnthropicClient)
@@ -2330,6 +2331,41 @@
                                   (.streamStreaming
                                    (->thread-event-stream-params session-id thread-id opts)))]
        (consume-event-stream sr on-event)))))
+
+(defn stream-session-events-handle
+  "Start beta session-event SSE consumption on a worker thread and return a
+  cancellable handle. Use `:buffer-size` for bounded pull consumption."
+  ([^AnthropicClient client ^String session-id opts on-event]
+   (stream-control/start!
+    #(.streamStreaming (.events (.sessions (.beta client)))
+                        (->session-event-stream-params session-id opts))
+    on-event (assoc (or opts {}) :map-event stream-event->map))))
+
+(defn stream-session-events-queue
+  "Start a bounded pull stream of normalized beta session events."
+  ([^AnthropicClient client ^String session-id opts]
+   (stream-session-events-handle client session-id
+                                 (assoc (or opts {}) :buffer-size (or (:buffer-size opts) 64)) nil)))
+
+(defn stream-thread-events-handle
+  "Start beta session-thread SSE consumption on a worker thread and return a
+  cancellable handle. Use `:buffer-size` for bounded pull consumption."
+  ([^AnthropicClient client ^String session-id ^String thread-id opts on-event]
+   (stream-control/start!
+    #(.streamStreaming (.events (.threads (.sessions (.beta client))))
+                        (->thread-event-stream-params session-id thread-id opts))
+    on-event (assoc (or opts {}) :map-event stream-event->map))))
+
+(defn stream-thread-events-queue
+  "Start a bounded pull stream of normalized beta session-thread events."
+  ([^AnthropicClient client ^String session-id ^String thread-id opts]
+   (stream-thread-events-handle client session-id thread-id
+                                (assoc (or opts {}) :buffer-size (or (:buffer-size opts) 64)) nil)))
+
+(def cancel-stream! stream-control/cancel-stream!)
+(def close-stream! stream-control/close-stream!)
+(def take-stream-event stream-control/take-stream-event)
+(def await-stream stream-control/await-stream)
 
 ;; ---- Session threads ------------------------------------------------------
 
