@@ -7,6 +7,7 @@
   `anthropic.core`'s contract: API/IO failures are ex-info keyed
   `:anthropic/error` with the SDK exception as cause."
   (:require [anthropic.core]
+            [anthropic.pagination :as pagination]
             [clojure.string :as str]
             [clojure.walk :as walk])
   (:import (com.anthropic.client AnthropicClient)
@@ -3927,3 +3928,211 @@
    (with-api-errors
      (webhook-event->map (-> (.beta client) (.webhooks)
                              (.unwrap (->unwrap-webhook-params payload opts)))))))
+
+(defn list-beta-models-lazy
+  "Lazily list beta models; accepts the same options as `list-beta-models`."
+  ([^AnthropicClient client] (list-beta-models-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^ModelListParams params (->beta-model-list-params opts)
+           ^ModelListPage p (-> (.beta client) (.models) (.list params))]
+       (pagination/->lazy-pager beta-model->map (.autoPager p))))))
+
+(defn list-skills-lazy
+  "Lazily list skills; accepts the same options as `list-skills`."
+  ([^AnthropicClient client] (list-skills-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^SkillListParams params (->skill-list-params opts)
+           ^SkillListPage p (-> (.skills client) (.list params))]
+       (pagination/->lazy-pager skill->map (.autoPager p))))))
+
+(defn list-skill-versions-lazy
+  "Lazily list skill versions; accepts the same options as `list-skill-versions`."
+  ([^AnthropicClient client ^String skill-id]
+   (list-skill-versions-lazy client skill-id {}))
+  ([^AnthropicClient client ^String skill-id opts]
+   (with-api-errors
+     (let [^VersionListParams params (->version-list-params skill-id opts)
+           ^VersionListPage p (-> (.skills client) (.versions) (.list params))]
+       (pagination/->lazy-pager skill-version->map (.autoPager p))))))
+
+(defn list-memory-stores-lazy
+  ([^AnthropicClient client] (list-memory-stores-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^MemoryStoreListPage p (-> (.beta client) (.memoryStores)
+                                      (.list (->memory-store-list-params opts)))]
+       (pagination/->lazy-pager memory-store->map (.autoPager p))))))
+
+(defn list-memories-lazy
+  ([^AnthropicClient client ^String memory-store-id]
+   (list-memories-lazy client memory-store-id {}))
+  ([^AnthropicClient client ^String memory-store-id opts]
+   (with-api-errors
+     (let [^MemoryListPage p (-> (.beta client) (.memoryStores) (.memories)
+                                 (.list (->memory-list-params memory-store-id opts)))]
+       (pagination/->lazy-pager memory-list-item->map (.autoPager p))))))
+
+(defn list-memory-versions-lazy
+  ([^AnthropicClient client ^String memory-store-id]
+   (list-memory-versions-lazy client memory-store-id {}))
+  ([^AnthropicClient client ^String memory-store-id opts]
+   (with-api-errors
+     (let [^MemoryVersionListPage p (-> (.beta client) (.memoryStores) (.memoryVersions)
+                                        (.list (->memory-version-list-params memory-store-id opts)))]
+       (pagination/->lazy-pager memory-version->map (.autoPager p))))))
+
+(defn list-agents-lazy
+  ([^AnthropicClient client] (list-agents-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^AgentListPage p (-> (.beta client) (.agents)
+                                (.list (->agent-list-params opts)))]
+       (pagination/->lazy-pager agent->map (.autoPager p))))))
+
+(defn list-sessions-lazy
+  ([^AnthropicClient client] (list-sessions-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^SessionListPage p (-> (.beta client) (.sessions)
+                                  (.list (->session-list-params opts)))]
+       (pagination/->lazy-pager session->map (.autoPager p))))))
+
+(defn list-session-threads-lazy [^AnthropicClient client ^String session-id]
+  (with-api-errors
+    (let [^ThreadListPage p (-> (.beta client) (.sessions) (.threads)
+                                (.list (->thread-list-params session-id)))]
+      (pagination/->lazy-pager session-thread->map (.autoPager p)))))
+
+(defn list-thread-events-lazy
+  [^AnthropicClient client ^String session-id ^String thread-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.sessions.threads.events.EventListPage p
+          (-> (.beta client) (.sessions) (.threads) (.events)
+              (.list (->thread-event-list-params session-id thread-id opts)))]
+      (pagination/->lazy-pager session-event->map (.autoPager p)))))
+
+(defn list-session-resources-lazy
+  [^AnthropicClient client ^String session-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.sessions.resources.ResourceListPage p
+          (-> (.beta client) (.sessions) (.resources)
+              (.list (->session-resource-list-params session-id opts)))]
+      (pagination/->lazy-pager session-resource->map (.autoPager p)))))
+
+(defn list-deployments-lazy
+  ([^AnthropicClient client] (list-deployments-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^DeploymentListPage p (-> (.beta client) (.deployments)
+                                     (.list (->deployment-list-params opts)))]
+       (pagination/->lazy-pager deployment->map (.autoPager p))))))
+
+(defn list-deployment-runs-lazy
+  ([^AnthropicClient client] (list-deployment-runs-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^DeploymentRunListPage p (-> (.beta client) (.deploymentRuns)
+                                        (.list (->deployment-run-list-params opts)))]
+       (pagination/->lazy-pager deployment-run->map (.autoPager p))))))
+
+(defn list-environments-lazy
+  ([^AnthropicClient client] (list-environments-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^EnvironmentListPage p (-> (.beta client) (.environments)
+                                      (.list (->environment-list-params opts)))]
+       (pagination/->lazy-pager environment->map (.autoPager p))))))
+
+(defn list-environment-work-lazy
+  [^AnthropicClient client ^String environment-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.environments.work.WorkListPage p
+          (-> (.beta client) (.environments) (.work)
+              (.list (->environment-work-list-params environment-id opts)))]
+      (pagination/->lazy-pager environment-work->map (.autoPager p)))))
+
+(defn list-vaults-lazy
+  ([^AnthropicClient client] (list-vaults-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^VaultListPage p (-> (.beta client) (.vaults)
+                                (.list (->vault-list-params opts)))]
+       (pagination/->lazy-pager vault->map (.autoPager p))))))
+
+(defn list-tunnels-lazy
+  ([^AnthropicClient client] (list-tunnels-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.tunnels.TunnelListPage p
+           (-> (.beta client) (.tunnels) (.list (->tunnel-list-params opts)))]
+       (pagination/->lazy-pager tunnel->map (.autoPager p))))))
+
+(defn list-tunnel-certificates-lazy
+  ([^AnthropicClient client ^String tunnel-id]
+   (list-tunnel-certificates-lazy client tunnel-id {}))
+  ([^AnthropicClient client ^String tunnel-id opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.tunnels.certificates.CertificateListPage p
+           (-> (.beta client) (.tunnels) (.certificates)
+               (.list (->certificate-list-params tunnel-id opts)))]
+       (pagination/->lazy-pager tunnel-certificate->map (.autoPager p))))))
+
+(defn list-agent-versions-lazy
+  [^AnthropicClient client ^String agent-id opts]
+  (with-api-errors
+    (let [^com.anthropic.models.beta.agents.versions.VersionListPage p
+          (-> (.beta client) (.agents) (.versions)
+              (.list (->agent-version-list-params agent-id opts)))]
+      (pagination/->lazy-pager agent->map (.autoPager p)))))
+
+(defn list-dreams-lazy
+  ([^AnthropicClient client] (list-dreams-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.dreams.DreamListPage p
+           (-> (.beta client) (.dreams) (.list (->dream-list-params opts)))]
+       (pagination/->lazy-pager dream->map (.autoPager p))))))
+
+(defn list-vault-credentials-lazy
+  ([^AnthropicClient client ^String vault-id]
+   (list-vault-credentials-lazy client vault-id {}))
+  ([^AnthropicClient client ^String vault-id opts]
+   (with-api-errors
+     (let [^com.anthropic.models.beta.vaults.credentials.CredentialListPage p
+           (-> (.beta client) (.vaults) (.credentials)
+               (.list (->credential-list-params vault-id opts)))]
+       (pagination/->lazy-pager credential->map (.autoPager p))))))
+
+(defn list-user-profiles-lazy
+  ([^AnthropicClient client] (list-user-profiles-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^UserProfileListPage p (-> (.beta client) (.userProfiles)
+                                      (.list (->user-profile-list-params opts)))]
+       (pagination/->lazy-pager user-profile->map (.autoPager p))))))
+
+(defn list-session-events-lazy
+  ([^AnthropicClient client ^String session-id]
+   (list-session-events-lazy client session-id {}))
+  ([^AnthropicClient client ^String session-id opts]
+   (with-api-errors
+     (let [b (com.anthropic.models.beta.sessions.events.EventListParams/builder)]
+       (.sessionId b ^String session-id)
+       (when (:created-at-gt opts) (.createdAtGt b (->offset-date-time (:created-at-gt opts))))
+       (when (:created-at-gte opts) (.createdAtGte b (->offset-date-time (:created-at-gte opts))))
+       (when (:created-at-lt opts) (.createdAtLt b (->offset-date-time (:created-at-lt opts))))
+       (when (:created-at-lte opts) (.createdAtLte b (->offset-date-time (:created-at-lte opts))))
+       (when (:limit opts) (.limit b (int (:limit opts))))
+       (when (:order opts)
+         (.order b (com.anthropic.models.beta.sessions.events.EventListParams$Order/of
+                    (if (keyword? (:order opts)) (name (:order opts)) (:order opts)))))
+       (when (:page opts) (.page b ^String (:page opts)))
+       (when (:types opts)
+         (.types b ^java.util.List
+                (mapv #(if (keyword? %) (name %) %) (:types opts))))
+       (doseq [beta (->beta-names (:betas opts))] (.addBeta b ^String beta))
+       (let [^EventListPage p (-> (.beta client) (.sessions) (.events)
+                                  (.list (.build b)))]
+         (pagination/->lazy-pager session-event->map (.autoPager p)))))))

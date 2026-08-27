@@ -4,7 +4,8 @@
 
   Build a request as a Clojure map, get a Clojure map back. The client reads
   `ANTHROPIC_API_KEY` from the environment by default."
-  (:require [clojure.string :as str]
+  (:require [anthropic.pagination :as pagination]
+            [clojure.string :as str]
             [clojure.walk :as walk]
             [jsonista.core :as json])
   (:import (com.anthropic.client AnthropicClient)
@@ -1909,3 +1910,29 @@
   (with-api-errors
     (with-open [^HttpResponse r (-> (.files client) (.download id))]
       (.readAllBytes (.body r)))))
+
+(defn list-models-lazy
+  "Lazily list the available models; accepts the same options as `list-models`."
+  ([^AnthropicClient client] (list-models-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^ModelListPage p (-> (.models client) (.list (->model-list-params opts)))]
+       (pagination/->lazy-pager model->map (.autoPager p))))))
+
+(defn list-batches-lazy
+  "Lazily list message batches; accepts the same options as `list-batches`."
+  ([^AnthropicClient client] (list-batches-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^BatchListPage p (-> (.messages (.beta client))
+                                (.batches)
+                                (.list (->batch-list-params opts)))]
+       (pagination/->lazy-pager batch->map (.autoPager p))))))
+
+(defn list-files-lazy
+  "Lazily list uploaded files; accepts the same options as `list-files`."
+  ([^AnthropicClient client] (list-files-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^FileListPage p (-> (.files client) (.list (->file-list-params opts)))]
+       (pagination/->lazy-pager file->map (.autoPager p))))))

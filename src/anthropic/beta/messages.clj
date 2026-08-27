@@ -1,6 +1,7 @@
 (ns anthropic.beta.messages
   "Clojure wrapper for the beta Messages API."
   (:require [anthropic.core]
+            [anthropic.pagination :as pagination]
             [clojure.string :as str]
             [clojure.walk :as walk]
             [jsonista.core :as json])
@@ -1379,6 +1380,15 @@
      (let [^BatchService batches (-> (.beta client) (.messages) (.batches))
            ^BatchListPage page (.list batches (->batch-list-params opts))]
        (mapv batch->map (.autoPager page))))))
+
+(defn list-beta-batches-lazy
+  "Lazily list beta message batches; accepts the same options as `list-beta-batches`."
+  ([^AnthropicClient client] (list-beta-batches-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^BatchService batches (-> (.beta client) (.messages) (.batches))
+           ^BatchListPage page (.list batches (->batch-list-params opts))]
+       (pagination/->lazy-pager batch->map (.autoPager page))))))
 
 (defn cancel-beta-batch [^AnthropicClient client ^String id]
   (with-api-errors
