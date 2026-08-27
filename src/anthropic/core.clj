@@ -12,13 +12,20 @@
             [anthropic.stream :as stream-control])
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.client.okhttp AnthropicOkHttpClient AnthropicOkHttpClient$Builder)
-           (com.anthropic.core JsonValue LogLevel RequestOptions)
+           (com.anthropic.core JsonValue LogLevel MultipartField RequestOptions)
            (com.anthropic.core.http Headers HttpResponse HttpResponseFor StreamResponse)
            (com.anthropic.helpers MessageAccumulator)
            (java.net Proxy)
            (java.time Duration)
            (com.anthropic.models.files DeletedFile DeletedFile$Type FileMetadata
                                        FileListPage FileListParams FileUploadParams)
+           (com.anthropic.models.skills DeletedSkill Skill SkillCreateParams
+                                         SkillListPage SkillListParams SkillSource
+                                         SkillRetrieveParams)
+           (com.anthropic.models.skills.versions DeletedSkillVersion
+                                                 SkillVersion VersionCreateParams
+                                                 VersionListPage VersionListParams
+                                                 VersionRetrieveParams VersionDeleteParams)
            (com.anthropic.models.models ModelCapabilities ModelInfo ModelListPage ModelListParams)
            (com.anthropic.models.messages.batches BatchCreateParams
                                                   BatchCreateParams$Request
@@ -2097,3 +2104,162 @@
    (with-api-errors
      (let [^FileListPage p (-> (.files client) (.list (->file-list-params opts)))]
        (pagination/->lazy-pager file->map (.autoPager p))))))
+
+;; ---- Skills ----------------------------------------------------------------
+
+(defn- ->skill-file ^MultipartField [f]
+  (let [^java.io.File file (if (string? f) (java.io.File. ^String f) f)]
+    (-> (MultipartField/builder)
+        (.value (java.io.FileInputStream. file))
+        (.filename (.getName file))
+        (.build))))
+
+(defn- ->skill-create-params ^SkillCreateParams
+  [{:keys [display-name files]}]
+  (when-not (seq files) (missing-key! :files))
+  (let [b (SkillCreateParams/builder)]
+    (when display-name (.displayName b ^String display-name))
+    (doseq [f files] (.addFile b (->skill-file f)))
+    (.build b)))
+
+(defn- ->skill-retrieve-params ^SkillRetrieveParams [skill-id]
+  (let [b (SkillRetrieveParams/builder)]
+    (.skillId b ^String skill-id)
+    (.build b)))
+
+(defn- ->skill-list-params ^SkillListParams
+  [{:keys [limit page source]}]
+  (let [b (SkillListParams/builder)]
+    (when limit (.limit b (long limit)))
+    (when page (.page b ^String page))
+    (when source (.source b ^String source))
+    (.build b)))
+
+(defn- skill->map [^Skill r]
+  {:id (.id r)
+   :display-name (.displayName r)
+   :latest-version-id (.latestVersionId r)
+   :source {:type (->keyword (.asString (.type ^SkillSource (.source r))))}
+   :created-at (str (.createdAt r))
+   :updated-at (str (.updatedAt r))})
+
+(defn- skill-delete->map [^DeletedSkill r]
+  {:id (.id r) :deleted true})
+
+(defn create-skill
+  "Create a skill from `:files` with an optional `:display-name`."
+  [^AnthropicClient client req]
+  (with-api-errors
+    (skill->map (-> (.skills client) (.create (->skill-create-params req))))))
+
+(defn get-skill
+  "Get one skill by id."
+  [^AnthropicClient client ^String skill-id]
+  (with-api-errors
+    (skill->map (-> (.skills client)
+                    (.retrieve (->skill-retrieve-params skill-id))))))
+
+(defn list-skills
+  "List skills with optional `:limit`, `:page`, and `:source`."
+  ([^AnthropicClient client] (list-skills client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^SkillListPage p (-> (.skills client)
+                                (.list (->skill-list-params opts)))]
+       (mapv skill->map (.autoPager p))))))
+
+(defn delete-skill
+  "Delete a skill by id. Returns `{:id ... :deleted true}`."
+  [^AnthropicClient client ^String skill-id]
+  (with-api-errors
+    (skill-delete->map (-> (.skills client) (.delete skill-id)))))
+
+(defn- ->skill-version-create-params ^VersionCreateParams
+  [skill-id {:keys [files]}]
+  (when-not (seq files) (missing-key! :files))
+  (let [b (VersionCreateParams/builder)]
+    (.skillId b ^String skill-id)
+    (doseq [f files] (.addFile b (->skill-file f)))
+    (.build b)))
+
+(defn- ->skill-version-retrieve-params ^VersionRetrieveParams
+  [skill-id version]
+  (let [b (VersionRetrieveParams/builder)]
+    (.skillId b ^String skill-id)
+    (.version b ^String version)
+    (.build b)))
+
+(defn- ->skill-version-list-params ^VersionListParams
+  [skill-id {:keys [limit page]}]
+  (let [b (VersionListParams/builder)]
+    (.skillId b ^String skill-id)
+    (when limit (.limit b (long limit)))
+    (when page (.page b ^String page))
+    (.build b)))
+
+(defn- ->skill-version-delete-params ^VersionDeleteParams
+  [skill-id version]
+  (let [b (VersionDeleteParams/builder)]
+    (.skillId b ^String skill-id)
+    (.version b ^String version)
+    (.build b)))
+
+(defn- skill-version->map [^SkillVersion r]
+  {:id (.id r)
+   :skill-id (.skillId r)
+   :name (.name r)
+   :description (.description r)
+   :created-at (str (.createdAt r))})
+
+(defn- skill-version-delete->map [^DeletedSkillVersion r]
+  {:id (.id r) :deleted true})
+
+(defn create-skill-version
+  "Create a new skill version for `skill-id` from `:files`."
+  [^AnthropicClient client ^String skill-id req]
+  (with-api-errors
+    (skill-version->map (-> (.skills client) (.versions)
+                            (.create (->skill-version-create-params skill-id req))))))
+
+(defn get-skill-version
+  "Get one skill version."
+  [^AnthropicClient client ^String skill-id ^String version]
+  (with-api-errors
+    (skill-version->map (-> (.skills client) (.versions)
+                            (.retrieve (->skill-version-retrieve-params skill-id version))))))
+
+(defn list-skill-versions
+  "List skill versions with optional `:limit` and `:page`."
+  ([^AnthropicClient client ^String skill-id]
+   (list-skill-versions client skill-id {}))
+  ([^AnthropicClient client ^String skill-id opts]
+   (with-api-errors
+     (let [^VersionListPage p (-> (.skills client) (.versions)
+                                  (.list (->skill-version-list-params skill-id opts)))]
+       (mapv skill-version->map (.autoPager p))))))
+
+(defn delete-skill-version
+  "Delete a skill version. Returns `{:id ... :deleted true}`."
+  [^AnthropicClient client ^String skill-id ^String version]
+  (with-api-errors
+    (skill-version-delete->map (-> (.skills client) (.versions)
+                                   (.delete (->skill-version-delete-params skill-id version))))))
+
+(defn list-skills-lazy
+  "Lazily list skills; accepts the same options as `list-skills`."
+  ([^AnthropicClient client] (list-skills-lazy client {}))
+  ([^AnthropicClient client opts]
+   (with-api-errors
+     (let [^SkillListPage p (-> (.skills client)
+                                (.list (->skill-list-params opts)))]
+       (pagination/->lazy-pager skill->map (.autoPager p))))))
+
+(defn list-skill-versions-lazy
+  "Lazily list skill versions; accepts the same options as `list-skill-versions`."
+  ([^AnthropicClient client ^String skill-id]
+   (list-skill-versions-lazy client skill-id {}))
+  ([^AnthropicClient client ^String skill-id opts]
+   (with-api-errors
+     (let [^VersionListPage p (-> (.skills client) (.versions)
+                                  (.list (->skill-version-list-params skill-id opts)))]
+       (pagination/->lazy-pager skill-version->map (.autoPager p))))))

@@ -9,6 +9,8 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 - Complete beta Files endpoint wrappers (`upload-file`, `get-file`,
   `list-files`, `delete-file`, and `download-file`) with lazy list support.
+- Complete GA Skills endpoint wrappers, including lazy skill and skill-version
+  list support.
 
 ### Changed
 
