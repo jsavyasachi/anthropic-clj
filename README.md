@@ -32,13 +32,13 @@ jar. It does not assert parity.
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.30.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.31.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.30.0"]
+[net.clojars.savya/anthropic-clj "0.31.0"]
 ```
 
 Supported Clojure versions: 1.10, 1.11, and 1.12.
@@ -55,7 +55,7 @@ Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
 - `:configure` - receives the raw SDK builder last, for anything not wrapped
   here (interceptors, a custom `jsonMapper`, or a Bedrock/Vertex `backend`)
 
-Tracks [`com.anthropic/anthropic-java` 2.54.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.54.0) - see `CHANGELOG.md` for the bump history.
+Tracks [`com.anthropic/anthropic-java` 2.59.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.59.0) - see `CHANGELOG.md` for the bump history.
 
 ## Usage
 
@@ -395,6 +395,7 @@ through the `:configure` option if you need thousands of in-flight requests.
 - Models: `list-models`, `get-model`
 - Message Batches: create, get, list, cancel, delete, results, reduce
 - Files (beta): upload, get, list, download, delete
+- Skills: create, get, list, delete (and skill versions)
 - Beta agents platform: `anthropic.beta`
 - Beta Messages API: `anthropic.beta.messages`
 

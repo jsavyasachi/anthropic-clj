@@ -5,6 +5,8 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-08-27
+
 ### Added
 
 - Complete beta Files endpoint wrappers (`upload-file`, `get-file`,
