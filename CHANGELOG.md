@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This change log follows
 the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- Structured output accepts optional Malli schemas and scoped clojure.spec
+  schemas. Decoded responses can be validated with `:response-validation true`.
+
 ## [0.29.0] - 2026-08-19
 
 ### Changed

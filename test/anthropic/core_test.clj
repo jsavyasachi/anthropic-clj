@@ -1,5 +1,6 @@
 (ns anthropic.core-test
   (:require [clojure.test :refer [deftest testing is]]
+            [clojure.spec.alpha :as s]
             [clojure.string :as str]
             [jsonista.core :as json]
             [anthropic.core :as a]
@@ -57,6 +58,9 @@
   #(when-let [v (ns-resolve 'anthropic.core '->model-list-params)]
      ((deref v) %)))
 (def parse-text #'a/parse-text)
+(def ->structured-schema #'a/->structured-schema)
+(def validate-parsed! #'a/validate-parsed!)
+(def parsed-response #'a/parsed-response)
 (def ->batch-request #'a/->batch-request)
 (def ->content-block #'a/->content-block)
 (def ->tool #'a/->tool)
@@ -910,6 +914,104 @@
     (is (some? oc))
     (is (= "low" (str (opt (.effort oc)))))
     (is (= "string" (.convert ^JsonValue (get (._additionalProperties (.schema format)) "type") Object)))))
+
+(s/def ::answer string?)
+(s/def ::spec-output (s/keys :req-un [::answer]))
+
+(deftest structured-output-schema-conversion
+  (testing "raw JSON Schema maps remain unchanged"
+    (let [schema {:type "object" :properties {:answer {:type "string"}}}
+          result (->structured-schema schema)]
+      (is (= {:schema schema :validator nil} result))))
+  (testing "a clojure.spec keyword becomes a JSON Schema and validator"
+    (let [{:keys [schema validator]} (->structured-schema ::spec-output)]
+      (is (= "object" (:type schema)))
+      (is (= ["answer"] (:required schema)))
+      (is (= "string" (get-in schema [:properties "answer" :type])))
+      (is (true? (validator {:answer "ok"})))
+      (is (false? (validator {:answer 3}))))))
+
+(deftest structured-output-spec-params
+  (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                          :response-format ::spec-output})
+        format (opt (.format (opt (.outputConfig p))))]
+    (is (= "object" (.convert ^JsonValue (get (._additionalProperties (.schema format)) "type") Object)))
+    (is (= "[answer]" (str (get (._additionalProperties (.schema format)) "required"))))))
+
+(deftest structured-output-spec-output-type
+  (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                          :output-type ::spec-output})
+        format (opt (.format (opt (.outputConfig p))))]
+    (is (= "object" (.convert ^JsonValue (get (._additionalProperties (.schema format)) "type") Object)))
+    (is (= {:answer "ok"}
+           (:parsed (parsed-response {:content [{:type :text :text "{\"answer\":\"ok\"}"}]}
+                                     {:output-type ::spec-output}
+                                     {}))))
+    (is (= :response-validation-failed
+           (try
+             (parsed-response {:content [{:type :text :text "{\"answer\":3}"}]}
+                              {:output-type ::spec-output}
+                              {:response-validation true})
+             nil
+             (catch clojure.lang.ExceptionInfo e
+               (:anthropic/error (ex-data e))))))))
+
+(deftest structured-output-unsupported-output-type
+  (let [error (try
+                (->params {:messages [{:role :user :content "hi"}]
+                           :output-type '(s/coll-of string?)})
+                nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :unsupported-schema (:anthropic/error (ex-data error))))))
+
+(deftest structured-output-malli-conversion
+  (if (try
+        (requiring-resolve 'malli.json-schema/transform)
+        (catch Throwable _ nil))
+    (let [{:keys [schema validator]} (->structured-schema [:map [:answer string?]])
+          ^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                            :output-type [:map [:answer string?]]})
+          format (opt (.format (opt (.outputConfig p))))]
+      (is (= "object" (:type schema)))
+      (is (= "string" (get-in schema [:properties :answer :type])))
+      (is (true? (validator {:answer "ok"})))
+      (is (false? (validator {:answer 3})))
+      (is (= "object" (.convert ^JsonValue (get (._additionalProperties (.schema format)) "type") Object)))
+      (is (= {:answer "ok"}
+             (:parsed (parsed-response {:content [{:type :text :text "{\"answer\":\"ok\"}"}]}
+                                       {:output-type [:map [:answer string?]]}
+                                       {}))))
+      (is (= :response-validation-failed
+             (try
+               (parsed-response {:content [{:type :text :text "{\"answer\":3}"}]}
+                                {:output-type [:map [:answer string?]]}
+                                {:response-validation true})
+               nil
+               (catch clojure.lang.ExceptionInfo e
+                 (:anthropic/error (ex-data e)))))))
+    (is true "Malli is optional and is not loaded in the base test alias")))
+
+(deftest structured-output-validation
+  (testing "valid data is returned"
+    (is (= {:answer "ok"}
+           (validate-parsed! {:answer "ok"} ::spec-output))))
+  (testing "invalid data raises the structured error map"
+    (let [error (try
+                  (validate-parsed! {:answer 3} ::spec-output)
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :response-validation-failed (:anthropic/error (ex-data error))))
+      (is (= {:answer 3} (:value (ex-data error)))))))
+
+(deftest structured-output-decoded-response-validation
+  (let [resp {:content [{:type :text :text "{\"answer\":3}"}]}]
+    (is (= :response-validation-failed
+           (try
+             (parsed-response resp {:response-format ::spec-output}
+                              {:response-validation true})
+             nil
+             (catch clojure.lang.ExceptionInfo e
+               (:anthropic/error (ex-data e))))))))
 
 (deftest structured-parse
   (testing "parse-text decodes the first text block as JSON with keyword keys"
