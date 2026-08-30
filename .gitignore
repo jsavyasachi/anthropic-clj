@@ -5,3 +5,7 @@ pom.xml
 .cpcache/
 .lein-*
 release-notes.md
+
+# clj-kondo analysis cache (regenerated on every lint; never commit -
+# a stale committed cache can make CI lint pass on outdated analysis)
+.clj-kondo/.cache/
