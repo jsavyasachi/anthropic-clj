@@ -374,6 +374,13 @@
 (defn- anthropic-error [code message data]
   (ex-info message (assoc data :anthropic/error code)))
 
+(defn- validate-allowed-domains! [t]
+  (when (and (contains? t :allowed-domains)
+             (empty? (:allowed-domains t)))
+    (throw (anthropic-error :empty-allowed-domains
+                            "Allowed domains must contain at least one domain"
+                            {:allowed-domains []}))))
+
 (defn- missing-key! [k]
   (throw (ex-info (str "Missing required key " k)
                   {:anthropic/error :missing-key :key k})))
@@ -483,6 +490,7 @@
 
 (defn- ->web-search-tool ^WebSearchTool20260318
   [{:keys [max-uses allowed-domains blocked-domains user-location response-inclusion] :as t}]
+  (validate-allowed-domains! t)
   (let [b (WebSearchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
@@ -506,6 +514,7 @@
 
 (defn- ->web-fetch-tool ^WebFetchTool20260318
   [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations response-inclusion] :as t}]
+  (validate-allowed-domains! t)
   (let [b (WebFetchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
@@ -700,6 +709,8 @@
 
 (defn- ->versioned-tool-builder
   [^String builder-class {:keys [features] :as t}]
+  (when (contains? features :domains)
+    (validate-allowed-domains! t))
   (let [tool-class (Class/forName (subs builder-class 0
                                         (- (count builder-class) 8)))
         b (static-call tool-class "builder" [])

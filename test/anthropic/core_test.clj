@@ -462,6 +462,15 @@
     (.build b)))
 
 (deftest server-tools
+  (testing "empty allow-lists are rejected for stable and dated web tools"
+    (doseq [tool [{:type :web-search :allowed-domains []}
+                  {:type :web-fetch :allowed-domains []}
+                  {:type :web-search :version :20260209 :allowed-domains []}
+                  {:type :web-fetch :version :20260309 :allowed-domains []}]]
+      (let [error (try (->tool tool) nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :empty-allowed-domains (:anthropic/error (ex-data error)))
+            (str "for " tool)))))
   (testing "each server-tool spec maps to the right ToolUnion variant"
     (is (.isPresent (.webSearchTool20260318 (->tool {:type :web-search :max-uses 3
                                                      :allowed-domains ["clojure.org"]}))))

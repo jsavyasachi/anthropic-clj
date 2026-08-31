@@ -168,6 +168,13 @@
   `(try ~@body
         (catch AnthropicException e# (throw-normalized! e#))))
 
+(defn- validate-allowed-domains! [t]
+  (when (and (contains? t :allowed-domains)
+             (empty? (:allowed-domains t)))
+    (throw (ex-info "Allowed domains must contain at least one domain"
+                    {:anthropic/error :empty-allowed-domains
+                     :allowed-domains []}))))
+
 (defn- ->json ^JsonValue [x]
   (JsonValue/from (walk/stringify-keys x)))
 
@@ -453,6 +460,7 @@
 
 (defn- ->web-search-tool ^BetaWebSearchTool20260318
   [{:keys [max-uses allowed-domains blocked-domains user-location response-inclusion] :as t}]
+  (validate-allowed-domains! t)
   (let [b (BetaWebSearchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when (seq allowed-domains) (.allowedDomains b ^java.util.List (vec allowed-domains)))
@@ -476,6 +484,7 @@
 
 (defn- ->web-fetch-tool ^BetaWebFetchTool20260318
   [{:keys [max-uses max-content-tokens allowed-domains blocked-domains use-cache citations response-inclusion] :as t}]
+  (validate-allowed-domains! t)
   (let [b (BetaWebFetchTool20260318/builder)]
     (when max-uses (.maxUses b (long max-uses)))
     (when max-content-tokens (.maxContentTokens b (long max-content-tokens)))
@@ -791,6 +800,8 @@
     (.invoke method-ref nil (object-array [value]))))
 
 (defn- build-dated-tool [class-name t]
+  (when (contains? t :allowed-domains)
+    (validate-allowed-domains! t))
   (let [builder (invoke-static-zero class-name "builder")
         input-class (str class-name "$InputExample$Builder")]
     (doseq [c (:allowed-callers t)] (invoke-method builder "addAllowedCaller" (invoke-static (str class-name "$AllowedCaller") "of" (name c))))

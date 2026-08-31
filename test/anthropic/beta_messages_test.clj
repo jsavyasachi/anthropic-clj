@@ -392,6 +392,17 @@
                           (str (first (opt (.allowedCallers (.asBetaTool ^BetaToolUnion tool))))))))))
 
 (deftest beta-server-tool-options
+  (testing "empty allow-lists are rejected for beta and dated web tools"
+    (doseq [tool [{:type :web-search :name "web-search" :allowed-domains []}
+                  {:type :web-fetch :name "web-fetch" :allowed-domains []}
+                  {:type :web-search :name "web-search" :version :20260209
+                   :allowed-domains []}
+                  {:type :web-fetch :name "web-fetch" :version :20260309
+                   :allowed-domains []}]]
+      (let [error (try (->tool tool) nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :empty-allowed-domains (:anthropic/error (ex-data error)))
+            (str "for " tool)))))
   (let [web-search (.asWebSearchTool20260318 ^BetaToolUnion
                                              (->tool {:type :web-search :name "web-search"
                                                       :max-uses 3
