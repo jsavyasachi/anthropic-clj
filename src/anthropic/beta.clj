@@ -3143,9 +3143,9 @@
   (cond
     (.isUnrestricted n) {:type :unrestricted}
     (.isLimited n) (let [^com.anthropic.models.beta.environments.BetaLimitedNetwork l (.asLimited n)]
-                     (cond-> {:type :limited}
-                       (.allowMcpServers l) (assoc :allow-mcp-servers (.allowMcpServers l))
-                       (.allowPackageManagers l) (assoc :allow-package-managers (.allowPackageManagers l))
+                     (cond-> {:type :limited
+                              :allow-mcp-servers (.allowMcpServers l)
+                              :allow-package-managers (.allowPackageManagers l)}
                        (.allowedHosts l) (assoc :allowed-hosts (vec (.allowedHosts l)))))
     :else (throw (ex-info "Unsupported environment networking" {:anthropic/error :unknown-environment-networking-type}))))
 

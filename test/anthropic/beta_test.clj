@@ -172,6 +172,7 @@
 (def memory-list-item->map #'beta/memory-list-item->map)
 (def deployment-run->map #'beta/deployment-run->map)
 (def environment->map #'beta/environment->map)
+(def environment-networking->map #'beta/environment-networking->map)
 (def environment-delete->map #'beta/environment-delete->map)
 (def environment-work->map #'beta/environment-work->map)
 (def environment-work-heartbeat->map #'beta/environment-work-heartbeat->map)
@@ -2187,6 +2188,20 @@
     (is (= :organization (:scope m)))
     (is (.isSelfHosted (opt (.config (->environment-update-params "env_1" m)))))
     (is (= {:id "env_1" :deleted true :type :environment_deleted} (environment-delete->map d)))))
+
+(deftest environment-networking-preserves-explicit-false
+  (let [limited (-> (com.anthropic.models.beta.environments.BetaLimitedNetwork/builder)
+                    (.allowMcpServers false)
+                    (.allowPackageManagers false)
+                    (.allowedHosts [])
+                    (.build))
+        networking (com.anthropic.models.beta.environments.BetaCloudConfig$Networking/ofLimited
+                    limited)]
+    (is (= {:type :limited
+            :allow-mcp-servers false
+            :allow-package-managers false
+            :allowed-hosts []}
+           (environment-networking->map networking)))))
 
 (deftest environment-work-response-mapping
   (let [work (-> (BetaSelfHostedWork/builder)
