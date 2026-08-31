@@ -5,6 +5,26 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-08-30
+
+### Changed
+
+- **Explicitly empty `:allowed-domains` now fails for web-search and web-fetch
+  tools.** If a caller intentionally supplies an empty collection, it must now
+  provide at least one allowed domain; omit the key to retain the existing
+  allow-all behavior. This applies to stable, beta, and dated/versioned tool
+  variants. `:blocked-domains` is unchanged.
+
+### Fixed
+
+- `list-batches-lazy` now lists batches successfully through the stable batch
+  service, matching `list-batches`.
+- Errors encountered while realizing later pages of a lazy batch listing now
+  use the documented `ex-info` shape with `:anthropic/error`.
+- Environment networking responses now preserve explicit `false` values for
+  `:allow-mcp-servers` and `:allow-package-managers`, so security restrictions
+  round-trip correctly.
+
 ## [0.31.0] - 2026-08-27
 
 ### Added
