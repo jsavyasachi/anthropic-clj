@@ -1550,14 +1550,14 @@
                    (.build))]
       (is (= #{:type :media-type :data}
              (set (keys (image-source->map
-                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofBase64 base64)))))
+                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofBase64 base64))))))
       (is (= #{:type :url}
              (set (keys (image-source->map
-                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofUrl url)))))
+                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofUrl url))))))
       (is (= #{:type :file-id}
              (set (keys (image-source->map
-                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofFile file)))))))
-      ))
+                         (com.anthropic.models.beta.sessions.events.BetaManagedAgentsImageBlock$Source/ofFile file))))))
+      )
 
 (deftest session-thread-response-mapping
   (let [ts (java.time.OffsetDateTime/parse "2026-07-04T00:00:00Z")

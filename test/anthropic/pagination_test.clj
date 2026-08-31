@@ -2,7 +2,8 @@
   (:require [clojure.test :refer [deftest is]]
             [anthropic.core]
             [anthropic.beta]
-            [anthropic.beta.messages]))
+            [anthropic.beta.messages]
+            [anthropic.pagination]))
 
 (deftest stable-batch-lazy-list-uses-stable-service
   (let [batch-service (proxy [com.anthropic.services.blocking.messages.BatchService] []
