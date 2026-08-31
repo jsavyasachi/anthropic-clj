@@ -2092,7 +2092,7 @@
   ([^AnthropicClient client] (list-batches-lazy client {}))
   ([^AnthropicClient client opts]
    (with-api-errors
-     (let [^BatchListPage p (-> (.messages (.beta client))
+         (let [^BatchListPage p (-> (.messages client)
                                 (.batches)
                                 (.list (->batch-list-params opts)))]
        (pagination/->lazy-pager batch->map (.autoPager p))))))

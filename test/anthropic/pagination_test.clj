@@ -4,6 +4,25 @@
             [anthropic.beta]
             [anthropic.beta.messages]))
 
+(deftest stable-batch-lazy-list-uses-stable-service
+  (let [batch-service (proxy [com.anthropic.services.blocking.messages.BatchService] []
+                       (list [params]
+                         (throw (ex-info "stable service used" {:result :stable}))))
+        stable-service (proxy [com.anthropic.services.blocking.MessageService] []
+                         (batches [] batch-service))
+        beta-service (proxy [com.anthropic.services.blocking.BetaService] []
+                      (messages [] (throw (ex-info "beta service used"
+                                                   {:result :beta}))))
+        client (proxy [com.anthropic.client.AnthropicClient] []
+                (messages [] stable-service)
+                (beta [] beta-service))]
+    (with-redefs [anthropic.pagination/->lazy-pager (fn [_ _] :stable-lazy-seq)]
+      (let [result (try
+                     (anthropic.core/list-batches-lazy client)
+                     (catch clojure.lang.ExceptionInfo e
+                       (:result (ex-data e))))]
+        (is (= :stable result))))))
+
 (deftest every-list-function-has-a-lazy-sibling
   (doseq [[namespace names]
           [['anthropic.core '[list-models list-batches list-files]]
