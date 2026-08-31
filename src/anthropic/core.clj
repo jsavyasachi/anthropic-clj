@@ -365,8 +365,13 @@
     :else (throw e)))
 
 (defmacro ^:private with-api-errors [& body]
-  `(try ~@body
-        (catch AnthropicException e# (throw-normalized! e#))))
+  `(binding [pagination/*error-handler*
+             (fn [e#]
+               (if (instance? AnthropicException e#)
+                 (throw-normalized! e#)
+                 (throw e#)))]
+     (try ~@body
+          (catch AnthropicException e# (throw-normalized! e#)))))
 
 (defn- ->json ^JsonValue [m]
   (JsonValue/from (walk/stringify-keys m)))

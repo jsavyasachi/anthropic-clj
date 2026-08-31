@@ -165,8 +165,13 @@
 (def ^:private json-mapper (json/object-mapper {:decode-key-fn true}))
 
 (defmacro ^:private with-api-errors [& body]
-  `(try ~@body
-        (catch AnthropicException e# (throw-normalized! e#))))
+  `(binding [pagination/*error-handler*
+             (fn [e#]
+               (if (instance? AnthropicException e#)
+                 (throw-normalized! e#)
+                 (throw e#)))]
+     (try ~@body
+          (catch AnthropicException e# (throw-normalized! e#)))))
 
 (defn- validate-allowed-domains! [t]
   (when (and (contains? t :allowed-domains)

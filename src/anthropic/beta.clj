@@ -199,8 +199,13 @@
 (def ^:private throw-normalized! @#'anthropic.core/throw-normalized!)
 
 (defmacro ^:private with-api-errors [& body]
-  `(try ~@body
-        (catch AnthropicException e# (throw-normalized! e#))))
+  `(binding [pagination/*error-handler*
+             (fn [e#]
+               (if (instance? AnthropicException e#)
+                 (throw-normalized! e#)
+                 (throw e#)))]
+     (try ~@body
+          (catch AnthropicException e# (throw-normalized! e#)))))
 
 (defn- missing-key! [k]
   (throw (ex-info (str "Missing required key " k)

@@ -61,3 +61,23 @@
         (is (= [{:id 1}] (take 1 (helper identity pager))))
         (is (zero? @later-items)))
       (is false "anthropic.pagination/->lazy-pager must exist"))))
+
+(deftest lazy-pager-normalizes-realization-errors
+  (let [pager (reify java.lang.Iterable
+                (iterator [_]
+                  (reify java.util.Iterator
+                    (hasNext [_] (throw (RuntimeException. "later page failed")))
+                    (next [_] nil)
+                    (remove [_] nil))))
+        handler-var (ns-resolve 'anthropic.pagination '*error-handler*)]
+    (if handler-var
+      (let [lazy-pager (deref (ns-resolve 'anthropic.pagination '->lazy-pager))
+            pages (with-bindings {handler-var (fn [_]
+                                                (throw (ex-info "normalized"
+                                                                {:anthropic/error :io-error})))}
+                    (lazy-pager identity pager))]
+        (is (= :io-error
+               (try (first pages)
+                    (catch clojure.lang.ExceptionInfo e
+                      (:anthropic/error (ex-data e)))))))
+      (is false "lazy pagination must retain an error handler for realization"))))
