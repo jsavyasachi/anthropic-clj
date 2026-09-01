@@ -32,13 +32,13 @@ jar. It does not assert parity.
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.32.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.33.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.32.0"]
+[net.clojars.savya/anthropic-clj "0.33.0"]
 ```
 
 Supported Clojure versions: 1.10, 1.11, and 1.12.
@@ -55,7 +55,7 @@ Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
 - `:configure` - receives the raw SDK builder last, for anything not wrapped
   here (interceptors, a custom `jsonMapper`, or a Bedrock/Vertex `backend`)
 
-Tracks [`com.anthropic/anthropic-java` 2.59.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.59.0) - see `CHANGELOG.md` for the bump history.
+Tracks [`com.anthropic/anthropic-java` 2.60.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.60.0) - see `CHANGELOG.md` for the bump history.
 
 ## Usage
 
@@ -132,6 +132,8 @@ To send an assistant turn that contained thinking back to the API, use
 `{:type :thinking :thinking "..." :signature "..."}` or
 `{:type :redacted-thinking :data "..."}`. Container uploads use
 `{:type :container-upload :file-id "file_..."}`.
+Beta message responses also expose `:clear-at`, `:output-config`, and
+`:input-transformations` when supplied by the SDK.
 
 ### Server-side tools
 
@@ -453,7 +455,9 @@ maps-in/maps-out shape and error contract as `anthropic.core`:
 - dreams
 - tunnels and tunnel certificates
 - memory versions
-- user profiles
+- organization compliance settings (`anthropic.organization/get-compliance-settings`,
+  `anthropic.organization/update-compliance-settings`)
+- user profiles (including `:external-user-onboarded-at` and `:order-by`)
 - webhook payload parsing (including verified header-based unwrapping)
 
 ```clojure

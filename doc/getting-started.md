@@ -13,13 +13,13 @@ an explicit integration suite.
 Leiningen:
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.32.0"]
+[net.clojars.savya/anthropic-clj "0.33.0"]
 ```
 
 tools.deps:
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.32.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.33.0"}
 ```
 
 Version `0.11.1` pins `com.anthropic/anthropic-java` `2.48.0`.
@@ -79,6 +79,7 @@ The wrapper sets only the keys that you supply on the SDK builder.
 
 `create-message` takes a request map and returns a response map. The default
 `:model` is `"claude-opus-4-8"` and the default `:max-tokens` is `1024`.
+Named aliases include the newest `:claude-fable-5-1` and `:claude-mythos-5-1`.
 
 Common request keys:
 
@@ -92,7 +93,7 @@ Common request keys:
 - `:top-k`
 - `:stop-sequences`
 - `:tool-choice`
-- `:thinking`
+- `:thinking` (optionally with `:block-binding`, a map such as `{:prefix-mismatch-behavior :drop-block}`)
 - `:metadata`
 - `:service-tier`
 - `:container`

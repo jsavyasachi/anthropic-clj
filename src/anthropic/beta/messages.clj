@@ -30,6 +30,8 @@
                                                BetaJsonOutputFormat
                                                BetaJsonOutputFormat$Schema
                                                BetaMessage BetaMessageTokensCount
+                                               BetaMessageParam BetaMessageParam$Builder
+                                               BetaMessageParam$Role BetaMessageParam$ClearAt
                                                BetaMetadata BetaOutputConfig
                                                BetaOutputConfig$Effort
                                                StructuredOutputConfig
@@ -86,8 +88,6 @@
                                                BetaMcpToolset BetaMcpToolset$Configs
                                                BetaMcpToolDefaultConfig
                                                BetaBrowserToolset20260801
-                                               BetaBrowserToolset20260801$AllowedCaller
-                                               BetaBrowserToolset20260801$Builder
                                                BetaBrowserToolsetConfigs BetaBrowserToolsetConfigs$Builder
                                                BetaBrowserCloseTabConfig BetaBrowserDoubleClickConfig
                                                BetaBrowserFileUploadConfig BetaBrowserFindConfig
@@ -105,8 +105,6 @@
                                                BetaBrowserSwitchTabConfig BetaBrowserTripleClickConfig
                                                BetaBrowserTypeConfig BetaBrowserWaitConfig BetaBrowserZoomConfig
                                                BetaComputerToolset20260801
-                                               BetaComputerToolset20260801$AllowedCaller
-                                               BetaComputerToolset20260801$Builder
                                                BetaComputerToolsetConfigs BetaComputerToolsetConfigs$Builder
                                                BetaComputerCursorPositionConfig BetaComputerDoubleClickConfig
                                                BetaComputerHoldKeyConfig BetaComputerKeyConfig
@@ -349,15 +347,58 @@
     (throw (ex-info "Unsupported beta content block type"
                     {:anthropic/error :unsupported-content-block :type type}))))
 
-(defn- ->thinking ^BetaThinkingConfigParam [{:keys [type budget-tokens]}]
+(defn- ->enum-value [value allowed constructor key]
+  (let [k (keyword value)]
+    (if (contains? allowed k)
+      (constructor (-> k name (str/replace "-" "_") str/upper-case))
+      (throw (ex-info (str "Unsupported " key " value")
+                      {:anthropic/error :invalid-enum-value :key key :value value
+                       :allowed allowed})))))
+
+(defn- ->thinking-block-binding
+  ^com.anthropic.models.beta.messages.BetaThinkingBlockBinding
+  [{:keys [prefix-mismatch-behavior]}]
+  (let [^com.anthropic.models.beta.messages.BetaThinkingBlockBinding$Builder b
+        (com.anthropic.models.beta.messages.BetaThinkingBlockBinding/builder)]
+    (when prefix-mismatch-behavior
+      (let [^com.anthropic.models.beta.messages.BetaThinkingPrefixMismatchBehavior value
+            (->enum-value prefix-mismatch-behavior #{:error :drop-block}
+                          (fn [s#] (com.anthropic.models.beta.messages.BetaThinkingPrefixMismatchBehavior/of s#))
+                          :prefix-mismatch-behavior)]
+        (.prefixMismatchBehavior b value)))
+    (.build b)))
+
+(defn- ->thinking-enabled ^BetaThinkingConfigEnabled [{:keys [budget-tokens block-binding]}]
+  (cond-> (BetaThinkingConfigEnabled/builder)
+    true (.budgetTokens (long budget-tokens))
+    block-binding (.blockBinding (->thinking-block-binding block-binding))
+    true (.build)))
+
+(defn- ->thinking-adaptive ^BetaThinkingConfigAdaptive [{:keys [block-binding]}]
+  (cond-> (BetaThinkingConfigAdaptive/builder)
+    block-binding (.blockBinding (->thinking-block-binding block-binding))
+    true (.build)))
+
+(defn- ->thinking ^BetaThinkingConfigParam [{:keys [type] :as thinking}]
   (case (keyword type)
-    :enabled (BetaThinkingConfigParam/ofEnabled
-              (-> (BetaThinkingConfigEnabled/builder)
-                  (.budgetTokens (long budget-tokens)) (.build)))
+    :enabled (BetaThinkingConfigParam/ofEnabled (->thinking-enabled thinking))
     :disabled (BetaThinkingConfigParam/ofDisabled (.build (BetaThinkingConfigDisabled/builder)))
-    :adaptive (BetaThinkingConfigParam/ofAdaptive (.build (BetaThinkingConfigAdaptive/builder)))
+    :adaptive (BetaThinkingConfigParam/ofAdaptive (->thinking-adaptive thinking))
     (throw (ex-info "Unsupported thinking type"
                     {:anthropic/error :unsupported-thinking-type :type type}))))
+
+(defn- ->system-message-output-config
+  ^com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig
+  [{:keys [effort]}]
+  (let [^com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig$Builder b
+        (com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig/builder)]
+    (when effort
+      (let [^com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig$Effort value
+            (->enum-value effort #{:low :medium :high :xhigh :max}
+                          (fn [s#] (com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig$Effort/of s#))
+                          :effort)]
+        (.effort b value)))
+    (.build b)))
 
 (defn- ->tool-choice ^BetaToolChoice [tc]
   (if (map? tc)
@@ -720,24 +761,16 @@
         (set-config! b config)))
     (.build b)))
 
-(defn- ->browser-toolset ^BetaBrowserToolset20260801 [{:keys [configs] :as t}]
+(defn- ->browser-toolset ^BetaBrowserToolset20260801 [{:keys [configs cache-control]}]
   (let [b (BetaBrowserToolset20260801/builder)]
     (when (seq configs) (.configs b (->browser-toolset-configs configs)))
-    (configure-tool-builder
-     t
-     {:add-allowed-caller #(.addAllowedCaller ^BetaBrowserToolset20260801$Builder b
-                                               (BetaBrowserToolset20260801$AllowedCaller/of (clojure.core/name %)))
-      :cache-control! #(.cacheControl ^BetaBrowserToolset20260801$Builder b ^BetaCacheControlEphemeral %)})
+    (when cache-control (.cacheControl b (->cache-control cache-control)))
     (.build b)))
 
-(defn- ->computer-toolset ^BetaComputerToolset20260801 [{:keys [configs] :as t}]
+(defn- ->computer-toolset ^BetaComputerToolset20260801 [{:keys [configs cache-control]}]
   (let [b (BetaComputerToolset20260801/builder)]
     (when (seq configs) (.configs b (->computer-toolset-configs configs)))
-    (configure-tool-builder
-     t
-     {:add-allowed-caller #(.addAllowedCaller ^BetaComputerToolset20260801$Builder b
-                                               (BetaComputerToolset20260801$AllowedCaller/of (clojure.core/name %)))
-      :cache-control! #(.cacheControl ^BetaComputerToolset20260801$Builder b ^BetaCacheControlEphemeral %)})
+    (when cache-control (.cacheControl b (->cache-control cache-control)))
     (.build b)))
 
 (def ^:private dated-tool-variants
@@ -1009,9 +1042,25 @@
     (when speed (.speed b (BetaFallbackParam$Speed/of (name speed))))
     (when thinking
       (case (keyword (:type thinking))
-        :enabled (.enabledThinking b (long (:budget-tokens thinking)))
+        :enabled (.thinking b (->thinking-enabled thinking))
         :disabled (.thinking b (.build (BetaThinkingConfigDisabled/builder)))
-        :adaptive (.thinking b (.build (BetaThinkingConfigAdaptive/builder)))))
+        :adaptive (.thinking b (->thinking-adaptive thinking))))
+    (.build b)))
+
+(defn- ->message-param
+  ^BetaMessageParam
+  [{:keys [role content clear-at output-config]}]
+  (let [^BetaMessageParam$Builder b (BetaMessageParam/builder)]
+    (.role b (BetaMessageParam$Role/of (name (keyword role))))
+    (if (string? content)
+      (.content b ^String content)
+      (.contentOfBetaContentBlockParams b ^java.util.List (mapv ->content-block content)))
+    (when clear-at
+      (let [^BetaMessageParam$ClearAt value
+            (->enum-value clear-at #{:never :next-user-message}
+                          (fn [s#] (BetaMessageParam$ClearAt/of s#)) :clear-at)]
+        (.clearAt b value)))
+    (when output-config (.outputConfig b (->system-message-output-config output-config)))
     (.build b)))
 
 (defn- ->mcp-server ^BetaRequestMcpServerUrlDefinition
@@ -1029,27 +1078,31 @@
         (.toolConfiguration b (.build tb))))
     (.build b)))
 
-(defn- add-create-message [^MessageCreateParams$Builder b {:keys [role content]}]
+(defn- add-create-message [^MessageCreateParams$Builder b {:keys [role content] :as message}]
   (let [role (keyword role)]
-    (if (string? content)
+    (if (or (contains? message :clear-at) (contains? message :output-config))
+      (.addMessage b (->message-param message))
+      (if (string? content)
       (case role
         :user (.addUserMessage b ^String content)
         :assistant (.addAssistantMessage b ^String content))
       (let [blocks (mapv ->content-block content)]
         (case role
           :user (.addUserMessageOfBetaContentBlockParams b ^java.util.List blocks)
-          :assistant (.addAssistantMessageOfBetaContentBlockParams b ^java.util.List blocks))))))
+          :assistant (.addAssistantMessageOfBetaContentBlockParams b ^java.util.List blocks)))))))
 
-(defn- add-count-message [^MessageCountTokensParams$Builder b {:keys [role content]}]
+(defn- add-count-message [^MessageCountTokensParams$Builder b {:keys [role content] :as message}]
   (let [role (keyword role)]
-    (if (string? content)
+    (if (or (contains? message :clear-at) (contains? message :output-config))
+      (.addMessage b (->message-param message))
+      (if (string? content)
       (case role
         :user (.addUserMessage b ^String content)
         :assistant (.addAssistantMessage b ^String content))
       (let [blocks (mapv ->content-block content)]
         (case role
           :user (.addUserMessageOfBetaContentBlockParams b ^java.util.List blocks)
-          :assistant (.addAssistantMessageOfBetaContentBlockParams b ^java.util.List blocks))))))
+          :assistant (.addAssistantMessageOfBetaContentBlockParams b ^java.util.List blocks)))))))
 
 (defn- ->params ^MessageCreateParams
   [{:keys [model max-tokens system messages tools temperature top-p top-k stop-sequences
@@ -1160,7 +1213,9 @@
   (java->clj (.convert jv java.lang.Object)))
 
 (defn- ->keyword [x]
-  (-> x str str/lower-case (str/replace #"[._]" "-") keyword))
+  (if (keyword? x)
+    x
+    (-> x str str/lower-case (str/replace #"[._]" "-") keyword)))
 
 (defn- keywordize-types
   "Convert every nested `:type` string to a keyword. A block's `:type` reads the
@@ -1177,11 +1232,33 @@
     (sequential? x) (mapv keywordize-types x)
     :else x))
 
+(defn- keywordize-message-enums [m]
+  (letfn [(convert [x]
+            (if (map? x)
+              (reduce-kv
+               (fn [out k v]
+                 (let [v (convert v)
+                       v (cond
+                           (and (= :input-transformations k) (sequential? v))
+                           (mapv #(if (and (map? %) (contains? % :reason))
+                                    (update % :reason ->keyword) %)
+                                 v)
+                           (and (= :output-config k) (map? v) (contains? v :effort))
+                           (update v :effort ->keyword)
+                           (and (= :block-binding k) (map? v)
+                                (contains? v :prefix-mismatch-behavior))
+                           (update v :prefix-mismatch-behavior ->keyword)
+                           :else v)]
+                   (assoc out k v))) {} x)
+              (if (sequential? x) (mapv convert x) x)))]
+    (convert m)))
+
 (defn- beta-message->map [^BetaMessage message]
-  (let [m (keywordize-types (json->clj (JsonValue/from message)))]
+  (let [m (keywordize-message-enums (keywordize-types (json->clj (JsonValue/from message))))]
     (cond-> m
       (string? (:role m)) (update :role ->keyword)
-      (string? (:stop-reason m)) (update :stop-reason ->keyword))))
+      (string? (:stop-reason m)) (update :stop-reason ->keyword)
+      (string? (:clear-at m)) (update :clear-at ->keyword))))
 
 (defn- beta-tokens-count->map [^BetaMessageTokensCount result]
   (let [^java.util.Optional context-management (.contextManagement result)]
@@ -1316,9 +1393,10 @@
    (run-beta-tools* (partial create-beta-message client) params opts)))
 
 (defn- beta-message-param->map [param]
-  (let [m (keywordize-types (json->clj (JsonValue/from param)))]
+  (let [m (keywordize-message-enums (keywordize-types (json->clj (JsonValue/from param))))]
     (cond-> m
-      (string? (:role m)) (update :role ->keyword))))
+      (string? (:role m)) (update :role ->keyword)
+      (string? (:clear-at m)) (update :clear-at ->keyword))))
 
 (declare beta-stream-event->map)
 
@@ -1497,7 +1575,7 @@
 (defn- beta-stream-event->map [^BetaRawMessageStreamEvent event]
   (let [m (json->clj (or (some-> (._json event) (.orElse nil))
                          (JsonValue/from event)))]
-    (cond-> m (string? (:type m)) (update :type ->keyword))))
+    (keywordize-message-enums (cond-> m (string? (:type m)) (update :type ->keyword)))))
 
 (defn- consume-beta-stream ^String [^StreamResponse sr on-event]
   (with-open [^StreamResponse stream sr]

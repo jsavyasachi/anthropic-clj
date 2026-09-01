@@ -21,6 +21,9 @@
   (:import (com.anthropic.client AnthropicClient)
            (com.anthropic.core JsonValue)
            (com.anthropic.errors AnthropicException)
+           (com.anthropic.models.beta.organization.compliancesettings
+                                             BetaComplianceSettings
+                                             ComplianceSettingUpdateParams)
            (java.util Optional)))
 
 (set! *warn-on-reflection* true)
@@ -91,6 +94,41 @@
   [^AnthropicClient client]
   (with-api-errors
     (organization->map (-> (.beta client) (.organization) (.retrieve)))))
+
+;; ---- Compliance settings --------------------------------------------------
+
+(defn- ->compliance-state [state]
+  (case (check-enum! state #{:enabled :disabled} :state)
+    :enabled (com.anthropic.models.beta.organization.compliancesettings.ComplianceSettingUpdateParams$State/ofEnabled
+              (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateEnabledParam/builder)))
+    :disabled (com.anthropic.models.beta.organization.compliancesettings.ComplianceSettingUpdateParams$State/ofDisabled
+               (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateDisabledParam/builder)))))
+
+(defn- ->compliance-update-params ^ComplianceSettingUpdateParams [{:keys [state]}]
+  (when-not state (missing-key! :state))
+  (let [b (ComplianceSettingUpdateParams/builder)
+        ^com.anthropic.models.beta.organization.compliancesettings.ComplianceSettingUpdateParams$State state-value
+        (->compliance-state state)]
+    (.state b state-value)
+    (.build b)))
+
+(defn- compliance-settings->map [^BetaComplianceSettings settings]
+  {:state (kw<- (.asString (.type (.state settings))))})
+
+(defn get-compliance-settings
+  "Retrieve organization compliance settings as `{:state :enabled|:disabled}`."
+  [^AnthropicClient client]
+  (with-api-errors
+    (compliance-settings->map (-> (.beta client) (.organization)
+                                  (.complianceSettings) (.retrieve)))))
+
+(defn update-compliance-settings
+  "Update organization compliance settings with `{:state :enabled|:disabled}`."
+  [^AnthropicClient client changes]
+  (with-api-errors
+    (compliance-settings->map (-> (.beta client) (.organization)
+                                  (.complianceSettings)
+                                  (.update (->compliance-update-params changes))))))
 
 ;; ---- Users ----------------------------------------------------------------
 
