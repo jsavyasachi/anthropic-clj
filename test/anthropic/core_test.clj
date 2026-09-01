@@ -132,7 +132,9 @@
 
 (deftest named-model-keywords
   (testing "public model aliases expose the verified SDK model ids"
-    (is (= 17 (count a/models)))
+    (is (= 19 (count a/models)))
+    (is (= "claude-fable-5-1" (:claude-fable-5-1 a/models)))
+    (is (= "claude-mythos-5-1" (:claude-mythos-5-1 a/models)))
     (is (= "claude-opus-5" (:claude-opus-5 a/models)))
     (is (= "claude-opus-4-8" (:claude-opus-4-8 a/models))))
   (testing "a keyword model builds the same message params as its string id"

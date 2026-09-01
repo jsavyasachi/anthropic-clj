@@ -5,6 +5,19 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-09-01
+
+### Changed
+
+- Bump `anthropic-java` and the Bedrock/Vertex artifacts to **2.60.0**.
+- Add compliance settings, user-profile onboarding timestamps and ordering,
+  message clear/output configuration, thinking block bindings, dropped input
+  transformations, and the `claude-fable-5-1` / `claude-mythos-5-1` model aliases.
+- BREAKING: remove the obsolete user-profile `:relationship` option and response
+  field; use `:access-type` instead.
+- BREAKING: remove `:allowed-callers` from browser and computer toolsets. It
+  remains supported for tool-search toolsets.
+
 ## [0.32.0] - 2026-08-30
 
 ### Changed

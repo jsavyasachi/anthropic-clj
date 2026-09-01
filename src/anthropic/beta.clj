@@ -162,12 +162,10 @@
                                                    UserProfileCreateParams
                                                    UserProfileCreateParams$AccessType
                                                    UserProfileCreateParams$Metadata
-                                                   UserProfileCreateParams$Relationship
                                                    UserProfileListPage
                                                    UserProfileUpdateParams
                                                    UserProfileUpdateParams$AccessType
-                                                   UserProfileUpdateParams$Metadata
-                                                   UserProfileUpdateParams$Relationship)
+                                                   UserProfileUpdateParams$Metadata)
            (com.anthropic.models.beta.webhooks BetaWebhookDeploymentArchivedEventData
                                                BetaWebhookDeploymentCreatedEventData
                                                BetaWebhookDeploymentDeletedEventData
@@ -694,6 +692,12 @@
             (->enum-value v #{:asc :desc}
                           (fn [s#] (com.anthropic.models.beta.userprofiles.UserProfileListParams$Order/of s#)) :order)]
         (.order b value)))
+    (when-let [v (:order-by opts)]
+      (let [^com.anthropic.models.beta.userprofiles.UserProfileListParams$OrderBy value
+            (->enum-value v #{:created-at :name}
+                          (fn [s#] (com.anthropic.models.beta.userprofiles.UserProfileListParams$OrderBy/of s#))
+                          :order-by)]
+        (.orderBy b value)))
     (.build b)))
 
 ;; ---- Skills ---------------------------------------------------------------
@@ -3815,32 +3819,28 @@
     (.build b)))
 
 (defn- ->user-profile-create-params ^UserProfileCreateParams
-  [{:keys [name external-id metadata relationship access-type]}]
+  [{:keys [name external-id external-user-onboarded-at metadata access-type]}]
   (let [b (UserProfileCreateParams/builder)]
     (when name (.name b ^String name))
     (when external-id (.externalId b ^String external-id))
+    (when external-user-onboarded-at (.externalUserOnboardedAt b (->offset-date-time external-user-onboarded-at)))
     (when metadata (.metadata b (->user-profile-create-metadata metadata)))
     (when access-type (.accessType b ^UserProfileCreateParams$AccessType
                                     (->enum-value access-type #{:application :passthrough}
                                                   (fn [s#] (UserProfileCreateParams$AccessType/of s#)) :access-type)))
-    (when relationship (.relationship b ^UserProfileCreateParams$Relationship
-                                      (->enum-value relationship #{:external :resold :internal}
-                                                    (fn [s#] (UserProfileCreateParams$Relationship/of s#)) :relationship)))
     (.build b)))
 
 (defn- ->user-profile-update-params ^UserProfileUpdateParams
-  [user-profile-id {:keys [name external-id metadata relationship access-type]}]
+  [user-profile-id {:keys [name external-id external-user-onboarded-at metadata access-type]}]
   (let [b (UserProfileUpdateParams/builder)]
     (.userProfileId b ^String user-profile-id)
     (when name (.name b ^String name))
     (when external-id (.externalId b ^String external-id))
+    (when external-user-onboarded-at (.externalUserOnboardedAt b (->offset-date-time external-user-onboarded-at)))
     (when metadata (.metadata b (->user-profile-update-metadata metadata)))
     (when access-type (.accessType b ^UserProfileUpdateParams$AccessType
                                     (->enum-value access-type #{:application :passthrough}
                                                   (fn [s#] (UserProfileUpdateParams$AccessType/of s#)) :access-type)))
-    (when relationship (.relationship b ^UserProfileUpdateParams$Relationship
-                                      (->enum-value relationship #{:external :resold :internal}
-                                                    (fn [s#] (UserProfileUpdateParams$Relationship/of s#)) :relationship)))
     (.build b)))
 
 (defn- ->user-profile-enrollment-url-params ^UserProfileCreateEnrollmentUrlParams
@@ -3857,8 +3857,8 @@
            :type (keyword (.asString (.type r)))}
     (unopt (.name r)) (assoc :name (unopt (.name r)))
     (unopt (.externalId r)) (assoc :external-id (unopt (.externalId r)))
+    (unopt (.externalUserOnboardedAt r)) (assoc :external-user-onboarded-at (str (unopt (.externalUserOnboardedAt r))))
     (unopt (.accessType r)) (assoc :access-type (->keyword (.asString ^com.anthropic.models.beta.userprofiles.BetaUserProfile$AccessType (unopt (.accessType r)))))
-    (unopt (.relationship r)) (assoc :relationship (->keyword (.asString ^com.anthropic.models.beta.userprofiles.BetaUserProfile$Relationship (unopt (.relationship r)))))
     (.trustGrants r) (assoc :trust-grants
                              (additional-properties->map
                               (._additionalProperties ^com.anthropic.models.beta.userprofiles.BetaUserProfile$TrustGrants
@@ -3870,8 +3870,8 @@
 
 (defn create-user-profile
   "Create a user profile with optional `:name`, `:external-id`, `:metadata`,
-  `:access-type` (`:application` or `:passthrough`), and `:relationship`
-  (`:external`, `:resold`, or `:internal`). Returns the profile map."
+  `:access-type` (`:application` or `:passthrough`), and optional
+  `:external-user-onboarded-at`. Returns the profile map."
   [^AnthropicClient client req]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles)
@@ -3884,7 +3884,7 @@
     (user-profile->map (-> (.beta client) (.userProfiles) (.retrieve user-profile-id)))))
 
 (defn list-user-profiles
-  "List user profiles with optional `:limit`, `:order`, `:page`, and `:betas`."
+  "List user profiles with optional `:limit`, `:order`, `:order-by`, `:page`, and `:betas`."
   ([^AnthropicClient client] (list-user-profiles client {}))
   ([^AnthropicClient client opts]
    (with-api-errors
@@ -3894,8 +3894,8 @@
 
 (defn update-user-profile
   "Update a user profile's `:name`, `:external-id`, `:metadata`,
-  `:access-type` (`:application` or `:passthrough`), or `:relationship`
-  (`:external`, `:resold`, or `:internal`)."
+  `:access-type` (`:application` or `:passthrough`), or
+  `:external-user-onboarded-at`."
   [^AnthropicClient client ^String user-profile-id changes]
   (with-api-errors
     (user-profile->map (-> (.beta client) (.userProfiles)

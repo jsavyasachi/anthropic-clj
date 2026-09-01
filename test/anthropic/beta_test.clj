@@ -1186,21 +1186,25 @@
 (deftest user-profile-params
   (let [^UserProfileCreateParams p (->user-profile-create-params
                                     {:name "Ada" :external-id "ada-1" :metadata {:team "x"}
-                                     :relationship :external :access-type :application})]
+                                     :external-user-onboarded-at "2026-07-04T00:00:00Z"
+                                     :access-type :application})]
     (is (= "Ada" (opt (.name p))))
     (is (= "ada-1" (opt (.externalId p))))
-    (is (= "external" (some-> (.relationship p) opt .asString)))
+    (is (= "2026-07-04T00:00Z" (str (opt (.externalUserOnboardedAt p)))))
     (is (= "application" (some-> (.accessType p) opt .asString))))
   (let [^UserProfileUpdateParams p (->user-profile-update-params "up_1"
                                                                   {:name "Ada L"
-                                                                   :relationship :internal
+                                                                   :external-user-onboarded-at "2026-07-05T00:00:00Z"
                                                                    :access-type :passthrough})]
     (is (= "up_1" (opt (.userProfileId p))))
     (is (= "Ada L" (opt (.name p))))
-    (is (= "internal" (.asString (opt (.relationship p)))))
+    (is (= "2026-07-05T00:00Z" (str (opt (.externalUserOnboardedAt p)))))
     (is (= "passthrough" (.asString (opt (.accessType p))))))
-  (is (= :invalid-enum-value
-         (:anthropic/error (ex-data-for #(->user-profile-create-params {:relationship :unknown})))))
+  (let [^UserProfileCreateParams p (->user-profile-create-params {:relationship :unknown})]
+    (is (not (.isPresent (.externalId p)))))
+  (let [^com.anthropic.models.beta.userprofiles.UserProfileListParams p
+        (invoke-private '->user-profile-list-params {:order-by :name})]
+    (is (= "name" (.asString (opt (.orderBy p))))))
   (let [^UserProfileCreateEnrollmentUrlParams p
         (->user-profile-enrollment-url-params "up_1")]
     (is (= "up_1" (opt (.userProfileId p))))))
@@ -2294,13 +2298,13 @@
               (.id "up_1")
               (.metadata (-> (com.anthropic.models.beta.userprofiles.BetaUserProfile$Metadata/builder)
                              (.build)))
-              (.relationship (com.anthropic.models.beta.userprofiles.BetaUserProfile$Relationship/of "external"))
               (.accessType (com.anthropic.models.beta.userprofiles.BetaUserProfile$AccessType/of "passthrough"))
               (.trustGrants (-> (com.anthropic.models.beta.userprofiles.BetaUserProfile$TrustGrants/builder)
                                 (.putAdditionalProperty "source" (JsonValue/from "admin"))
                                 (.build)))
               (.name "Ada")
               (.externalId "ada-1")
+              (.externalUserOnboardedAt ts)
               (.type (com.anthropic.models.beta.userprofiles.BetaUserProfile$Type/of "user_profile"))
               (.createdAt ts)
               (.updatedAt ts)
@@ -2314,7 +2318,7 @@
     (is (= "up_1" (:id m)))
     (is (= "Ada" (:name m)))
     (is (= "ada-1" (:external-id m)))
-    (is (= :external (:relationship m)))
+    (is (= "2026-07-04T00:00Z" (:external-user-onboarded-at m)))
     (is (= :passthrough (:access-type m)))
     (is (= {:source "admin"} (:trust-grants m)))
     (is (= {:url "https://example.test/enroll"

@@ -13,6 +13,24 @@
   (let [v (ns-resolve 'anthropic.organization sym)]
     (when v @v)))
 
+(deftest compliance-settings-conversion
+  (let [->params (private-fn '->compliance-update-params)
+        convert (private-fn 'compliance-settings->map)
+        ^com.anthropic.models.beta.organization.compliancesettings.ComplianceSettingUpdateParams p
+        (->params {:state :enabled})
+        enabled (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateEnabled/builder))
+        response (-> (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings/builder)
+                     (.state (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings$State/ofEnabled enabled))
+                     (.build))]
+    (is (.isEnabled (.state p)))
+    (is (= {:state :enabled} (convert response)))
+    (is (= {:state :disabled}
+           (convert
+            (-> (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings/builder)
+                (.state (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings$State/ofDisabled
+                         (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateDisabled/builder))))
+                (.build)))))))
+
 ;; ---- enum coercion --------------------------------------------------------
 
 (deftest ->wire-produces-lower-snake

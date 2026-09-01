@@ -23,6 +23,64 @@
 (def ->params #'messages/->params)
 (def ->count-params #'messages/->count-params)
 (def beta-message->map #'messages/beta-message->map)
+(def beta-message-param->map #'messages/beta-message-param->map)
+
+(deftest beta-thinking-block-binding
+  (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                          :thinking {:type :enabled :budget-tokens 1024
+                                                     :block-binding {:prefix-mismatch-behavior :drop-block}}})
+        thinking (.get (.thinking p))
+        enabled (.asEnabled thinking)]
+    (is (= "DROP_BLOCK"
+           (.asString (.get (.prefixMismatchBehavior (.get (.blockBinding enabled))))))))
+  (let [^MessageCreateParams p (->params {:messages [{:role :user :content "hi"}]
+                                          :thinking {:type :adaptive
+                                                     :block-binding {:prefix-mismatch-behavior :error}}})
+        thinking (.get (.thinking p))]
+    (is (= "ERROR"
+           (.asString (.get (.prefixMismatchBehavior (.get (.blockBinding (.asAdaptive thinking))))))))
+  ))
+
+(deftest beta-message-param-new-fields
+  (let [p (-> (com.anthropic.models.beta.messages.BetaMessageParam/builder)
+              (.content "hello")
+              (.role (com.anthropic.models.beta.messages.BetaMessageParam$Role/of "user"))
+              (.clearAt (com.anthropic.models.beta.messages.BetaMessageParam$ClearAt/of "next_user_message"))
+              (.outputConfig (-> (com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig/builder)
+                                 (.effort (com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig$Effort/of "high"))
+                                 (.build)))
+              (.build))
+        m (beta-message-param->map p)]
+    (is (= :next-user-message (:clear-at m)))
+    (is (= :high (get-in m [:output-config :effort])))))
+  (let [p (-> (com.anthropic.models.beta.messages.BetaMessageParam/builder)
+              (.content "hello")
+              (.role (com.anthropic.models.beta.messages.BetaMessageParam$Role/of "user"))
+              (.outputConfig (.build (com.anthropic.models.beta.messages.BetaSystemMessageOutputConfig/builder)))
+              (.build))]
+    (is (not (contains? (:output-config (beta-message-param->map p)) :effort))))
+  (let [^MessageCreateParams params
+        (->params {:messages [{:role :user :content "hello"
+                               :clear-at :next-user-message
+                               :output-config {:effort :high}}]})
+        ^com.anthropic.models.beta.messages.BetaMessageParam message (first (.messages params))
+        config (.get (.outputConfig message))
+        effort (.get (.effort config))]
+    (is (= "NEXT_USER_MESSAGE" (.asString (.get (.clearAt message)))))
+    (is (= "HIGH" (.asString effort))))
+
+(deftest beta-message-targeted-enum-conversion
+  (let [keywordize-types #'messages/keywordize-types
+        m (keywordize-types {:reason "legacy-reason"
+                             :effort "legacy-effort"
+                             :output-config {:effort "HIGH"}
+                             :block-binding {:prefix-mismatch-behavior "DROP_BLOCK"}
+                             :input-transformations [{:reason "PREFIX_BINDING_MISMATCH"}]})]
+    (is (= "legacy-reason" (:reason m)))
+    (is (= "legacy-effort" (:effort m)))
+    (is (= "HIGH" (get-in m [:output-config :effort])))
+    (is (= "DROP_BLOCK" (get-in m [:block-binding :prefix-mismatch-behavior])))
+    (is (= "PREFIX_BINDING_MISMATCH" (get-in m [:input-transformations 0 :reason])))))
 (def beta-tokens-count->map #'messages/beta-tokens-count->map)
 (def ->batch-create-params #'messages/->batch-create-params)
 (def ->batch-list-params #'messages/->batch-list-params)
@@ -329,12 +387,10 @@
 
 (deftest beta-browser-and-computer-toolsets
   (let [browser-union (->tool {:type :browser-toolset :name "browser"
-                               :allowed-callers [:direct]
                                :cache-control true
                                :configs {:navigate {:enabled true :defer-loading false}
                                          :screenshot {:enabled true}}})
         computer-union (->tool {:type :computer-toolset :name "computer"
-                                :allowed-callers [:direct]
                                 :cache-control true
                                 :configs {:screenshot {:enabled true :defer-loading false}
                                           :cursor-position {:enabled true}}})]
@@ -343,7 +399,6 @@
     (when (.isBrowserToolset20260801 ^BetaToolUnion browser-union)
       (let [browser (.asBrowserToolset20260801 ^BetaToolUnion browser-union)
             configs (opt (.configs browser))]
-        (is (= "direct" (str (first (opt (.allowedCallers browser))))))
         (is (some? (opt (.cacheControl browser))))
         (is (= true (opt (.enabled (opt (.navigate configs))))))
         (is (= false (opt (.deferLoading (opt (.navigate configs))))))
@@ -351,7 +406,6 @@
     (when (.isComputerToolset20260801 ^BetaToolUnion computer-union)
       (let [computer (.asComputerToolset20260801 ^BetaToolUnion computer-union)
             configs (opt (.configs computer))]
-        (is (= "direct" (str (first (opt (.allowedCallers computer))))))
         (is (some? (opt (.cacheControl computer))))
         (is (= true (opt (.enabled (opt (.screenshot configs))))))
         (is (= false (opt (.deferLoading (opt (.screenshot configs))))))
@@ -854,6 +908,12 @@
                     (.stopReason (com.anthropic.models.beta.messages.BetaStopReason/of "end_turn"))
                     (.stopDetails (java.util.Optional/empty))
                     (.stopSequence (java.util.Optional/empty))
+                    (.inputTransformations
+                     [(-> (com.anthropic.models.beta.messages.BetaThinkingDroppedInputTransformation/builder)
+                          (.type (JsonValue/from "thinking_dropped_input_transformation"))
+                          (.path "/messages/0")
+                          (.reason (com.anthropic.models.beta.messages.BetaThinkingDroppedInputTransformation$Reason/of "prefix_binding_mismatch"))
+                          (.build))])
                     (.type (JsonValue/from "message"))
                     (.usage (-> (BetaUsage/builder)
                                 (.inputTokens 12)
@@ -874,6 +934,9 @@
     (is (= :assistant (:role result)))
     (is (= :end-turn (:stop-reason result)))
     (is (= :message (:type result)))
+    (is (= [{:type :thinking-dropped-input-transformation
+             :path "/messages/0" :reason :prefix-binding-mismatch}]
+           (:input-transformations result)))
     (is (= {:input-tokens 12 :output-tokens 4} (:usage result)))))
 
 (deftest count-beta-tokens-translation-and-conversion
