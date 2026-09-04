@@ -24,12 +24,12 @@
                 :version version
                 :basis @basis
                 :src-dirs ["src"]
-                :scm {:url "https://github.com/jsavyasachi/anthropic-clj"
-                      :connection "scm:git:https://github.com/jsavyasachi/anthropic-clj.git"
-                      :developerConnection "scm:git:ssh://git@github.com/jsavyasachi/anthropic-clj.git"
+                :scm {:url "https://github.com/savyalabs/anthropic-clj"
+                      :connection "scm:git:https://github.com/savyalabs/anthropic-clj.git"
+                      :developerConnection "scm:git:ssh://git@github.com/savyalabs/anthropic-clj.git"
                       :tag (str "v" version)}
                 :pom-data [[:description "Idiomatic Clojure wrapper over the official Anthropic Java SDK"]
-                           [:url "https://github.com/jsavyasachi/anthropic-clj"]
+                           [:url "https://github.com/savyalabs/anthropic-clj"]
                            [:licenses
                             [:license
                              [:name "Eclipse Public License 2.0"]
