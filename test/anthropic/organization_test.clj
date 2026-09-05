@@ -20,14 +20,14 @@
         (->params {:state :enabled})
         enabled (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateEnabled/builder))
         response (-> (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings/builder)
-                     (.state (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings$State/ofEnabled enabled))
+                     (.state (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsState/ofEnabled enabled))
                      (.build))]
     (is (.isEnabled (.state p)))
     (is (= {:state :enabled} (convert response)))
     (is (= {:state :disabled}
            (convert
             (-> (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings/builder)
-                (.state (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettings$State/ofDisabled
+                (.state (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsState/ofDisabled
                          (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateDisabled/builder))))
                 (.build)))))))
 

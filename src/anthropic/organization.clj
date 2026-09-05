@@ -99,15 +99,15 @@
 
 (defn- ->compliance-state [state]
   (case (check-enum! state #{:enabled :disabled} :state)
-    :enabled (com.anthropic.models.beta.organization.compliancesettings.ComplianceSettingUpdateParams$State/ofEnabled
+    :enabled (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateParam/ofEnabled
               (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateEnabledParam/builder)))
-    :disabled (com.anthropic.models.beta.organization.compliancesettings.ComplianceSettingUpdateParams$State/ofDisabled
+    :disabled (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateParam/ofDisabled
                (.build (com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateDisabledParam/builder)))))
 
 (defn- ->compliance-update-params ^ComplianceSettingUpdateParams [{:keys [state]}]
   (when-not state (missing-key! :state))
   (let [b (ComplianceSettingUpdateParams/builder)
-        ^com.anthropic.models.beta.organization.compliancesettings.ComplianceSettingUpdateParams$State state-value
+        ^com.anthropic.models.beta.organization.compliancesettings.BetaComplianceSettingsStateParam state-value
         (->compliance-state state)]
     (.state b state-value)
     (.build b)))
