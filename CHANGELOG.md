@@ -5,6 +5,15 @@ the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-09-04
+
+### Changed
+
+- Bump `anthropic-java` and the Bedrock/Vertex artifacts to **2.61.0**.
+- Adapt compliance settings to the SDK's renamed request-side
+  `BetaComplianceSettingsStateParam` and response-side
+  `BetaComplianceSettingsState` classes. The wrapper public API is unchanged.
+
 ## [0.33.0] - 2026-09-01
 
 ### Changed
