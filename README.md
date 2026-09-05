@@ -32,13 +32,13 @@ jar. It does not assert parity.
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/anthropic-clj {:mvn/version "0.33.0"}
+net.clojars.savya/anthropic-clj {:mvn/version "0.34.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/anthropic-clj "0.33.0"]
+[net.clojars.savya/anthropic-clj "0.34.0"]
 ```
 
 Supported Clojure versions: 1.10, 1.11, and 1.12.
@@ -55,7 +55,7 @@ Set `ANTHROPIC_API_KEY` in your environment, or pass client options:
 - `:configure` - receives the raw SDK builder last, for anything not wrapped
   here (interceptors, a custom `jsonMapper`, or a Bedrock/Vertex `backend`)
 
-Tracks [`com.anthropic/anthropic-java` 2.60.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.60.0) - see `CHANGELOG.md` for the bump history.
+Tracks [`com.anthropic/anthropic-java` 2.61.0](https://github.com/anthropics/anthropic-sdk-java/releases/tag/v2.61.0) - see `CHANGELOG.md` for the bump history.
 
 ## Usage
 
